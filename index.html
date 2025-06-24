@@ -132,6 +132,16 @@
         // Add an event listener to the slider input element
         const slider = document.getElementById('slider');
         slider.addEventListener('input', updateSliderValue);
+
+        const sliderValueElement = document.getElementById('slider-value');
+        function syncSliderVisibility() {
+            sliderValueElement.style.display = slider.style.display;
+        }
+        syncSliderVisibility();
+        new MutationObserver(syncSliderVisibility).observe(slider, {
+            attributes: true,
+            attributeFilter: ['style']
+        });
     </script>
 </body>
 </html>
