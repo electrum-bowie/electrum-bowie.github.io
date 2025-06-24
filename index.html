@@ -116,7 +116,7 @@
 
         console.warn = (...args) => {
             const msg = args.join(' ');
-            if (msg.includes('Timestamp from device motion outside of range')) {
+            if (msg.includes('Timestamp from devicemotion outside expected range')) {
                 return;
             }
             origConsoleWarn.apply(console, args);
