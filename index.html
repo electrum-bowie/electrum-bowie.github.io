@@ -8,6 +8,7 @@
     <script src="input.js"></script>
     <script src="simple-fly.js"></script>
     <script src="two-hand-manipulation.js"></script>
+    <script src="mobile-tap-move.js"></script>
     <style>
         /* CSS for button */
         #fileButton {
@@ -72,6 +73,7 @@
     <a-scene renderer="antialias: false" stats>
         <a-entity oculus-touch-controls="hand: right"></a-entity>
         <a-entity oculus-touch-controls="hand: left"></a-entity>
+        <a-entity camera position="0 1.6 0" look-controls mobile-tap-move></a-entity>
 
         <!-- Add a container to hold the dynamically created entity -->
         <div id="entityContainer"></div>
