@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="index.js"></script>
     <script src="dist/jszip.js"></script>
@@ -10,12 +11,20 @@
     <style>
         /* CSS for button */
         #fileButton {
-            position: absolute;
+            position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
             z-index: 1;
             padding: 20px; /* 3 times bigger */
+        }
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+        label[for="fileInput"],
+        #fileInput {
+            display: none;
         }
         /* CSS for slider container */
         .slider-container {
