@@ -12,6 +12,10 @@ document.addEventListener("DOMContentLoaded", function () {
         let blob = file;
         if (file.name.toLowerCase().endsWith(".zip")) {
             try {
+                if (typeof JSZip === 'undefined') {
+                    console.error('JSZip library missing');
+                    return;
+                }
                 const zip = await JSZip.loadAsync(file);
                 const entries = Object.values(zip.files);
                 const target = entries.find(e => /\.ply$/i.test(e.name) || /\.splat$/i.test(e.name));

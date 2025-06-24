@@ -294,10 +294,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 			return;
 		}
                 const sliderElement = document.getElementById("slider");
+                const sliderValue = sliderElement ? parseFloat(sliderElement.value) : 1;
 
-                vertexCount = vertexCount / sliderElement.value;
+                vertexCount = vertexCount / (isNaN(sliderValue) ? 1 : sliderValue);
 
-                sliderElement.style.display = 'none';
+                if (sliderElement) {
+                        sliderElement.style.display = 'none';
+                }
 
 		let u_buffer = new Uint8Array(buffer);
 		let f_buffer = new Float32Array(buffer);
