@@ -142,6 +142,7 @@
         const slider = document.getElementById('slider');
         latestSliderValue = parseFloat(slider.value);
         slider.addEventListener('input', updateSliderValue);
+        slider.addEventListener('change', updateSliderValue);
 
         const sliderValueElement = document.getElementById('slider-value');
         function syncSliderVisibility() {
