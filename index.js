@@ -294,9 +294,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 			return;
 		}
                 const sliderElement = document.getElementById("slider");
-
-                
                 const sliderValueElement = document.getElementById("slider-value");
+                const sliderLabelElement = document.getElementById("slider-label");
                 const sliderValue =
                         typeof latestSliderValue === 'number' ? latestSliderValue : 1;
     
@@ -306,6 +305,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         sliderElement.style.display = 'none';
                         if (sliderValueElement) {
                                 sliderValueElement.style.display = 'none';
+                        }
+                        if (sliderLabelElement) {
+                                sliderLabelElement.style.display = 'none';
                         }
                 }
 
