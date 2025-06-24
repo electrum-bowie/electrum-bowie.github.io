@@ -1,14 +1,18 @@
 AFRAME.registerComponent("gaussian_splatting", {
-	schema: {
-		src: { type: 'string', default: "train.splat" },
-	},
-	init: function () {
-		// aframe-specific data
-		this.el.sceneEl.renderer.setPixelRatio(1);
-		this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(1);
-		this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
-		this.loadData(this.data.src);
-	},
+        schema: {
+                src: { type: 'string', default: "train.splat" },
+                pixelRatio: { type: 'number', default: 0.5 },
+                xrPixelRatio: { type: 'number', default: 0.3 },
+        },
+        init: function () {
+                // aframe-specific data
+                const pixelRatio = this.data.pixelRatio < 0 ? window.devicePixelRatio : this.data.pixelRatio;
+                const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
+                this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
+                this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
+                this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
+                this.loadData(this.data.src);
+        },
 	// also works from vanilla three.js
 	initGL: function (camera, object, renderer) {
 		this.camera = camera;
@@ -313,20 +317,17 @@ AFRAME.registerComponent("gaussian_splatting", {
 				f_buffer[8 * i + 1],
 				-f_buffer[8 * i + 2]
 			);
-			let scale = new THREE.Vector3(
-				f_buffer[8 * i + 3 + 0],
-				f_buffer[8 * i + 3 + 1],
-				f_buffer[8 * i + 3 + 2]
-			);
-			// Check if the scale is smaller than the threshold
-			//if (Math.max(scale.x, scale.y, scale.z) > 2) {
-				// Skip processing this splat
-				//continue;
-			//}
-                        //if (Math.max(scale.x, scale.y, scale.z) < 0.002) {
-				// Skip processing this splat
-				//continue;
-			//}
+                        let scale = new THREE.Vector3(
+                                f_buffer[8 * i + 3 + 0],
+                                f_buffer[8 * i + 3 + 1],
+                                f_buffer[8 * i + 3 + 2]
+                        );
+                        const maxScale = 2.0;
+                        const minScale = 0.002;
+                        if (Math.max(scale.x, scale.y, scale.z) > maxScale ||
+                                Math.max(scale.x, scale.y, scale.z) < minScale) {
+                                continue;
+                        }
 			let mtx = new THREE.Matrix4();
 			mtx.makeRotationFromQuaternion(quat);
 			mtx.transpose();
