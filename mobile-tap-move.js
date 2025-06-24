@@ -1,6 +1,7 @@
 AFRAME.registerComponent('mobile-tap-move', {
     schema: {
-        speed: { type: 'number', default: 0.05 }
+        // Increase default speed to make navigation faster on mobile
+        speed: { type: 'number', default: 0.25 }
     },
     init: function () {
         this.moving = false;
