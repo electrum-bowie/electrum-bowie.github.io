@@ -33,6 +33,7 @@ document.addEventListener("DOMContentLoaded", function () {
         entity.setAttribute("gaussian_splatting", `src: ${url};`);
         entity.setAttribute("rotation", `0 0 0`);
         entity.setAttribute("position", `0 1.5 -2`);
+        entity.setAttribute("two-hand-manipulation", "");
         document.querySelector("a-scene").appendChild(entity);
 
         fileButton.style.display = "none";
