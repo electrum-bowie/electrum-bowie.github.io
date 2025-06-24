@@ -40,6 +40,7 @@
         /* CSS for the slider input */
         #slider {
             width: 100%;
+            direction: rtl; /* display max on the left */
         }
 
         /* CSS for the displayed value */
@@ -145,7 +146,7 @@
             const min = parseFloat(slider.min);
             const max = parseFloat(slider.max);
             latestSliderValue = parseFloat(slider.value);
-            const percent = Math.round((max - latestSliderValue) / (max - min) * 100);
+            const percent = Math.round((latestSliderValue - min) / (max - min) * 100);
             sliderValue.innerText = percent + '%';
         }
 
