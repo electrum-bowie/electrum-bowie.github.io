@@ -53,6 +53,7 @@
             color: white;
             padding: 10px;
             border-radius: 5px;
+            display: none;
         }
     </style>
 </head>
@@ -80,10 +81,15 @@
     <label for="fileInput">Select .zip or .ply File:</label>
     <input type="file" id="fileInput" accept=".zip,.ply">
     <script>
+        let hideLogTimeout;
         function displayLogMessage(message) {
             const logMessageElement = document.getElementById('logMessage');
             logMessageElement.textContent = message;
             logMessageElement.style.display = 'block';
+            clearTimeout(hideLogTimeout);
+            hideLogTimeout = setTimeout(() => {
+                logMessageElement.style.display = 'none';
+            }, 10000);
         }
 
         const origConsoleLog = console.log;
