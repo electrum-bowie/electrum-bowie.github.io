@@ -128,15 +128,19 @@
             displayLogMessage(args.join(' '));
         };
 
-        // Function to update the slider value
+        // Store and update the latest slider value
+        let latestSliderValue;
+
         function updateSliderValue() {
             const slider = document.getElementById('slider');
             const sliderValue = document.getElementById('slider-value');
+            latestSliderValue = parseFloat(slider.value);
             sliderValue.innerText = slider.value;
         }
 
-        // Add an event listener to the slider input element
+        // Initialize and listen for slider changes
         const slider = document.getElementById('slider');
+        latestSliderValue = parseFloat(slider.value);
         slider.addEventListener('input', updateSliderValue);
 
         const sliderValueElement = document.getElementById('slider-value');
