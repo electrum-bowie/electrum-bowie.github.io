@@ -294,7 +294,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 			return;
 		}
                 const sliderElement = document.getElementById("slider");
-                const sliderValue = sliderElement ? parseFloat(sliderElement.value) : 1;
+                const sliderValue =
+                        typeof latestSliderValue === 'number' ? latestSliderValue : 1;
 
                 vertexCount = vertexCount / (isNaN(sliderValue) ? 1 : sliderValue);
 
