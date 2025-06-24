@@ -3,11 +3,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                 src: { type: 'string', default: "train.splat" },
                 pixelRatio: { type: 'number', default: 0.5 },
                 xrPixelRatio: { type: 'number', default: 0.3 },
+                occlusion: { type: 'boolean', default: false },
         },
         init: function () {
                 // aframe-specific data
                 const pixelRatio = this.data.pixelRatio < 0 ? window.devicePixelRatio : this.data.pixelRatio;
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
+                this.occlusion = this.data.occlusion;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
@@ -433,6 +435,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 modelView: modelView.buffer,
                                 projection: projection.buffer,
                                 viewport: vp.buffer,
+                                occlusion: this.occlusion,
                         }, [view.buffer, modelView.buffer, projection.buffer, vp.buffer]);
                 }
         },
@@ -471,7 +474,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
 
-                const sortSplats = function sortSplats(matrices, view, viewport, modelView, projection) {
+                const sortSplats = function sortSplats(matrices, view, viewport, modelView, projection, occlusion) {
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
 
@@ -512,6 +515,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion estimation
+                        if (!occlusion) {
+                                let result = new Uint32Array(validCount);
+                                for (let i = 0; i < validCount; i++) result[i] = depthIndex[validCount - 1 - i];
+                                return result;
+                        }
+
                         const gridW = 64;
                         const gridH = Math.max(1, Math.round(gridW * viewport[1] / viewport[0]));
                         let coverage = new Float32Array(gridW * gridH);
@@ -579,7 +588,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const mv = new Float32Array(e.data.modelView);
                                         const proj = new Float32Array(e.data.projection);
                                         const vp = new Float32Array(e.data.viewport);
-                                        const sortedIndexes = sortSplats(matrices, view, vp, mv, proj);
+                                        const sortedIndexes = sortSplats(matrices, view, vp, mv, proj, e.data.occlusion);
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
 			}
