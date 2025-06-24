@@ -556,7 +556,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 			offsets[name] = row_offset;
 			row_offset += parseInt(arrayType.replace(/[^\d]/g, "")) / 8;
 		}
-		console.log("Bytes per row", row_offset, types, offsets);
 
 		let dataView = new DataView(
 			inputBuffer,
