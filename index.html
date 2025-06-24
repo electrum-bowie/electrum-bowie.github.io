@@ -8,6 +8,7 @@
     <script src="input.js"></script>
     <script src="simple-fly.js"></script>
     <script src="two-hand-manipulation.js"></script>
+    <script src="mobile-tap-move.js"></script>
     <style>
         /* CSS for button */
         #fileButton {
@@ -72,6 +73,7 @@
     <a-scene renderer="antialias: false" stats>
         <a-entity oculus-touch-controls="hand: right"></a-entity>
         <a-entity oculus-touch-controls="hand: left"></a-entity>
+        <a-entity camera position="0 1.6 0" look-controls mobile-tap-move></a-entity>
 
         <!-- Add a container to hold the dynamically created entity -->
         <div id="entityContainer"></div>
@@ -113,8 +115,12 @@
         };
 
         console.warn = (...args) => {
+            const msg = args.join(' ');
+            if (msg.includes('Timestamp from devicemotion outside expected range')) {
+                return;
+            }
             origConsoleWarn.apply(console, args);
-            displayLogMessage(args.join(' '));
+            displayLogMessage(msg);
         };
 
         console.error = (...args) => {
@@ -136,6 +142,16 @@
         const slider = document.getElementById('slider');
         latestSliderValue = parseFloat(slider.value);
         slider.addEventListener('input', updateSliderValue);
+
+        const sliderValueElement = document.getElementById('slider-value');
+        function syncSliderVisibility() {
+            sliderValueElement.style.display = slider.style.display;
+        }
+        syncSliderVisibility();
+        new MutationObserver(syncSliderVisibility).observe(slider, {
+            attributes: true,
+            attributeFilter: ['style']
+        });
     </script>
 </body>
 </html>
