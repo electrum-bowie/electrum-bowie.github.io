@@ -408,17 +408,27 @@ AFRAME.registerComponent("gaussian_splatting", {
 			matrices: matrices.buffer
 		}, [matrices.buffer]);
 	},
-	tick: function (time, timeDelta) {
-		if (this.sortReady) {
-			this.sortReady = false;
-			let camera_mtx = this.getModelViewMatrix().elements;
-			let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
-			this.worker.postMessage({
-				method: "sort",
-				view: view.buffer,
-			}, [view.buffer]);
-		}
-	},
+        tick: function (time, timeDelta) {
+                if (this.sortReady) {
+                        this.sortReady = false;
+                        let mv = this.getModelViewMatrix();
+                        let pm = this.getProjectionMatrix();
+                        let camera_mtx = mv.elements;
+                        let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
+                        let modelView = new Float32Array(mv.elements);
+                        let projection = new Float32Array(pm.elements);
+                        let viewport = new THREE.Vector4();
+                        this.renderer.getCurrentViewport(viewport);
+                        let vp = new Float32Array([viewport.z, viewport.w]);
+                        this.worker.postMessage({
+                                method: "sort",
+                                view: view.buffer,
+                                modelView: modelView.buffer,
+                                projection: projection.buffer,
+                                viewport: vp.buffer,
+                        }, [view.buffer, modelView.buffer, projection.buffer, vp.buffer]);
+                }
+        },
 	getProjectionMatrix: function (camera) {
 		if (!camera) {
 			camera = this.camera;
@@ -451,12 +461,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 		mtx.invert();
 		return mtx;
 	},
-	createWorker: function (self) {
-		let matrices = undefined;
+        createWorker: function (self) {
+                let matrices = undefined;
 
-		const sortSplats = function sortSplats(matrices, view) {
-			const vertexCount = matrices.length / 16;
-			let threshold = -0.001;
+                const sortSplats = function sortSplats(matrices, view, viewport, modelView, projection) {
+                        const vertexCount = matrices.length / 16;
+                        let threshold = -0.001;
 
 			let maxDepth = -Infinity;
 			let minDepth = Infinity;
@@ -491,11 +501,52 @@ AFRAME.registerComponent("gaussian_splatting", {
 			}
 			let starts0 = new Uint32Array(256 * 256);
 			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-			let depthIndex = new Uint32Array(validCount);
-			for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
+                        let depthIndex = new Uint32Array(validCount);
+                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-			return depthIndex;
-		};
+                        // Occlusion estimation
+                        const gridW = 64;
+                        const gridH = Math.max(1, Math.round(gridW * viewport[1] / viewport[0]));
+                        let coverage = new Float32Array(gridW * gridH);
+                        let filtered = new Uint32Array(validCount);
+                        let fCount = 0;
+                        for (let it = validCount - 1; it >= 0; it--) {
+                                const idx = depthIndex[it];
+                                const cx = matrices[idx * 16 + 12];
+                                const cy = matrices[idx * 16 + 13];
+                                const cz = matrices[idx * 16 + 14];
+
+                                const mx = modelView[0] * cx + modelView[4] * cy + modelView[8] * cz + modelView[12];
+                                const my = modelView[1] * cx + modelView[5] * cy + modelView[9] * cz + modelView[13];
+                                const mz = modelView[2] * cx + modelView[6] * cy + modelView[10] * cz + modelView[14];
+                                const mw = modelView[3] * cx + modelView[7] * cy + modelView[11] * cz + modelView[15];
+
+                                const px = projection[0] * mx + projection[4] * my + projection[8] * mz + projection[12] * mw;
+                                const py = projection[1] * mx + projection[5] * my + projection[9] * mz + projection[13] * mw;
+                                const pw = projection[3] * mx + projection[7] * my + projection[11] * mz + projection[15] * mw;
+                                if (pw <= 0) continue;
+
+                                const ndcX = px / pw;
+                                const ndcY = py / pw;
+                                let gx = Math.floor(((ndcX + 1) * 0.5) * gridW);
+                                let gy = Math.floor(((1 - (ndcY + 1) * 0.5)) * gridH);
+                                if (gx < 0 || gx >= gridW || gy < 0 || gy >= gridH) {
+                                        filtered[fCount++] = idx;
+                                        continue;
+                                }
+                                const cell = gy * gridW + gx;
+                                let alpha = Math.min(1.0, matrices[idx * 16 + 15]);
+                                let visible = alpha * (1 - coverage[cell]);
+                                if (visible > 0.05) {
+                                        filtered[fCount++] = idx;
+                                }
+                                coverage[cell] = Math.min(1.0, coverage[cell] + alpha);
+                        }
+
+                        let result = new Uint32Array(fCount);
+                        for (let i = 0; i < fCount; i++) result[i] = filtered[fCount - 1 - i];
+                        return result;
+                };
 
 		self.onmessage = (e) => {
 			if (e.data.method == "clear") {
@@ -513,14 +564,17 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 			}
 			if (e.data.method == "sort") {
-				if (matrices === undefined) {
-					const sortedIndexes = new Uint32Array(1);
-					self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
-				} else {
-					const view = new Float32Array(e.data.view);
-					const sortedIndexes = sortSplats(matrices, view);
-					self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
-				}
+                                if (matrices === undefined) {
+                                        const sortedIndexes = new Uint32Array(1);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                } else {
+                                        const view = new Float32Array(e.data.view);
+                                        const mv = new Float32Array(e.data.modelView);
+                                        const proj = new Float32Array(e.data.projection);
+                                        const vp = new Float32Array(e.data.viewport);
+                                        const sortedIndexes = sortSplats(matrices, view, vp, mv, proj);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                }
 			}
 		};
 	},
