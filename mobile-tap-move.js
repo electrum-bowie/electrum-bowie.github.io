@@ -1,7 +1,7 @@
 AFRAME.registerComponent('mobile-tap-move', {
     schema: {
-        speed: { type: 'number', default: 0.5 },
-        fadeDuration: { type: 'number', default: 800 } // ms to reach target speed
+        speed: { type: 'number', default: 1.0 },
+        fadeDuration: { type: 'number', default: 400 } // ms to reach target speed
     },
     init: function () {
         this.moving = false;
