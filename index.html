@@ -113,8 +113,12 @@
         };
 
         console.warn = (...args) => {
+            const msg = args.join(' ');
+            if (msg.includes('Timestamp from device motion outside of range')) {
+                return;
+            }
             origConsoleWarn.apply(console, args);
-            displayLogMessage(args.join(' '));
+            displayLogMessage(msg);
         };
 
         console.error = (...args) => {
