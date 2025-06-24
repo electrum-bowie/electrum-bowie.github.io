@@ -3,9 +3,9 @@
 <head>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="index.js"></script>
+    <script src="dist/jszip.js"></script>
     <script src="input.js"></script>
     <script src="simple-fly.js"></script>
-    <script src="dist/jszip.js"></script>
     <style>
         /* CSS for button */
         #fileButton {
@@ -67,7 +67,7 @@
         <a-entity oculus-touch-controls="hand: right" simple-fly="speed: -0.025"></a-entity>
 
         <!-- Add a button to trigger file selection -->
-        <button id="fileButton" style="position: relative; z-index: 1;">Select .ply File</button>
+        <button id="fileButton" style="position: relative; z-index: 1;">Select .zip or .ply File</button>
         <div class="slider-container">
             <input type="range" min="1.0" max="6.0" step="0.5" value="5" id="slider">
             <span id="slider-value">5</span>
@@ -77,8 +77,8 @@
         <div id="logMessage"></div>
     </a-scene>
 
-    <label for="fileInput">Select .ply File:</label>
-    <input type="file" id="fileInput" accept=".zip">
+    <label for="fileInput">Select .zip or .ply File:</label>
+    <input type="file" id="fileInput" accept=".zip,.ply">
     <script>
         function displayLogMessage(message) {
             const logMessageElement = document.getElementById('logMessage');
