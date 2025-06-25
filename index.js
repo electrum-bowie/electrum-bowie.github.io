@@ -1,8 +1,8 @@
 AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "train.splat" },
-                pixelRatio: { type: 'number', default: 0.5 },
-                xrPixelRatio: { type: 'number', default: 0.3 },
+                pixelRatio: { type: 'number', default: 0.75 },
+                xrPixelRatio: { type: 'number', default: 1.0 },
         },
         init: function () {
                 // aframe-specific data
@@ -343,7 +343,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 f_buffer[8 * i + 3 + 1],
                                 f_buffer[8 * i + 3 + 2]
                         );
-                        const maxScale = 2.0;
+                        const maxScale = 3.0;
                         const minScale = 0.002;
                         if (Math.max(scale.x, scale.y, scale.z) > maxScale ||
                                 Math.max(scale.x, scale.y, scale.z) < minScale) {
