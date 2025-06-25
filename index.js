@@ -10,7 +10,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
-                this.sliderValue = 1;
+
+                this.sliderValue = typeof window !== 'undefined' && typeof window.latestSliderValue === 'number' ? window.latestSliderValue : 1;
+          
                 this.sortedIndexesLength = 0;
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
                 this.loadData(this.data.src);
@@ -292,21 +294,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 		if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
 			vertexCount = 4096 * 4096 - this.loadedVertexCount;
 		}
-		if (vertexCount <= 0) {
-			return;
-		}
-                const sliderElement = document.getElementById("slider");
-                if (sliderElement) {
-                        const min = parseFloat(sliderElement.min);
-                        const max = parseFloat(sliderElement.max);
-                        this.sliderValue = min + max - parseFloat(sliderElement.value);
-                } else if (typeof window !== 'undefined' && typeof window.latestSliderValue === 'number') {
-                        this.sliderValue = window.latestSliderValue;
-                }
-
-
-
-		let u_buffer = new Uint8Array(buffer);
+    
+    if (vertexCount <= 0) {
+        return;
+      
+    let u_buffer = new Uint8Array(buffer);
+    
 		let f_buffer = new Float32Array(buffer);
 		let matrices = new Float32Array(vertexCount * 16);
 
@@ -535,20 +528,25 @@ AFRAME.registerComponent("gaussian_splatting", {
         updateQuality: function () {
                 const slider = document.getElementById("slider");
                 if (slider) {
-                        const min = parseFloat(slider.min);
-                        const max = parseFloat(slider.max);
-                        this.sliderValue = min + max - parseFloat(slider.value);
+                        this.sliderValue = parseFloat(slider.value);
+                        if (typeof window !== 'undefined') {
+                                window.latestSliderValue = this.sliderValue;
+                        }
                 } else if (typeof window !== 'undefined' && typeof window.latestSliderValue === 'number') {
                         this.sliderValue = window.latestSliderValue;
                 }
-                this.applyQuality();
+                if (this.sortedIndexesLength > 0) {
+                        this.applyQuality();
+                }
         },
 
         applyQuality: function () {
                 if (!this.mesh || !this.mesh.geometry) return;
-                const factor = isNaN(this.sliderValue) ? 1 : this.sliderValue;
+          
+                const factor = Math.max(1, parseFloat(this.sliderValue) || 1);
                 const desired = Math.floor(this.loadedVertexCount / factor);
-                const finalCount = Math.min(desired, this.sortedIndexesLength || desired);
+                const finalCount = Math.min(desired, this.sortedIndexesLength);
+          
                 this.mesh.geometry.instanceCount = finalCount;
         },
 
