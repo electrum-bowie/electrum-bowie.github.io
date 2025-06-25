@@ -8,7 +8,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
     async function handleFile(file) {
         if (!file) return;
-
+        
+        console.log('Loading...');
+        
         let blob = file;
         const nameLower = file.name.toLowerCase();
         if (nameLower.endsWith(".zip")) {
@@ -34,8 +36,6 @@ document.addEventListener("DOMContentLoaded", function () {
             console.error("Unsupported file type");
             return;
         }
-
-        console.log('Loading...');
 
         const url = URL.createObjectURL(blob);
 
