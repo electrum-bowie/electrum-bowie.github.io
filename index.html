@@ -81,11 +81,11 @@
     </style>
 </head>
 <body>
-    <a-scene renderer="antialias: false" stats>
+    <a-scene renderer="antialias: false" stats xrSessionConfiguration="optionalFeatures: hand-tracking;">
         <a-entity oculus-touch-controls="hand: right"></a-entity>
         <a-entity oculus-touch-controls="hand: left"></a-entity>
-        <a-entity hand-controls="hand: right; handModelStyle: lowPoly"></a-entity>
-        <a-entity hand-controls="hand: left; handModelStyle: lowPoly"></a-entity>
+        <a-entity hand-controls="hand: right; handModelStyle: lowPoly" hand-tracking-controls="hand: right; modelStyle: mesh"></a-entity>
+        <a-entity hand-controls="hand: left; handModelStyle: lowPoly" hand-tracking-controls="hand: left; modelStyle: mesh"></a-entity>
         <a-entity camera position="0 1.6 0" look-controls mobile-tap-move></a-entity>
 
         <!-- Add a container to hold the dynamically created entity -->
