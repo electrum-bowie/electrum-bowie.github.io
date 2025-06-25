@@ -161,6 +161,7 @@
         updateSliderValue();
         slider.addEventListener('input', updateSliderValue);
         slider.addEventListener('change', updateSliderValue);
+        slider.addEventListener('change', applySplatQuality);
 
         const sliderValueElement = document.getElementById('slider-value');
         const sliderLabelElement = document.getElementById('slider-label');
