@@ -44,7 +44,9 @@ document.addEventListener("DOMContentLoaded", function () {
         entity.setAttribute("two-hand-manipulation", "");
         document.querySelector("a-scene").appendChild(entity);
 
-        fileButton.style.display = "none";
+        // Keep the file selection button visible even after a splat is loaded
+        // so that users can load additional files without refreshing.
+        // fileButton.style.display = "none";
     }
 
     fileInput.addEventListener("change", (event) => {
