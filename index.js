@@ -10,7 +10,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
+
                 this.sliderValue = typeof window !== 'undefined' && typeof window.latestSliderValue === 'number' ? window.latestSliderValue : 1;
+          
                 this.sortedIndexesLength = 0;
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
                 this.loadData(this.data.src);
@@ -292,12 +294,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 		if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
 			vertexCount = 4096 * 4096 - this.loadedVertexCount;
 		}
-                if (vertexCount <= 0) {
-                        return;
-                }
-
-
-                let u_buffer = new Uint8Array(buffer);
+    
+    if (vertexCount <= 0) {
+        return;
+      
+    let u_buffer = new Uint8Array(buffer);
+    
 		let f_buffer = new Float32Array(buffer);
 		let matrices = new Float32Array(vertexCount * 16);
 
@@ -540,9 +542,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 
         applyQuality: function () {
                 if (!this.mesh || !this.mesh.geometry) return;
+          
                 const factor = Math.max(1, parseFloat(this.sliderValue) || 1);
                 const desired = Math.floor(this.loadedVertexCount / factor);
                 const finalCount = Math.min(desired, this.sortedIndexesLength);
+          
                 this.mesh.geometry.instanceCount = finalCount;
         },
 
