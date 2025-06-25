@@ -44,20 +44,13 @@ document.addEventListener("DOMContentLoaded", function () {
         entity.setAttribute("two-hand-manipulation", "");
         document.querySelector("a-scene").appendChild(entity);
 
-        // Store references so quality can be reapplied on slider change
-        window.currentSplatEntity = entity;
-        window.currentSplatUrl = url;
-
         // Reattach slider listeners in case the element was recreated
         const slider = document.getElementById("slider");
         if (slider) {
             slider.removeEventListener('input', updateSliderValue);
             slider.removeEventListener('change', updateSliderValue);
-            slider.removeEventListener('change', applySplatQuality);
             slider.addEventListener('input', updateSliderValue);
             slider.addEventListener('change', updateSliderValue);
-            slider.addEventListener('change', applySplatQuality);
-
             if (typeof updateSliderValue === 'function') {
                 updateSliderValue();
             }
