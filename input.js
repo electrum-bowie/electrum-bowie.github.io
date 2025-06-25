@@ -9,8 +9,6 @@ document.addEventListener("DOMContentLoaded", function () {
     async function handleFile(file) {
         if (!file) return;
         
-        console.log('Loading...');
-        
         let blob = file;
         const nameLower = file.name.toLowerCase();
         if (nameLower.endsWith(".zip")) {
@@ -65,6 +63,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     fileInput.addEventListener("change", (event) => {
         const file = event.target.files[0];
+        if (file) console.log('Loading...');
         handleFile(file);
     });
 });
