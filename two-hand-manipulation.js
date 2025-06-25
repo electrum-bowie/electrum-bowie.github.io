@@ -19,7 +19,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
-            const onDown = () => {
+            const onDown = (evt) => {
+                console.log('onDown', hand, evt.type);
                 if (hand === 'left') {
                     this.leftGripPressed = true;
                     this.leftSource = controller;
@@ -29,7 +30,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 }
                 this.tryStart();
             };
-            const onUp = () => {
+            const onUp = (evt) => {
+                console.log('onUp', hand, evt.type);
                 if (hand === 'left') {
                     this.leftGripPressed = false;
                 } else {
