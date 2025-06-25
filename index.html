@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
     <script src="index.js"></script>
     <script src="dist/jszip.js"></script>
     <script src="input.js"></script>
@@ -81,7 +81,7 @@
     </style>
 </head>
 <body>
-    <a-scene renderer="antialias: false" stats xrSessionConfiguration="optionalFeatures: hand-tracking;">
+    <a-scene renderer="antialias: false" stats webxr="optionalFeatures: hand-tracking;">
         <a-entity oculus-touch-controls="hand: right"></a-entity>
         <a-entity oculus-touch-controls="hand: left"></a-entity>
         <a-entity hand-controls="hand: right; handModelStyle: lowPoly" hand-tracking-controls="hand: right; modelStyle: mesh"></a-entity>
