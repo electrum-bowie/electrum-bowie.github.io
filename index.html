@@ -97,7 +97,7 @@
         <button id="fileButton" style="position: fixed; z-index: 1;">Select .zip or .ply File</button>
         <div class="slider-container">
             <div id="slider-label">Quality factor:</div>
-            <input type="range" min="1.0" max="6.0" step="0.5" value="5" id="slider">
+            <input type="range" min="1.0" max="6.0" step="0.5" value="5" id="slider" oninput="updateSliderValue()" onchange="updateSliderValue()">
             <span id="slider-value">5</span>
         </div>
 

@@ -8,7 +8,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     async function handleFile(file) {
         if (!file) return;
-
+        
         let blob = file;
         const nameLower = file.name.toLowerCase();
         if (nameLower.endsWith(".zip")) {
@@ -57,6 +57,7 @@ document.addEventListener("DOMContentLoaded", function () {
             slider.addEventListener('input', updateSliderValue);
             slider.addEventListener('change', updateSliderValue);
             slider.addEventListener('change', applySplatQuality);
+
             if (typeof updateSliderValue === 'function') {
                 updateSliderValue();
             }
@@ -69,6 +70,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     fileInput.addEventListener("change", (event) => {
         const file = event.target.files[0];
+        if (file) console.log('Loading...');
         handleFile(file);
     });
 });
