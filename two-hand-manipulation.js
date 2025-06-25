@@ -17,7 +17,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
-            controller.addEventListener('gripdown', () => {
+            const onDown = () => {
                 if (hand === 'left') {
                     this.leftGripPressed = true;
                     this.leftSource = controller;
@@ -26,15 +26,19 @@ AFRAME.registerComponent('two-hand-manipulation', {
                     this.rightSource = controller;
                 }
                 this.tryStart();
-            });
-            controller.addEventListener('gripup', () => {
+            };
+            const onUp = () => {
                 if (hand === 'left') {
                     this.leftGripPressed = false;
                 } else {
                     this.rightGripPressed = false;
                 }
                 this.isInteracting = false;
-            });
+            };
+            ['gripdown', 'gripclose', 'squeezestart'].forEach(evt =>
+                controller.addEventListener(evt, onDown));
+            ['gripup', 'gripopen', 'squeezeend'].forEach(evt =>
+                controller.addEventListener(evt, onUp));
         };
 
         bindGripEvents(this.leftController, 'left');
