@@ -16,17 +16,34 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.startPosition = new THREE.Vector3();
         this.startVector = new THREE.Vector3();
         this.startQuaternion = new THREE.Quaternion();
+        this.leftPinchPos = new THREE.Vector3();
+        this.rightPinchPos = new THREE.Vector3();
+        this.leftUsingPinch = false;
+        this.rightUsingPinch = false;
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
+            const updatePinch = (evt) => {
+                if (evt.detail && evt.detail.position) {
+                    const pos = evt.detail.position;
+                    if (hand === 'left') {
+                        this.leftPinchPos.set(pos.x, pos.y, pos.z);
+                    } else {
+                        this.rightPinchPos.set(pos.x, pos.y, pos.z);
+                    }
+                }
+            };
             const onDown = (evt) => {
                 console.log('onDown', hand, evt.type);
+                updatePinch(evt);
                 if (hand === 'left') {
                     this.leftGripPressed = true;
                     this.leftSource = controller;
+                    this.leftUsingPinch = evt.type.startsWith('pinch');
                 } else {
                     this.rightGripPressed = true;
                     this.rightSource = controller;
+                    this.rightUsingPinch = evt.type.startsWith('pinch');
                 }
                 this.tryStart();
             };
@@ -34,11 +51,14 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 console.log('onUp', hand, evt.type);
                 if (hand === 'left') {
                     this.leftGripPressed = false;
+                    this.leftUsingPinch = false;
                 } else {
                     this.rightGripPressed = false;
+                    this.rightUsingPinch = false;
                 }
                 this.isInteracting = false;
             };
+            ['pinchmoved'].forEach(evt => controller.addEventListener(evt, updatePinch));
             ['gripdown', 'gripclose', 'squeezestart', 'pinchstarted'].forEach(evt =>
                 controller.addEventListener(evt, onDown));
             ['gripup', 'gripopen', 'squeezeend', 'pinchended'].forEach(evt =>
@@ -57,8 +77,16 @@ AFRAME.registerComponent('two-hand-manipulation', {
             if (!leftObj || !rightObj) { return; }
             const leftPos = new THREE.Vector3();
             const rightPos = new THREE.Vector3();
-            leftObj.object3D.getWorldPosition(leftPos);
-            rightObj.object3D.getWorldPosition(rightPos);
+            if (this.leftUsingPinch) {
+                leftPos.copy(this.leftPinchPos);
+            } else {
+                leftObj.object3D.getWorldPosition(leftPos);
+            }
+            if (this.rightUsingPinch) {
+                rightPos.copy(this.rightPinchPos);
+            } else {
+                rightObj.object3D.getWorldPosition(rightPos);
+            }
 
             this.startDistance = leftPos.distanceTo(rightPos);
             this.startScale.copy(this.el.object3D.scale);
@@ -76,8 +104,16 @@ AFRAME.registerComponent('two-hand-manipulation', {
         if (!leftObj || !rightObj) { return; }
         const leftPos = new THREE.Vector3();
         const rightPos = new THREE.Vector3();
-        leftObj.object3D.getWorldPosition(leftPos);
-        rightObj.object3D.getWorldPosition(rightPos);
+        if (this.leftUsingPinch) {
+            leftPos.copy(this.leftPinchPos);
+        } else {
+            leftObj.object3D.getWorldPosition(leftPos);
+        }
+        if (this.rightUsingPinch) {
+            rightPos.copy(this.rightPinchPos);
+        } else {
+            rightObj.object3D.getWorldPosition(rightPos);
+        }
 
         const currentDistance = leftPos.distanceTo(rightPos);
         if (this.startDistance === 0) return;
