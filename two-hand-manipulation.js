@@ -83,6 +83,9 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const midpoint = leftPos.clone().add(rightPos).multiplyScalar(0.5);
         const deltaPos = midpoint.sub(this.startMidpoint);
         const newPosition = this.startPosition.clone().add(deltaPos);
+        if (this.el.object3D.parent) {
+            this.el.object3D.parent.worldToLocal(newPosition);
+        }
         this.el.object3D.position.copy(newPosition);
     }
 });
