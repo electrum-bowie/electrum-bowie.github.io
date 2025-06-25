@@ -1,6 +1,13 @@
 document.addEventListener("DOMContentLoaded", function () {
     const fileButton = document.getElementById("fileButton");
     const fileInput = document.getElementById("fileInput");
+    const backButton = document.getElementById("backButton");
+
+    if (backButton) {
+        backButton.addEventListener("click", () => {
+            location.reload();
+        });
+    }
 
     fileButton.addEventListener("click", () => {
         fileInput.click();
@@ -56,9 +63,8 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
 
-        // Keep the file selection button visible even after a splat is loaded
-        // so that users can load additional files without refreshing.
-        // fileButton.style.display = "none";
+        if (fileButton) fileButton.style.display = "none";
+        if (backButton) backButton.style.display = "block";
     }
 
     fileInput.addEventListener("change", (event) => {
