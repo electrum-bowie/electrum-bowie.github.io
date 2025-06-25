@@ -35,6 +35,8 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        console.log('Loading...');
+
         const url = URL.createObjectURL(blob);
 
         const entity = document.createElement("a-entity");
