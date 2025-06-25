@@ -54,10 +54,12 @@ AFRAME.registerComponent('mobile-tap-move', {
         }
     },
     onPointerDown: function (evt) {
+        if (evt.pointerType === 'touch') return;
         this.pointerCount++;
         this.handlePointerGesture();
     },
-    onPointerUp: function () {
+    onPointerUp: function (evt) {
+        if (evt.pointerType === 'touch') return;
         this.pointerCount = Math.max(0, this.pointerCount - 1);
     },
     handlePointerGesture: function () {
