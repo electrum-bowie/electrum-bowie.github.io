@@ -229,11 +229,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 							const mbps = (bytesDownloaded / 1024 / 1024) / ((Date.now() - start) / 1000);
 							const percent = bytesDownloaded / totalDownloadBytes * 100;
 							if (percent - lastReportedProgress > 1) {
-								console.log("upload progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
+                                                        console.log("progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
 								lastReportedProgress = percent;
 							}
 						} else {
-							console.log("upload progress:", bytesDownloaded, ", unknown total");
+                                                console.log("progress:", bytesDownloaded, ", unknown total");
 						}
 						chunks.push(value);
 						if (!this.textureReady &&
