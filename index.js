@@ -14,12 +14,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.loadData(this.data.src);
         },
 	// also works from vanilla three.js
-	initGL: function (camera, object, renderer) {
-		this.camera = camera;
-		this.object = object;
-		this.renderer = renderer;
-		this.textureReady = false;
-		this.object.frustumCulled = false;
+        initGL: function (camera, object, renderer) {
+                this.camera = camera;
+                this.object = object;
+                this.renderer = renderer;
+                this.textureReady = false;
+                this.object.frustumCulled = false;
+
+                this.splatInfo = new Float32Array(0);
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
@@ -188,13 +190,14 @@ AFRAME.registerComponent("gaussian_splatting", {
 			),
 		);
 
-		this.worker.onmessage = (e) => {
-			let indexes = new Uint32Array(e.data.sortedIndexes);
-			mesh.geometry.attributes.splatIndex.set(indexes);
-			mesh.geometry.attributes.splatIndex.needsUpdate = true;
-			mesh.geometry.instanceCount = indexes.length;
-			this.sortReady = true;
-		};
+                this.worker.onmessage = (e) => {
+                        let indexes = new Uint32Array(e.data.sortedIndexes);
+                        indexes = this.filterOcclusion(indexes);
+                        mesh.geometry.attributes.splatIndex.set(indexes);
+                        mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                        mesh.geometry.instanceCount = indexes.length;
+                        this.sortReady = true;
+                };
 		this.sortReady = true;
 	},
 	loadData: function (src) {
@@ -325,19 +328,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                 }
 
-		let u_buffer = new Uint8Array(buffer);
-		let f_buffer = new Float32Array(buffer);
-		let matrices = new Float32Array(vertexCount * 16);
+                let u_buffer = new Uint8Array(buffer);
+                let f_buffer = new Float32Array(buffer);
+                let matrices = new Float32Array(vertexCount * 16);
+                let infoOffset = this.splatInfo.length;
+                let newInfo = new Float32Array(infoOffset + vertexCount * 5);
+                newInfo.set(this.splatInfo);
 
 		const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
 		const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
-		for (let i = 0; i < vertexCount; i++) {
-			let quat = new THREE.Quaternion(
-				(u_buffer[32 * i + 28 + 1] - 128) / 128.0,
-				(u_buffer[32 * i + 28 + 2] - 128) / 128.0,
-				-(u_buffer[32 * i + 28 + 3] - 128) / 128.0,
-				(u_buffer[32 * i + 28 + 0] - 128) / 128.0,
-			);
+                for (let i = 0; i < vertexCount; i++) {
+                        let quat = new THREE.Quaternion(
+                                (u_buffer[32 * i + 28 + 1] - 128) / 128.0,
+                                (u_buffer[32 * i + 28 + 2] - 128) / 128.0,
+                                -(u_buffer[32 * i + 28 + 3] - 128) / 128.0,
+                                (u_buffer[32 * i + 28 + 0] - 128) / 128.0,
+                        );
 			let center = new THREE.Vector3(
 				f_buffer[8 * i + 0],
 				f_buffer[8 * i + 1],
@@ -390,12 +396,21 @@ AFRAME.registerComponent("gaussian_splatting", {
 			covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
 
 			// Store scale and transparent to remove splat in sorting process
-			mtx.elements[15] = Math.max(scale.x, scale.y, scale.z) * u_buffer[32 * i + 24 + 3] / 255.0;
+                        const maxScaleFactor = Math.max(scale.x, scale.y, scale.z);
+                        const opacity = u_buffer[32 * i + 24 + 3] / 255.0;
+                        mtx.elements[15] = maxScaleFactor * opacity;
 
-			for (let j = 0; j < 16; j++) {
-				matrices[i * 16 + j] = mtx.elements[j];
-			}
-		}
+                        newInfo[infoOffset + i * 5 + 0] = center.x;
+                        newInfo[infoOffset + i * 5 + 1] = center.y;
+                        newInfo[infoOffset + i * 5 + 2] = center.z;
+                        newInfo[infoOffset + i * 5 + 3] = maxScaleFactor;
+                        newInfo[infoOffset + i * 5 + 4] = opacity;
+
+                        for (let j = 0; j < 16; j++) {
+                                matrices[i * 16 + j] = mtx.elements[j];
+                        }
+                }
+                this.splatInfo = newInfo;
 
 		const gl = this.renderer.getContext();
 		while (vertexCount > 0) {
@@ -448,9 +463,69 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (!this.data || !this.data.src) return;
                 this.centerAndScaleData.fill(0);
                 this.covAndColorData.fill(0);
+                this.splatInfo = new Float32Array(0);
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
                 this.loadData(this.data.src);
+        },
+        filterOcclusion: function (indexes) {
+                const res = 64;
+                const coverage = new Float32Array(res * res);
+                const mv = this.getModelViewMatrix().elements;
+                const proj = this.getProjectionMatrix().elements;
+                const result = [];
+                for (let idx = indexes.length - 1; idx >= 0; idx--) {
+                        const i = indexes[idx];
+                        const off = i * 5;
+                        const cx = this.splatInfo[off + 0];
+                        const cy = this.splatInfo[off + 1];
+                        const cz = this.splatInfo[off + 2];
+                        const scale = this.splatInfo[off + 3];
+                        const alpha = this.splatInfo[off + 4];
+                        const wx = mv[0] * cx + mv[4] * cy + mv[8] * cz + mv[12];
+                        const wy = mv[1] * cx + mv[5] * cy + mv[9] * cz + mv[13];
+                        const wz = mv[2] * cx + mv[6] * cy + mv[10] * cz + mv[14];
+                        const ww = mv[3] * cx + mv[7] * cy + mv[11] * cz + mv[15];
+                        const px = proj[0] * wx + proj[4] * wy + proj[8] * wz + proj[12] * ww;
+                        const py = proj[1] * wx + proj[5] * wy + proj[9] * wz + proj[13] * ww;
+                        const pw = proj[3] * wx + proj[7] * wy + proj[11] * wz + proj[15] * ww;
+                        if (pw <= 0) continue;
+                        const sx = (px / pw * 0.5 + 0.5) * res;
+                        const sy = (-py / pw * 0.5 + 0.5) * res;
+                        const depth = -wz;
+                        if (depth <= 0) continue;
+                        const radius = Math.max(1, scale / depth * res);
+                        const r2 = radius * radius;
+                        let minx = Math.max(0, Math.floor(sx - radius));
+                        let maxx = Math.min(res - 1, Math.ceil(sx + radius));
+                        let miny = Math.max(0, Math.floor(sy - radius));
+                        let maxy = Math.min(res - 1, Math.ceil(sy + radius));
+                        let covered = true;
+                        for (let y = miny; y <= maxy && covered; y++) {
+                                for (let x = minx; x <= maxx; x++) {
+                                        const dx = x + 0.5 - sx;
+                                        const dy = y + 0.5 - sy;
+                                        if (dx * dx + dy * dy <= r2 && coverage[y * res + x] < 0.99) {
+                                                covered = false;
+                                                break;
+                                        }
+                                }
+                        }
+                        if (covered) continue;
+                        result.push(i);
+                        for (let y = miny; y <= maxy; y++) {
+                                for (let x = minx; x <= maxx; x++) {
+                                        const dx = x + 0.5 - sx;
+                                        const dy = y + 0.5 - sy;
+                                        if (dx * dx + dy * dy <= r2) {
+                                                const idxc = y * res + x;
+                                                coverage[idxc] += (1 - coverage[idxc]) * alpha;
+                                        }
+                                }
+                        }
+                }
+                result.reverse();
+                return new Uint32Array(result);
         },
         getProjectionMatrix: function (camera) {
                 if (!camera) {
