@@ -10,6 +10,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
+                this.originalBuffers = [];
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
                 this.loadData(this.data.src);
         },
@@ -197,11 +198,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 		};
 		this.sortReady = true;
 	},
-	loadData: function (src) {
-		this.loadedVertexCount = 0;
-		this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-		this.worker.postMessage({ method: "clear" });
-		const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        loadData: function (src) {
+                this.loadedVertexCount = 0;
+                this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
+                this.worker.postMessage({ method: "clear" });
+                this.originalBuffers = [];
+                this.isCaching = true;
+                const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 		fetch(src)
 			.then(async (data) => {
@@ -281,17 +284,21 @@ AFRAME.registerComponent("gaussian_splatting", {
 					if (isPly) {
 						concatenatedChunks = new Uint8Array(this.processPlyBuffer(concatenatedChunks.buffer));
 					}
-					this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
-				}
-			});
-	}, 
-	pushDataBuffer: function (buffer, vertexCount) {
-		if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
-			vertexCount = 4096 * 4096 - this.loadedVertexCount;
-		}
-		if (vertexCount <= 0) {
-			return;
-		}
+                                this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
+                                }
+                        })
+                        .finally(() => { this.isCaching = false; });
+        },
+        pushDataBuffer: function (buffer, vertexCount) {
+                if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
+                        vertexCount = 4096 * 4096 - this.loadedVertexCount;
+                }
+                if (vertexCount <= 0) {
+                        return;
+                }
+                if (this.isCaching) {
+                        this.originalBuffers.push(buffer);
+                }
                 const sliderElement = document.getElementById("slider");
                 const sliderValueElement = document.getElementById("slider-value");
                 const sliderLabelElement = document.getElementById("slider-label");
@@ -431,24 +438,61 @@ AFRAME.registerComponent("gaussian_splatting", {
 			matrices: matrices.buffer
 		}, [matrices.buffer]);
 	},
-	tick: function (time, timeDelta) {
-		if (this.sortReady) {
-			this.sortReady = false;
-			let camera_mtx = this.getModelViewMatrix().elements;
-			let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
+        tick: function (time, timeDelta) {
+                if (this.sortReady) {
+                        this.sortReady = false;
+                        let camera_mtx = this.getModelViewMatrix().elements;
+                        let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
                         const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
                         this.worker.postMessage({
                                 method: "sort",
                                 view: view.buffer,
                                 scale: globalScale,
                         }, [view.buffer]);
-		}
-	},
-	getProjectionMatrix: function (camera) {
-		if (!camera) {
-			camera = this.camera;
-		}
-		let mtx = camera.projectionMatrix.clone();
+                }
+        },
+        updateQuality: function () {
+                if (!this.originalBuffers || this.originalBuffers.length === 0) return;
+                this.loadedVertexCount = 0;
+                if (this.mesh && this.mesh.geometry) {
+                        this.mesh.geometry.instanceCount = 0;
+                }
+                this.worker.postMessage({ method: "clear" });
+                this.centerAndScaleTexture.needsUpdate = true;
+                this.covAndColorTexture.needsUpdate = true;
+                for (const buf of this.originalBuffers) {
+                        this.pushDataBuffer(buf, buf.byteLength / this.rowLength);
+                }
+                this.sortReady = true;
+        },
+        remove: function () {
+                if (this.worker) {
+                        this.worker.terminate();
+                        this.worker = null;
+                }
+                if (this.mesh) {
+                        if (this.mesh.material) this.mesh.material.dispose();
+                        if (this.mesh.geometry) this.mesh.geometry.dispose();
+                        this.object.remove(this.mesh);
+                        this.mesh = null;
+                }
+                if (this.centerAndScaleTexture) {
+                        this.centerAndScaleTexture.dispose();
+                        this.centerAndScaleTexture = null;
+                }
+                if (this.covAndColorTexture) {
+                        this.covAndColorTexture.dispose();
+                        this.covAndColorTexture = null;
+                }
+                this.centerAndScaleData = null;
+                this.covAndColorData = null;
+                this.originalBuffers = [];
+        },
+        getProjectionMatrix: function (camera) {
+                if (!camera) {
+                        camera = this.camera;
+                }
+                let mtx = camera.projectionMatrix.clone();
 		mtx.elements[4] *= -1;
 		mtx.elements[5] *= -1;
 		mtx.elements[6] *= -1;
