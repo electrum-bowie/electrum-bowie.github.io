@@ -287,7 +287,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 	}, 
 	pushDataBuffer: function (buffer, vertexCount) {
 		if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
-			console.log("vertexCount limited to 4096*4096", vertexCount);
 			vertexCount = 4096 * 4096 - this.loadedVertexCount;
 		}
 		if (vertexCount <= 0) {
