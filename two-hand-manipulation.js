@@ -1,10 +1,10 @@
 AFRAME.registerComponent('two-hand-manipulation', {
     init: function () {
         const sceneEl = this.el.sceneEl;
-        this.leftController = sceneEl.querySelector('[oculus-touch-controls][hand=left]');
-        this.rightController = sceneEl.querySelector('[oculus-touch-controls][hand=right]');
-        this.leftHand = sceneEl.querySelector('[hand-controls][hand=left], [hand-tracking-controls][hand=left]');
-        this.rightHand = sceneEl.querySelector('[hand-controls][hand=right], [hand-tracking-controls][hand=right]');
+        this.leftController = sceneEl.querySelector('[oculus-touch-controls*="hand: left"]');
+        this.rightController = sceneEl.querySelector('[oculus-touch-controls*="hand: right"]');
+        this.leftHand = sceneEl.querySelector('[hand-controls*="hand: left"], [hand-tracking-controls*="hand: left"]');
+        this.rightHand = sceneEl.querySelector('[hand-controls*="hand: right"], [hand-tracking-controls*="hand: right"]');
         this.leftSource = null;
         this.rightSource = null;
         this.leftGripPressed = false;
