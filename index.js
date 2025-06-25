@@ -446,11 +446,22 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
         updateQuality: function () {
                 if (!this.data || !this.data.src) return;
+
+                let src = this.data.src;
+                if (src.startsWith('blob:') && typeof window !== 'undefined' && window.loadedBlob) {
+                        try {
+                                src = URL.createObjectURL(window.loadedBlob);
+                        } catch (e) {
+                                console.warn('Failed to create object URL for reload', e);
+                        }
+                        this.data.src = src;
+                }
+
                 this.centerAndScaleData.fill(0);
                 this.covAndColorData.fill(0);
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
-                this.loadData(this.data.src);
+                this.loadData(src);
         },
         getProjectionMatrix: function (camera) {
                 if (!camera) {
