@@ -1,10 +1,21 @@
 AFRAME.registerComponent('two-hand-manipulation', {
     init: function () {
         const sceneEl = this.el.sceneEl;
-        this.leftController = sceneEl.querySelector('[oculus-touch-controls][hand=left]');
-        this.rightController = sceneEl.querySelector('[oculus-touch-controls][hand=right]');
-        this.leftHand = sceneEl.querySelector('[hand-controls][hand=left], [hand-tracking-controls][hand=left]');
-        this.rightHand = sceneEl.querySelector('[hand-controls][hand=right], [hand-tracking-controls][hand=right]');
+
+        // Grab all controller and hand entities since there may be more than one
+        const controllers = sceneEl.querySelectorAll('[oculus-touch-controls]');
+        controllers.forEach(el => {
+            const cfg = el.getAttribute('oculus-touch-controls');
+            if (cfg && cfg.includes('hand: left')) this.leftController = el;
+            if (cfg && cfg.includes('hand: right')) this.rightController = el;
+        });
+
+        const hands = sceneEl.querySelectorAll('[hand-controls], [hand-tracking-controls]');
+        hands.forEach(el => {
+            const hc = el.getAttribute('hand-controls') || el.getAttribute('hand-tracking-controls');
+            if (hc && hc.includes('hand: left')) this.leftHand = el;
+            if (hc && hc.includes('hand: right')) this.rightHand = el;
+        });
         this.leftSource = null;
         this.rightSource = null;
         this.leftGripPressed = false;
@@ -19,7 +30,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
-            const onDown = () => {
+            const onDown = (evt) => {
+                console.log('onDown', hand, evt.type);
                 if (hand === 'left') {
                     this.leftGripPressed = true;
                     this.leftSource = controller;
@@ -29,7 +41,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 }
                 this.tryStart();
             };
-            const onUp = () => {
+            const onUp = (evt) => {
+                console.log('onUp', hand, evt.type);
                 if (hand === 'left') {
                     this.leftGripPressed = false;
                 } else {
@@ -65,10 +78,12 @@ AFRAME.registerComponent('two-hand-manipulation', {
             this.startVector.copy(rightPos).sub(leftPos).normalize();
             this.el.object3D.getWorldQuaternion(this.startQuaternion);
             this.isInteracting = true;
+            console.log('interaction started');
         }
     },
     tick: function () {
         if (!this.isInteracting) return;
+        console.log('tick');
         const leftObj = this.leftSource || this.leftController || this.leftHand;
         const rightObj = this.rightSource || this.rightController || this.rightHand;
         if (!leftObj || !rightObj) { return; }
