@@ -14,6 +14,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.startScale = new THREE.Vector3();
         this.startMidpoint = new THREE.Vector3();
         this.startPosition = new THREE.Vector3();
+        this.startVector = new THREE.Vector3();
+        this.startQuaternion = new THREE.Quaternion();
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
@@ -60,6 +62,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
             this.startScale.copy(this.el.object3D.scale);
             this.startMidpoint.copy(leftPos).add(rightPos).multiplyScalar(0.5);
             this.el.object3D.getWorldPosition(this.startPosition);
+            this.startVector.copy(rightPos).sub(leftPos).normalize();
+            this.el.object3D.getWorldQuaternion(this.startQuaternion);
             this.isInteracting = true;
         }
     },
@@ -87,5 +91,17 @@ AFRAME.registerComponent('two-hand-manipulation', {
             this.el.object3D.parent.worldToLocal(newPosition);
         }
         this.el.object3D.position.copy(newPosition);
+
+        const currentVector = rightPos.clone().sub(leftPos).normalize();
+        const rotQuat = new THREE.Quaternion().setFromUnitVectors(this.startVector, currentVector);
+        const worldQuat = this.startQuaternion.clone();
+        worldQuat.premultiply(rotQuat);
+        if (this.el.object3D.parent) {
+            const parentQuat = new THREE.Quaternion();
+            this.el.object3D.parent.getWorldQuaternion(parentQuat);
+            parentQuat.invert();
+            worldQuat.premultiply(parentQuat);
+        }
+        this.el.object3D.quaternion.copy(worldQuat);
     }
 });
