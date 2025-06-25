@@ -168,6 +168,9 @@
             window.latestSliderValue = parseFloat(slider.value);
             const percent = Math.round((window.latestSliderValue - min) / (max - min) * 100);
             sliderValue.innerText = percent + '%';
+            if (window.gaussianComponent && typeof window.gaussianComponent.updateQuality === 'function') {
+                window.gaussianComponent.updateQuality();
+            }
         }
 
         // Initialize and listen for slider changes
