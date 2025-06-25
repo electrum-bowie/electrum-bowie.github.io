@@ -10,7 +10,8 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!file) return;
 
         let blob = file;
-        if (file.name.toLowerCase().endsWith(".zip")) {
+        const nameLower = file.name.toLowerCase();
+        if (nameLower.endsWith(".zip")) {
             try {
                 if (typeof JSZip === 'undefined') {
                     console.error('JSZip library missing');
@@ -29,6 +30,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 console.error("Failed to extract zip", err);
                 return;
             }
+        } else if (!(nameLower.endsWith(".ply") || nameLower.endsWith(".splat"))) {
+            console.error("Unsupported file type");
+            return;
         }
 
         const url = URL.createObjectURL(blob);
