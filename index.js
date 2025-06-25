@@ -10,6 +10,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
+                this.sliderValue = typeof window !== 'undefined' && typeof window.latestSliderValue === 'number' ? window.latestSliderValue : 1;
+                this.sortedIndexesLength = 0;
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
                 this.loadData(this.data.src);
         },
@@ -163,10 +165,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 			transparent: true
 		});
 
-		material.onBeforeRender = ((renderer, scene, camera, geometry, object, group) => {
-			let projectionMatrix = this.getProjectionMatrix(camera);
-			mesh.material.uniforms.gsProjectionMatrix.value = projectionMatrix;
-			mesh.material.uniforms.gsModelViewMatrix.value = this.getModelViewMatrix(camera);
+                material.onBeforeRender = ((renderer, scene, camera, geometry, object, group) => {
+                        let projectionMatrix = this.getProjectionMatrix(camera);
+                        this.mesh.material.uniforms.gsProjectionMatrix.value = projectionMatrix;
+                        this.mesh.material.uniforms.gsModelViewMatrix.value = this.getModelViewMatrix(camera);
 
 			let viewport = new THREE.Vector4();
 			renderer.getCurrentViewport(viewport);
@@ -176,9 +178,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 			material.uniforms.focal.value = focal;
 		});
 
-		mesh = new THREE.Mesh(geometry, material);
-		mesh.frustumCulled = false;
-		this.object.add(mesh);
+                this.mesh = new THREE.Mesh(geometry, material);
+                this.mesh.frustumCulled = false;
+                this.object.add(this.mesh);
 
 		this.worker = new Worker(
 			URL.createObjectURL(
@@ -188,13 +190,14 @@ AFRAME.registerComponent("gaussian_splatting", {
 			),
 		);
 
-		this.worker.onmessage = (e) => {
-			let indexes = new Uint32Array(e.data.sortedIndexes);
-			mesh.geometry.attributes.splatIndex.set(indexes);
-			mesh.geometry.attributes.splatIndex.needsUpdate = true;
-			mesh.geometry.instanceCount = indexes.length;
-			this.sortReady = true;
-		};
+                this.worker.onmessage = (e) => {
+                        let indexes = new Uint32Array(e.data.sortedIndexes);
+                        this.mesh.geometry.attributes.splatIndex.set(indexes);
+                        this.mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                        this.sortedIndexesLength = indexes.length;
+                        this.applyQuality();
+                        this.sortReady = true;
+                };
 		this.sortReady = true;
 	},
 	loadData: function (src) {
@@ -289,43 +292,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 		if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
 			vertexCount = 4096 * 4096 - this.loadedVertexCount;
 		}
-		if (vertexCount <= 0) {
-			return;
-		}
-                const sliderElement = document.getElementById("slider");
-                const sliderValueElement = document.getElementById("slider-value");
-                const sliderLabelElement = document.getElementById("slider-label");
-                let sliderValue = 1;
-                if (sliderElement) {
-                        const min = parseFloat(sliderElement.min);
-                        const max = parseFloat(sliderElement.max);
-                        
-                        sliderValue = parseFloat(sliderElement.value);
-                        
-                        window.latestSliderValue = sliderValue;
-                        
-                        sliderValue = min + max - sliderValue;
-                }
-                else if (typeof window !== 'undefined' &&
-                        typeof window.latestSliderValue === 'number') {
-                        sliderValue = window.latestSliderValue;
+                if (vertexCount <= 0) {
+                        return;
                 }
 
-                vertexCount = vertexCount / (isNaN(sliderValue) ? 1 : sliderValue);
 
-                // Keep the quality slider visible after loading so users can
-                // continue adjusting the value for subsequent loads.
-                if (sliderElement) {
-                        // sliderElement.style.display = 'none';
-                        if (sliderValueElement) {
-                                // sliderValueElement.style.display = 'none';
-                        }
-                        if (sliderLabelElement) {
-                                // sliderLabelElement.style.display = 'none';
-                        }
-                }
-
-		let u_buffer = new Uint8Array(buffer);
+                let u_buffer = new Uint8Array(buffer);
 		let f_buffer = new Float32Array(buffer);
 		let matrices = new Float32Array(vertexCount * 16);
 
@@ -549,8 +521,32 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                         }
 		};
-	},
-	processPlyBuffer: function (inputBuffer) {
+        },
+
+        updateQuality: function () {
+                const slider = document.getElementById("slider");
+                if (slider) {
+                        this.sliderValue = parseFloat(slider.value);
+                        if (typeof window !== 'undefined') {
+                                window.latestSliderValue = this.sliderValue;
+                        }
+                } else if (typeof window !== 'undefined' && typeof window.latestSliderValue === 'number') {
+                        this.sliderValue = window.latestSliderValue;
+                }
+                if (this.sortedIndexesLength > 0) {
+                        this.applyQuality();
+                }
+        },
+
+        applyQuality: function () {
+                if (!this.mesh || !this.mesh.geometry) return;
+                const factor = Math.max(1, parseFloat(this.sliderValue) || 1);
+                const desired = Math.floor(this.loadedVertexCount / factor);
+                const finalCount = Math.min(desired, this.sortedIndexesLength);
+                this.mesh.geometry.instanceCount = finalCount;
+        },
+
+        processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
 		// 10KB ought to be enough for a header...
 		const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 10));

@@ -50,6 +50,12 @@ document.addEventListener("DOMContentLoaded", function () {
         entity.setAttribute("position", `0 1.5 -2`);
         entity.setAttribute("two-hand-manipulation", "");
         document.querySelector("a-scene").appendChild(entity);
+        entity.addEventListener('loaded', () => {
+            window.gaussianComponent = entity.components['gaussian_splatting'];
+            if (window.gaussianComponent && typeof window.gaussianComponent.updateQuality === 'function') {
+                window.gaussianComponent.updateQuality();
+            }
+        });
 
         // Reattach slider listeners in case the element was recreated
         const slider = document.getElementById("slider");
