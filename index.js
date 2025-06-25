@@ -295,7 +295,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const sliderElement = document.getElementById("slider");
                 const sliderValueElement = document.getElementById("slider-value");
                 const sliderLabelElement = document.getElementById("slider-label");
-                let sliderValue = typeof latestSliderValue === 'number' ? latestSliderValue : 1;
+                let sliderValue =
+                        typeof window !== 'undefined' &&
+                        typeof window.latestSliderValue === 'number'
+                                ? window.latestSliderValue
+                                : 1;
                 if (sliderElement) {
                         const min = parseFloat(sliderElement.min);
                         const max = parseFloat(sliderElement.max);

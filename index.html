@@ -19,6 +19,14 @@
             z-index: 1;
             padding: 20px; /* 3 times bigger */
         }
+        #backButton {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 1;
+            padding: 10px;
+            display: none;
+        }
         html, body {
             height: 100%;
             margin: 0;
@@ -95,6 +103,7 @@
 
         <!-- Add a button to trigger file selection -->
         <button id="fileButton" style="position: fixed; z-index: 1;">Select .zip or .ply File</button>
+        <button id="backButton">Go Back</button>
         <div class="slider-container">
             <div id="slider-label">Quality factor:</div>
             <input type="range" min="1.0" max="6.0" step="0.5" value="5" id="slider">
@@ -143,21 +152,22 @@
         };
 
         // Store and update the latest slider value
-        let latestSliderValue;
+        // Expose on window so other scripts can always access it
+        window.latestSliderValue = window.latestSliderValue || 0;
 
         function updateSliderValue() {
             const slider = document.getElementById('slider');
             const sliderValue = document.getElementById('slider-value');
             const min = parseFloat(slider.min);
             const max = parseFloat(slider.max);
-            latestSliderValue = parseFloat(slider.value);
-            const percent = Math.round((latestSliderValue - min) / (max - min) * 100);
+            window.latestSliderValue = parseFloat(slider.value);
+            const percent = Math.round((window.latestSliderValue - min) / (max - min) * 100);
             sliderValue.innerText = percent + '%';
         }
 
         // Initialize and listen for slider changes
         const slider = document.getElementById('slider');
-        latestSliderValue = parseFloat(slider.value);
+        window.latestSliderValue = parseFloat(slider.value);
         updateSliderValue();
         slider.addEventListener('input', updateSliderValue);
         slider.addEventListener('change', updateSliderValue);

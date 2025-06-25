@@ -76,6 +76,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         bindGripEvents(this.leftHand, 'left');
         bindGripEvents(this.rightHand, 'right');
     },
+
     startTwoHand: function () {
         const leftObj = this.leftSource || this.leftController || this.leftHand;
         const rightObj = this.rightSource || this.rightController || this.rightHand;
