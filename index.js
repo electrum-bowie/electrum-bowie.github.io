@@ -10,7 +10,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
-                this.originalBuffers = [];
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
                 this.loadData(this.data.src);
         },
@@ -198,13 +197,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 		};
 		this.sortReady = true;
 	},
-        loadData: function (src) {
-                this.loadedVertexCount = 0;
-                this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-                this.worker.postMessage({ method: "clear" });
-                this.originalBuffers = [];
-                this.isCaching = true;
-                const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+	loadData: function (src) {
+		this.loadedVertexCount = 0;
+		this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
+		this.worker.postMessage({ method: "clear" });
+		const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 		fetch(src)
 			.then(async (data) => {
@@ -284,21 +281,17 @@ AFRAME.registerComponent("gaussian_splatting", {
 					if (isPly) {
 						concatenatedChunks = new Uint8Array(this.processPlyBuffer(concatenatedChunks.buffer));
 					}
-                                this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
-                                }
-                        })
-                        .finally(() => { this.isCaching = false; });
-        },
-        pushDataBuffer: function (buffer, vertexCount) {
-                if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
-                        vertexCount = 4096 * 4096 - this.loadedVertexCount;
-                }
-                if (vertexCount <= 0) {
-                        return;
-                }
-                if (this.isCaching) {
-                        this.originalBuffers.push(buffer.slice(0));
-                }
+					this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
+				}
+			});
+	}, 
+	pushDataBuffer: function (buffer, vertexCount) {
+		if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
+			vertexCount = 4096 * 4096 - this.loadedVertexCount;
+		}
+		if (vertexCount <= 0) {
+			return;
+		}
                 const sliderElement = document.getElementById("slider");
                 const sliderValueElement = document.getElementById("slider-value");
                 const sliderLabelElement = document.getElementById("slider-label");
@@ -452,18 +445,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
         },
         updateQuality: function () {
-                if (!this.originalBuffers || this.originalBuffers.length === 0) return;
-                this.loadedVertexCount = 0;
-                if (this.mesh && this.mesh.geometry) {
-                        this.mesh.geometry.instanceCount = 0;
-                }
-                this.worker.postMessage({ method: "clear" });
+                if (!this.data || !this.data.src) return;
+                this.centerAndScaleData.fill(0);
+                this.covAndColorData.fill(0);
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
-                for (const buf of this.originalBuffers) {
-                        this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
-                }
-                this.sortReady = true;
+                this.loadData(this.data.src);
         },
         getProjectionMatrix: function (camera) {
                 if (!camera) {
