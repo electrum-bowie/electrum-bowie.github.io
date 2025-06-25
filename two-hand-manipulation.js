@@ -35,9 +35,9 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 }
                 this.isInteracting = false;
             };
-            ['gripdown', 'gripclose', 'squeezestart'].forEach(evt =>
+            ['gripdown', 'gripclose', 'squeezestart', 'pinchstarted'].forEach(evt =>
                 controller.addEventListener(evt, onDown));
-            ['gripup', 'gripopen', 'squeezeend'].forEach(evt =>
+            ['gripup', 'gripopen', 'squeezeend', 'pinchended'].forEach(evt =>
                 controller.addEventListener(evt, onUp));
         };
 
