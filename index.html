@@ -143,21 +143,22 @@
         };
 
         // Store and update the latest slider value
-        let latestSliderValue;
+        // Expose on window so other scripts can always access it
+        window.latestSliderValue = window.latestSliderValue || 0;
 
         function updateSliderValue() {
             const slider = document.getElementById('slider');
             const sliderValue = document.getElementById('slider-value');
             const min = parseFloat(slider.min);
             const max = parseFloat(slider.max);
-            latestSliderValue = parseFloat(slider.value);
-            const percent = Math.round((latestSliderValue - min) / (max - min) * 100);
+            window.latestSliderValue = parseFloat(slider.value);
+            const percent = Math.round((window.latestSliderValue - min) / (max - min) * 100);
             sliderValue.innerText = percent + '%';
         }
 
         // Initialize and listen for slider changes
         const slider = document.getElementById('slider');
-        latestSliderValue = parseFloat(slider.value);
+        window.latestSliderValue = parseFloat(slider.value);
         updateSliderValue();
         slider.addEventListener('input', updateSliderValue);
         slider.addEventListener('change', updateSliderValue);
