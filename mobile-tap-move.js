@@ -6,22 +6,32 @@ AFRAME.registerComponent('mobile-tap-move', {
     init: function () {
         this.moveDirection = 0; // 1 for forward, -1 for backward, 0 for none
         this.currentSpeed = 0;
+        this.pointerCount = 0;
         this.onTap = this.onTap.bind(this);
+        this.onPointerDown = this.onPointerDown.bind(this);
+        this.onPointerUp = this.onPointerUp.bind(this);
 
-        if (AFRAME.utils.device.isMobile()) {
-            // Wait for canvas to be ready
-            if (this.el.sceneEl.canvas) {
-                this.el.sceneEl.canvas.addEventListener('touchstart', this.onTap);
-            } else {
-                this.el.sceneEl.addEventListener('render-target-loaded', () => {
-                    this.el.sceneEl.canvas.addEventListener('touchstart', this.onTap);
-                }, { once: true });
-            }
+        const addListeners = () => {
+            const canvas = this.el.sceneEl.canvas;
+            canvas.addEventListener('touchstart', this.onTap);
+            canvas.addEventListener('pointerdown', this.onPointerDown);
+            canvas.addEventListener('pointerup', this.onPointerUp);
+            canvas.addEventListener('pointercancel', this.onPointerUp);
+        };
+
+        if (this.el.sceneEl.canvas) {
+            addListeners();
+        } else {
+            this.el.sceneEl.addEventListener('render-target-loaded', addListeners, { once: true });
         }
     },
     remove: function () {
         if (this.el.sceneEl.canvas) {
-            this.el.sceneEl.canvas.removeEventListener('touchstart', this.onTap);
+            const canvas = this.el.sceneEl.canvas;
+            canvas.removeEventListener('touchstart', this.onTap);
+            canvas.removeEventListener('pointerdown', this.onPointerDown);
+            canvas.removeEventListener('pointerup', this.onPointerUp);
+            canvas.removeEventListener('pointercancel', this.onPointerUp);
         }
         this.moveDirection = 0;
         this.currentSpeed = 0;
@@ -40,6 +50,28 @@ AFRAME.registerComponent('mobile-tap-move', {
                 this.moveDirection = -1; // start backward
             } else {
                 this.moveDirection = 0; // stop
+            }
+        }
+    },
+    onPointerDown: function (evt) {
+        this.pointerCount++;
+        this.handlePointerGesture();
+    },
+    onPointerUp: function () {
+        this.pointerCount = Math.max(0, this.pointerCount - 1);
+    },
+    handlePointerGesture: function () {
+        if (this.pointerCount === 1) {
+            if (this.moveDirection === 0) {
+                this.moveDirection = 1;
+            } else {
+                this.moveDirection = 0;
+            }
+        } else if (this.pointerCount >= 2) {
+            if (this.moveDirection === 0) {
+                this.moveDirection = -1;
+            } else {
+                this.moveDirection = 0;
             }
         }
     },
