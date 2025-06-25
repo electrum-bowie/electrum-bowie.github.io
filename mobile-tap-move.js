@@ -6,7 +6,7 @@ AFRAME.registerComponent('mobile-tap-move', {
     init: function () {
         this.moveDirection = 0; // 1 for forward, -1 for backward, 0 for none
         this.currentSpeed = 0;
-        this.pointerCount = 0;
+        this.pointerIds = new Set();
         this.onTap = this.onTap.bind(this);
         this.onPointerDown = this.onPointerDown.bind(this);
         this.onPointerUp = this.onPointerUp.bind(this);
@@ -35,6 +35,7 @@ AFRAME.registerComponent('mobile-tap-move', {
         }
         this.moveDirection = 0;
         this.currentSpeed = 0;
+        this.pointerIds.clear();
     },
     onTap: function (evt) {
         evt.preventDefault();
@@ -55,21 +56,23 @@ AFRAME.registerComponent('mobile-tap-move', {
     },
     onPointerDown: function (evt) {
         if (evt.pointerType === 'touch') return;
-        this.pointerCount++;
+        this.pointerIds.add(evt.pointerId);
         this.handlePointerGesture();
     },
     onPointerUp: function (evt) {
         if (evt.pointerType === 'touch') return;
-        this.pointerCount = Math.max(0, this.pointerCount - 1);
+        this.pointerIds.delete(evt.pointerId);
+        this.handlePointerGesture();
     },
     handlePointerGesture: function () {
-        if (this.pointerCount === 1) {
+        const count = this.pointerIds.size;
+        if (count === 1) {
             if (this.moveDirection === 0) {
                 this.moveDirection = 1;
             } else {
                 this.moveDirection = 0;
             }
-        } else if (this.pointerCount >= 2) {
+        } else if (count >= 2) {
             if (this.moveDirection === 0) {
                 this.moveDirection = -1;
             } else {
