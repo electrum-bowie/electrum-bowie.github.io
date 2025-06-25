@@ -44,6 +44,18 @@ document.addEventListener("DOMContentLoaded", function () {
         entity.setAttribute("two-hand-manipulation", "");
         document.querySelector("a-scene").appendChild(entity);
 
+        // Reattach slider listeners in case the element was recreated
+        const slider = document.getElementById("slider");
+        if (slider) {
+            slider.removeEventListener('input', updateSliderValue);
+            slider.removeEventListener('change', updateSliderValue);
+            slider.addEventListener('input', updateSliderValue);
+            slider.addEventListener('change', updateSliderValue);
+            if (typeof updateSliderValue === 'function') {
+                updateSliderValue();
+            }
+        }
+
         // Keep the file selection button visible even after a splat is loaded
         // so that users can load additional files without refreshing.
         // fileButton.style.display = "none";
