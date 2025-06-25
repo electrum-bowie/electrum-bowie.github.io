@@ -3,6 +3,10 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const sceneEl = this.el.sceneEl;
         this.leftController = sceneEl.querySelector('[oculus-touch-controls][hand=left]');
         this.rightController = sceneEl.querySelector('[oculus-touch-controls][hand=right]');
+        this.leftHand = sceneEl.querySelector('[hand-controls][hand=left]');
+        this.rightHand = sceneEl.querySelector('[hand-controls][hand=right]');
+        this.leftSource = null;
+        this.rightSource = null;
         this.leftGripPressed = false;
         this.rightGripPressed = false;
         this.isInteracting = false;
@@ -11,33 +15,42 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.startMidpoint = new THREE.Vector3();
         this.startPosition = new THREE.Vector3();
 
-        if (this.leftController) {
-            this.leftController.addEventListener('gripdown', () => {
-                this.leftGripPressed = true;
+        const bindGripEvents = (controller, hand) => {
+            if (!controller) return;
+            controller.addEventListener('gripdown', () => {
+                if (hand === 'left') {
+                    this.leftGripPressed = true;
+                    this.leftSource = controller;
+                } else {
+                    this.rightGripPressed = true;
+                    this.rightSource = controller;
+                }
                 this.tryStart();
             });
-            this.leftController.addEventListener('gripup', () => {
-                this.leftGripPressed = false;
+            controller.addEventListener('gripup', () => {
+                if (hand === 'left') {
+                    this.leftGripPressed = false;
+                } else {
+                    this.rightGripPressed = false;
+                }
                 this.isInteracting = false;
             });
-        }
-        if (this.rightController) {
-            this.rightController.addEventListener('gripdown', () => {
-                this.rightGripPressed = true;
-                this.tryStart();
-            });
-            this.rightController.addEventListener('gripup', () => {
-                this.rightGripPressed = false;
-                this.isInteracting = false;
-            });
-        }
+        };
+
+        bindGripEvents(this.leftController, 'left');
+        bindGripEvents(this.rightController, 'right');
+        bindGripEvents(this.leftHand, 'left');
+        bindGripEvents(this.rightHand, 'right');
     },
     tryStart: function () {
         if (this.leftGripPressed && this.rightGripPressed && !this.isInteracting) {
+            const leftObj = this.leftSource || this.leftController || this.leftHand;
+            const rightObj = this.rightSource || this.rightController || this.rightHand;
+            if (!leftObj || !rightObj) { return; }
             const leftPos = new THREE.Vector3();
             const rightPos = new THREE.Vector3();
-            this.leftController.object3D.getWorldPosition(leftPos);
-            this.rightController.object3D.getWorldPosition(rightPos);
+            leftObj.object3D.getWorldPosition(leftPos);
+            rightObj.object3D.getWorldPosition(rightPos);
 
             this.startDistance = leftPos.distanceTo(rightPos);
             this.startScale.copy(this.el.object3D.scale);
@@ -48,10 +61,13 @@ AFRAME.registerComponent('two-hand-manipulation', {
     },
     tick: function () {
         if (!this.isInteracting) return;
+        const leftObj = this.leftSource || this.leftController || this.leftHand;
+        const rightObj = this.rightSource || this.rightController || this.rightHand;
+        if (!leftObj || !rightObj) { return; }
         const leftPos = new THREE.Vector3();
         const rightPos = new THREE.Vector3();
-        this.leftController.object3D.getWorldPosition(leftPos);
-        this.rightController.object3D.getWorldPosition(rightPos);
+        leftObj.object3D.getWorldPosition(leftPos);
+        rightObj.object3D.getWorldPosition(rightPos);
 
         const currentDistance = leftPos.distanceTo(rightPos);
         if (this.startDistance === 0) return;
