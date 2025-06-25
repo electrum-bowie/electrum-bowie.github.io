@@ -316,15 +316,14 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 vertexCount = vertexCount / (isNaN(sliderValue) ? 1 : sliderValue);
 
-                // Keep the quality slider visible after loading so users can
-                // continue adjusting the value for subsequent loads.
+                // Hide the quality slider after a splat has loaded
                 if (sliderElement) {
-                        // sliderElement.style.display = 'none';
+                        sliderElement.style.display = 'none';
                         if (sliderValueElement) {
-                                // sliderValueElement.style.display = 'none';
+                                sliderValueElement.style.display = 'none';
                         }
                         if (sliderLabelElement) {
-                                // sliderLabelElement.style.display = 'none';
+                                sliderLabelElement.style.display = 'none';
                         }
                 }
 
