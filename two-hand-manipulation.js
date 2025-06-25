@@ -16,6 +16,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
             if (hc && hc.includes('hand: left')) this.leftHand = el;
             if (hc && hc.includes('hand: right')) this.rightHand = el;
         });
+
         this.leftSource = null;
         this.rightSource = null;
         this.leftGripPressed = false;

@@ -8,7 +8,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     async function handleFile(file) {
         if (!file) return;
-
+        
         let blob = file;
         const nameLower = file.name.toLowerCase();
         if (nameLower.endsWith(".zip")) {
@@ -44,6 +44,25 @@ document.addEventListener("DOMContentLoaded", function () {
         entity.setAttribute("two-hand-manipulation", "");
         document.querySelector("a-scene").appendChild(entity);
 
+        // Store references so quality can be reapplied on slider change
+        window.currentSplatEntity = entity;
+        window.currentSplatUrl = url;
+
+        // Reattach slider listeners in case the element was recreated
+        const slider = document.getElementById("slider");
+        if (slider) {
+            slider.removeEventListener('input', updateSliderValue);
+            slider.removeEventListener('change', updateSliderValue);
+            slider.removeEventListener('change', applySplatQuality);
+            slider.addEventListener('input', updateSliderValue);
+            slider.addEventListener('change', updateSliderValue);
+            slider.addEventListener('change', applySplatQuality);
+
+            if (typeof updateSliderValue === 'function') {
+                updateSliderValue();
+            }
+        }
+
         // Keep the file selection button visible even after a splat is loaded
         // so that users can load additional files without refreshing.
         // fileButton.style.display = "none";
@@ -51,6 +70,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     fileInput.addEventListener("change", (event) => {
         const file = event.target.files[0];
+        if (file) console.log('Loading...');
         handleFile(file);
     });
 });
