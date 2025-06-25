@@ -431,10 +431,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 			this.sortReady = false;
 			let camera_mtx = this.getModelViewMatrix().elements;
 			let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
-			this.worker.postMessage({
-				method: "sort",
-				view: view.buffer,
-			}, [view.buffer]);
+                        const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
+                        this.worker.postMessage({
+                                method: "sort",
+                                view: view.buffer,
+                                scale: globalScale,
+                        }, [view.buffer]);
 		}
 	},
 	getProjectionMatrix: function (camera) {
@@ -472,7 +474,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 	createWorker: function (self) {
 		let matrices = undefined;
 
-		const sortSplats = function sortSplats(matrices, view) {
+                const sortSplats = function sortSplats(matrices, view, scaleFactor = 1.0) {
 			const vertexCount = matrices.length / 16;
 			let threshold = -0.001;
 
@@ -491,7 +493,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 						+ view[3]);
 
 				// Skip behind of camera and small, transparent splat
-				if (depth < 0 && matrices[i * 16 + 15] > threshold * depth) {
+                                if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
 					depthList[validCount] = depth;
 					validIndexList[validCount] = i;
 					validCount++;
@@ -530,16 +532,17 @@ AFRAME.registerComponent("gaussian_splatting", {
 					matrices = resized;
 				}
 			}
-			if (e.data.method == "sort") {
-				if (matrices === undefined) {
-					const sortedIndexes = new Uint32Array(1);
-					self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
-				} else {
-					const view = new Float32Array(e.data.view);
-					const sortedIndexes = sortSplats(matrices, view);
-					self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
-				}
-			}
+                        if (e.data.method == "sort") {
+                                if (matrices === undefined) {
+                                        const sortedIndexes = new Uint32Array(1);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                } else {
+                                        const view = new Float32Array(e.data.view);
+                                        const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
+                                        const sortedIndexes = sortSplats(matrices, view, scaleFactor);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                }
+                        }
 		};
 	},
 	processPlyBuffer: function (inputBuffer) {
