@@ -446,11 +446,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 			matrices: matrices.buffer
 		}, [matrices.buffer]);
 	},
-        tick: function (time, timeDelta) {
-                if (this.sortReady) {
-                        this.sortReady = false;
-                        let camera_mtx = this.getModelViewMatrix().elements;
-                        let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
+	tick: function (time, timeDelta) {
+		if (this.sortReady) {
+			this.sortReady = false;
+			let camera_mtx = this.getModelViewMatrix().elements;
+			let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
                         const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
                         this.worker.postMessage({
                                 method: "sort",
