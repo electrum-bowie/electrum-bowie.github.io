@@ -144,17 +144,6 @@
 
         // Store and update the latest slider value
         let latestSliderValue;
-        // Reload the currently loaded splat when the quality slider changes
-        function applySplatQuality() {
-            const entity = window.currentSplatEntity;
-            const url = window.currentSplatUrl;
-            if (entity && url && entity.components && entity.components.gaussian_splatting) {
-                const comp = entity.components.gaussian_splatting;
-                if (typeof comp.loadData === 'function') {
-                    comp.loadData(url);
-                }
-            }
-        }
 
         function updateSliderValue() {
             const slider = document.getElementById('slider');
@@ -172,7 +161,6 @@
         updateSliderValue();
         slider.addEventListener('input', updateSliderValue);
         slider.addEventListener('change', updateSliderValue);
-        slider.addEventListener('change', applySplatQuality);
 
         const sliderValueElement = document.getElementById('slider-value');
         const sliderLabelElement = document.getElementById('slider-label');
