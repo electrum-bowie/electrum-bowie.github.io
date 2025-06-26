@@ -197,21 +197,51 @@
         // Attempt to enable WebXR Space Warp when entering VR
         document.querySelector('a-scene').addEventListener('enter-vr', function () {
             const renderer = this.renderer;
-            if (!renderer || !renderer.xr) return;
-            const session = renderer.xr.getSession && renderer.xr.getSession();
-            if (session && session.updateRenderState) {
+            if (!renderer || !renderer.xr) {
+                console.warn('WebXR renderer not available');
+                return;
+            }
+            const xrManager = renderer.xr;
+
+            const enableSpaceWarp = async () => {
+                const session = xrManager.getSession && xrManager.getSession();
+                if (!session) {
+                    console.warn('No XR session found');
+                    return;
+                }
+
+                if (!session.updateRenderState) {
+                    console.warn('updateRenderState not supported');
+                    return;
+                }
+
                 try {
-                    const state = session.renderState;
-                    if ('spaceWarp' in state) {
-                        session.updateRenderState({ spaceWarp: { enabled: true } });
-                        if (typeof session.updateTargetFrameRate === 'function') {
-                            session.updateTargetFrameRate(45);
-                        }
-                        console.log('Space Warp enabled');
-                    }
+                    session.updateRenderState({ spaceWarp: { enabled: true } });
+                    console.log('Requested Space Warp');
                 } catch (e) {
                     console.warn('Space Warp not supported', e);
                 }
+
+                if (typeof session.updateTargetFrameRate === 'function' && session.supportedFrameRates) {
+                    try {
+                        const rates = await session.supportedFrameRates;
+                        console.log('Supported frame rates:', rates);
+                        if (Array.isArray(rates) && rates.includes(45)) {
+                            await session.updateTargetFrameRate(45);
+                            console.log('Target frame rate set to 45');
+                        }
+                    } catch (e) {
+                        console.warn('updateTargetFrameRate failed', e);
+                    }
+                }
+
+                xrManager.removeEventListener('sessionstart', enableSpaceWarp);
+            };
+
+            if (xrManager.getSession && xrManager.getSession()) {
+                enableSpaceWarp();
+            } else {
+                xrManager.addEventListener('sessionstart', enableSpaceWarp);
             }
         });
     </script>
