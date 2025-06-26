@@ -213,7 +213,12 @@
 
             ['rightHand', 'leftHand'].forEach(id => {
                 const el = document.getElementById(id);
-                if (el) el.object3D.position.set(0, 0, 0);
+                if (!el) return;
+                el.object3D.position.set(0, 0, 0);
+                el.object3D.rotation.set(0, 0, 0);
+                // Tracked controllers disable matrixAutoUpdate. Manually update
+                // the matrix so child meshes reset correctly.
+                el.object3D.updateMatrix();
             });
         });
     </script>
