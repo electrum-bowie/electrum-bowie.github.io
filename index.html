@@ -197,12 +197,20 @@
         const sceneEl = document.querySelector('a-scene');
         const rig = document.getElementById('rig');
         const cam = rig.querySelector('[camera]');
-        const setCameraHeight = () => {
-            if (cam) cam.object3D.position.set(0, sceneEl.is('vr-mode') ? 0 : 1.6, 0);
-        };
-        sceneEl.addEventListener('enter-vr', setCameraHeight);
+
+        const baseHeight = cam ? cam.object3D.position.y : 1.6;
+
+        sceneEl.addEventListener('enter-vr', () => {
+            if (!cam) return;
+            rig.object3D.position.y += baseHeight;
+            cam.object3D.position.set(0, 0, 0);
+        });
+
         sceneEl.addEventListener('exit-vr', () => {
-            setCameraHeight();
+            if (!cam) return;
+            cam.object3D.position.set(0, baseHeight, 0);
+            rig.object3D.position.y -= baseHeight;
+
             ['rightHand', 'leftHand'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.object3D.position.set(0, 0, 0);
