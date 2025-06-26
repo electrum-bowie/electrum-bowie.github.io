@@ -2,7 +2,8 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
+    <!-- Use the latest master build of A-Frame to pull in bug fixes -->
+    <script src="https://cdn.jsdelivr.net/gh/aframevr/aframe@master/dist/aframe-master.min.js"></script>
     <script src="index.js"></script>
     <script src="dist/jszip.js"></script>
     <script src="input.js"></script>
@@ -214,10 +215,10 @@
             ['rightHand', 'leftHand'].forEach(id => {
                 const el = document.getElementById(id);
                 if (!el) return;
-                el.object3D.position.set(0, 0, 0);
-                el.object3D.rotation.set(0, 0, 0);
-                // Tracked controllers disable matrixAutoUpdate. Manually update
-                // the matrix so child meshes reset correctly.
+                // Avoid forcing a zero offset which can leave hands under the
+                // user when a session resumes. Just update the matrix so any
+                // child meshes reset correctly after the controllers stop
+                // updating themselves.
                 el.object3D.updateMatrix();
             });
         });
