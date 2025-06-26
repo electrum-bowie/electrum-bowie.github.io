@@ -12,6 +12,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
+                this.currentPixelRatio = pixelRatio;
                 this.frameTimes = [];
                 this.targetFps = this.data.targetFps;
                 this.originalBuffers = [];
@@ -471,15 +472,25 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (this.frameTimes.length < 2) return;
                 const fps = (this.frameTimes.length - 1) / ((now - this.frameTimes[0]) / 1000);
                 const target = this.targetFps;
-                let ratio = this.renderer.getPixelRatio();
-                if (fps < target * 0.8 && ratio > 0.1) {
-                        ratio = Math.max(0.1, ratio * 0.75);
-                        this.renderer.setPixelRatio(ratio);
-                        this.renderer.xr.setFramebufferScaleFactor(ratio);
+                let ratio = this.currentPixelRatio || this.renderer.getPixelRatio();
+                let changed = false;
+                if (fps < target * 0.8 && ratio > 0.35) {
+                        ratio = Math.max(0.35, ratio * 0.75);
+                        changed = true;
                 } else if (fps > target && ratio < window.devicePixelRatio) {
                         ratio = Math.min(window.devicePixelRatio, ratio * 1.1);
+                        changed = true;
+                }
+                if (changed) {
+                        this.currentPixelRatio = ratio;
                         this.renderer.setPixelRatio(ratio);
-                        this.renderer.xr.setFramebufferScaleFactor(ratio);
+                        const session = this.renderer.xr.getSession && this.renderer.xr.getSession();
+                        if (session && typeof XRWebGLLayer !== 'undefined') {
+                                const gl = this.renderer.getContext();
+                                session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl, { framebufferScaleFactor: ratio }) });
+                        } else {
+                                this.renderer.xr.setFramebufferScaleFactor(ratio);
+                        }
                 }
         },
         updateQuality: function () {
