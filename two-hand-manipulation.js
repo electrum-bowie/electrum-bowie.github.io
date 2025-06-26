@@ -28,6 +28,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.rightPinchPos = new THREE.Vector3();
         this.leftUsingPinch = false;
         this.rightUsingPinch = false;
+        this.twoHandStartTime = 0;
+        this.delayScaleRotate = false;
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
@@ -128,6 +130,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.el.object3D.getWorldQuaternion(this.startQuaternion);
         this.mode = 'two';
         this.isInteracting = true;
+        this.twoHandStartTime = performance.now();
+        this.delayScaleRotate = this.leftUsingPinch && this.rightUsingPinch;
     },
     startSingleHand: function (hand) {
         const obj = hand === 'left'
@@ -221,28 +225,51 @@ AFRAME.registerComponent('two-hand-manipulation', {
 
         const scaleFactor = currentDistance / this.startDistance;
         const newScale = this.startScale.clone().multiplyScalar(scaleFactor);
-        this.el.object3D.scale.copy(newScale);
 
         const midpoint = leftPos.clone().add(rightPos).multiplyScalar(0.5);
+
+        const now = performance.now();
+        const delayActive = this.delayScaleRotate && (now - this.twoHandStartTime < 250);
+
+        if (!delayActive) {
+            if (this.delayScaleRotate) {
+                this.delayScaleRotate = false;
+                this.startDistance = currentDistance;
+                this.startScale.copy(this.el.object3D.scale);
+                this.startMidpoint.copy(midpoint);
+                this.el.object3D.getWorldPosition(this.startPosition);
+                this.startOffset.copy(this.startPosition).sub(midpoint);
+                this.startVector.copy(rightPos).sub(leftPos).normalize();
+                this.el.object3D.getWorldQuaternion(this.startQuaternion);
+            }
+            this.el.object3D.scale.copy(newScale);
+        }
 
         const currentVector = rightPos.clone().sub(leftPos).normalize();
         const rotQuat = new THREE.Quaternion().setFromUnitVectors(this.startVector, currentVector);
 
-        const offset = this.startOffset.clone().multiplyScalar(scaleFactor).applyQuaternion(rotQuat);
-        const newWorldPos = midpoint.clone().add(offset);
+        let offset = this.startOffset.clone();
+        let newWorldPos;
+        if (!delayActive) {
+            offset.multiplyScalar(scaleFactor).applyQuaternion(rotQuat);
+            newWorldPos = midpoint.clone().add(offset);
+        } else {
+            newWorldPos = midpoint.clone().add(offset);
+        }
         if (this.el.object3D.parent) {
             this.el.object3D.parent.worldToLocal(newWorldPos);
         }
         this.el.object3D.position.copy(newWorldPos);
-
-        const worldQuat = this.startQuaternion.clone();
-        worldQuat.premultiply(rotQuat);
-        if (this.el.object3D.parent) {
-            const parentQuat = new THREE.Quaternion();
-            this.el.object3D.parent.getWorldQuaternion(parentQuat);
-            parentQuat.invert();
-            worldQuat.premultiply(parentQuat);
+        if (!delayActive) {
+            const worldQuat = this.startQuaternion.clone();
+            worldQuat.premultiply(rotQuat);
+            if (this.el.object3D.parent) {
+                const parentQuat = new THREE.Quaternion();
+                this.el.object3D.parent.getWorldQuaternion(parentQuat);
+                parentQuat.invert();
+                worldQuat.premultiply(parentQuat);
+            }
+            this.el.object3D.quaternion.copy(worldQuat);
         }
-        this.el.object3D.quaternion.copy(worldQuat);
     }
 });
