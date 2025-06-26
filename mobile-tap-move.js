@@ -102,6 +102,6 @@ AFRAME.registerComponent('mobile-tap-move', {
         camera.getWorldDirection(dir);
         const d = this.currentSpeed * deltaSec * this.moveDirection;
         dir.multiplyScalar(d);
-        camera.el.object3D.position.add(dir);
+        this.el.object3D.position.add(dir);
     }
 });

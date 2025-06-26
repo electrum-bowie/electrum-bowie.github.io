@@ -96,16 +96,16 @@
 </head>
 <body>
     <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking;">
-        <a-entity oculus-touch-controls="hand: right"></a-entity>
-        <a-entity oculus-touch-controls="hand: left"></a-entity>
-        <a-entity hand-controls="hand: right; handModelStyle: lowPoly" hand-tracking-controls="hand: right; modelStyle: mesh"></a-entity>
-        <a-entity hand-controls="hand: left; handModelStyle: lowPoly" hand-tracking-controls="hand: left; modelStyle: mesh"></a-entity>
-        <a-entity camera position="0 1.6 0" look-controls mobile-tap-move></a-entity>
+        <a-entity id="rig" mobile-tap-move>
+            <a-entity camera position="0 1.6 0" look-controls></a-entity>
+            <a-entity id="rightHand" oculus-touch-controls="hand: right" hand-controls="hand: right; handModelStyle: lowPoly"
+                      hand-tracking-controls="hand: right; modelStyle: mesh" simple-fly="speed: -0.025"></a-entity>
+            <a-entity id="leftHand" oculus-touch-controls="hand: left" hand-controls="hand: left; handModelStyle: lowPoly"
+                      hand-tracking-controls="hand: left; modelStyle: mesh"></a-entity>
+        </a-entity>
 
         <!-- Add a container to hold the dynamically created entity -->
         <div id="entityContainer"></div>
-
-        <a-entity oculus-touch-controls="hand: right" simple-fly="speed: -0.025"></a-entity>
 
         <!-- Add a button to trigger file selection -->
         <button id="fileButton" style="position: fixed; z-index: 1;">Select .zip or .ply File</button>
@@ -193,6 +193,21 @@
         new MutationObserver(syncSliderVisibility).observe(slider, {
             attributes: true,
             attributeFilter: ['style']
+        });
+
+        const sceneEl = document.querySelector('a-scene');
+        const rig = document.getElementById('rig');
+        const cam = rig.querySelector('[camera]');
+        const setCameraHeight = () => {
+            if (cam) cam.object3D.position.set(0, sceneEl.is('vr-mode') ? 0 : 1.6, 0);
+        };
+        sceneEl.addEventListener('enter-vr', setCameraHeight);
+        sceneEl.addEventListener('exit-vr', () => {
+            setCameraHeight();
+            ['rightHand', 'leftHand'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.object3D.position.set(0, 0, 0);
+            });
         });
     </script>
 </body>
