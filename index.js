@@ -3,6 +3,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 src: { type: 'string', default: "train.splat" },
                 pixelRatio: { type: 'number', default: 0.75 },
                 xrPixelRatio: { type: 'number', default: 1.0 },
+                sortThreshold: { type: 'number', default: 0.01 },
         },
         init: function () {
                 // aframe-specific data
@@ -190,15 +191,17 @@ AFRAME.registerComponent("gaussian_splatting", {
 			),
 		);
 
-		this.worker.onmessage = (e) => {
-			let indexes = new Uint32Array(e.data.sortedIndexes);
-			mesh.geometry.attributes.splatIndex.set(indexes);
-			mesh.geometry.attributes.splatIndex.needsUpdate = true;
-			mesh.geometry.instanceCount = indexes.length;
-			this.sortReady = true;
-		};
-		this.sortReady = true;
-	},
+                this.worker.onmessage = (e) => {
+                        let indexes = new Uint32Array(e.data.sortedIndexes);
+                        mesh.geometry.attributes.splatIndex.set(indexes);
+                        mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                        mesh.geometry.instanceCount = indexes.length;
+                        this.sortReady = true;
+                };
+                this.sortReady = true;
+                this.prevDir = new Float32Array([NaN, NaN, NaN]);
+                this.prevScale = NaN;
+        },
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
@@ -446,17 +449,33 @@ AFRAME.registerComponent("gaussian_splatting", {
 		}, [matrices.buffer]);
 	},
         tick: function (time, timeDelta) {
-                if (this.sortReady) {
-                        this.sortReady = false;
-                        let camera_mtx = this.getModelViewMatrix().elements;
-                        let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
-                        const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
-                        this.worker.postMessage({
-                                method: "sort",
-                                view: view.buffer,
-                                scale: globalScale,
-                        }, [view.buffer]);
+                if (!this.sortReady) return;
+
+                let camera_mtx = this.getModelViewMatrix().elements;
+                let dir = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10]]);
+                let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
+                const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
+
+                const threshold = this.data.sortThreshold;
+                let changed = false;
+                if (isNaN(this.prevScale) || Math.abs(globalScale - this.prevScale) > threshold) {
+                        changed = true;
                 }
+                for (let i = 0; i < 3 && !changed; i++) {
+                        if (isNaN(this.prevDir[i]) || Math.abs(dir[i] - this.prevDir[i]) > threshold) {
+                                changed = true;
+                        }
+                }
+                if (!changed) return;
+
+                this.prevScale = globalScale;
+                this.prevDir.set(dir);
+                this.sortReady = false;
+                this.worker.postMessage({
+                        method: "sort",
+                        view: view.buffer,
+                        scale: globalScale,
+                }, [view.buffer]);
         },
         updateQuality: function () {
                 if (this.isCaching) {

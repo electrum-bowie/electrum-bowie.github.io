@@ -8,3 +8,9 @@ Hand tracking is also supported through WebXR. This site uses `webxr="optionalFe
 
 The `gaussian_splatting` component now performs a small screen-space depth pass each frame.
 Fully covered splats are skipped automatically, reducing overdraw without flickering.
+
+### Sorting Threshold
+
+`gaussian_splatting` only re-sorts splats when the camera direction or scale changes
+by more than `sortThreshold` (default `0.01`). Increase this value if VR head jitter
+causes unnecessary updates.
