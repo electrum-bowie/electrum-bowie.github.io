@@ -251,6 +251,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
 
         const scaleFactor = currentDistance / this.startDistance;
         const newScale = this.startScale.clone().multiplyScalar(scaleFactor);
+        this.el.object3D.scale.copy(newScale);
 
         const currentVector = rightPos.clone().sub(leftPos).normalize();
         const rotQuat = new THREE.Quaternion().setFromUnitVectors(this.startVector, currentVector);
