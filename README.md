@@ -8,8 +8,6 @@ The `space-warp` option attempts to enable WebXR Space Warp on compatible browse
 
 ## Performance Tips
 
-Rendering millions of splats can strain mobile GPUs. The viewer now
-includes an optional dynamic pixel ratio feature that automatically lowers
-render resolution when frame rate drops. It targets 60&nbsp;fps by default.
-Use the `autoPixelRatio` and `targetFps` properties on the
-`gaussian_splatting` component to adjust or disable this behaviour.
+Rendering millions of splats can strain mobile GPUs. Adjust the render
+resolution using the `pixelRatio` and `xrPixelRatio` properties on the
+`gaussian_splatting` component.
