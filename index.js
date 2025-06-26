@@ -11,6 +11,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
                 this.originalBuffers = [];
+                this.needsQualityUpdate = false;
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
                 this.loadData(this.data.src);
         },
@@ -287,7 +288,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
                                 }
                         })
-                        .finally(() => { this.isCaching = false; });
+                        .finally(() => {
+                                this.isCaching = false;
+                                if (this.needsQualityUpdate) {
+                                        this.needsQualityUpdate = false;
+                                        this.updateQuality();
+                                }
+                        });
         },
         pushDataBuffer: function (buffer, vertexCount) {
                 if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
@@ -355,7 +362,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 f_buffer[8 * i + 3 + 1],
                                 f_buffer[8 * i + 3 + 2]
                         );
-                        const maxScale = 3.0;
+                        const maxScale = 9.0;
                         const minScale = 0.002;
                         if (Math.max(scale.x, scale.y, scale.z) > maxScale ||
                                 Math.max(scale.x, scale.y, scale.z) < minScale) {
@@ -452,6 +459,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
         },
         updateQuality: function () {
+                if (this.isCaching) {
+                        if (this.originalBuffers && this.originalBuffers.length > 0) {
+                                this.needsQualityUpdate = true;
+                        }
+                        return;
+                }
                 if (!this.originalBuffers || this.originalBuffers.length === 0) return;
                 this.loadedVertexCount = 0;
                 if (this.mesh && this.mesh.geometry) {
