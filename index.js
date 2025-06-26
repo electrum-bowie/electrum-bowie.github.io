@@ -1,732 +1,425 @@
 AFRAME.registerComponent("gaussian_splatting", {
-        schema: {
-                src: { type: 'string', default: "train.splat" },
-                pixelRatio: { type: 'number', default: 0.5 },
-                xrPixelRatio: { type: 'number', default: 0.9 },
-        },
-        init: function () {
-                // aframe-specific data
-                const pixelRatio = this.data.pixelRatio < 0 ? window.devicePixelRatio : this.data.pixelRatio;
-                const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
-                this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
-                this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
-                this.originalBuffers = [];
-                this.needsQualityUpdate = false;
-                this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
-                this.loadData(this.data.src);
-        },
-	// also works from vanilla three.js
-	initGL: function (camera, object, renderer) {
-		this.camera = camera;
-		this.object = object;
-		this.renderer = renderer;
-		this.textureReady = false;
-		this.object.frustumCulled = false;
-
-		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
-		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
-		this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
-		this.centerAndScaleTexture.needsUpdate = true;
-		this.covAndColorTexture = new THREE.DataTexture(this.covAndColorData, 4096, 4096, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
-		this.covAndColorTexture.internalFormat = "RGBA32UI";
-		this.covAndColorTexture.needsUpdate = true;
-
-		let splatIndexArray = new Uint32Array(4096 * 4096);
-		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
-		splatIndexes.setUsage(THREE.DynamicDrawUsage);
-
-		const baseGeometry = new THREE.BufferGeometry();
-		const positionsArray = new Float32Array(6 * 3);
-		const positions = new THREE.BufferAttribute(positionsArray, 3);
-		baseGeometry.setAttribute('position', positions);
-		positions.setXYZ(2, -2.0, 2.0, 0.0);
-		positions.setXYZ(1, 2.0, 2.0, 0.0);
-		positions.setXYZ(0, -2.0, -2.0, 0.0);
-		positions.setXYZ(5, -2.0, -2.0, 0.0);
-		positions.setXYZ(4, 2.0, 2.0, 0.0);
-		positions.setXYZ(3, 2.0, -2.0, 0.0);
-		positions.needsUpdate = true;
-
-		const geometry = new THREE.InstancedBufferGeometry().copy(baseGeometry);
-		geometry.setAttribute('splatIndex', splatIndexes);
-		geometry.instanceCount = 1;
-
-		const material = new THREE.ShaderMaterial({
-			uniforms: {
-				viewport: { value: new Float32Array([1980, 1080]) }, // Dummy. will be overwritten
-				focal: { value: 1000.0 }, // Dummy. will be overwritten
-				centerAndScaleTexture: { value: this.centerAndScaleTexture },
-				covAndColorTexture: { value: this.covAndColorTexture },
-				gsProjectionMatrix: { value: this.getProjectionMatrix() },
-				gsModelViewMatrix: { value: this.getModelViewMatrix() },
-			},
-			vertexShader: `
-				precision highp usampler2D;
-
-				out vec4 vColor;
-				out vec2 vPosition;
-				uniform vec2 viewport;
-				uniform float focal;
-				uniform mat4 gsProjectionMatrix;
-				uniform mat4 gsModelViewMatrix;
-
-				attribute uint splatIndex;
-				uniform sampler2D centerAndScaleTexture;
-				uniform usampler2D covAndColorTexture;
-
-				vec2 unpackInt16(in uint value) {
-					int v = int(value);
-					int v0 = v >> 16;
-					int v1 = (v & 0xFFFF);
-					if((v & 0x8000) != 0)
-						v1 |= 0xFFFF0000;
-					return vec2(float(v1), float(v0));
-				}
-
-				void main () {
-					ivec2 texPos = ivec2(splatIndex%uint(4096),splatIndex/uint(4096));
-					vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
-
-					vec4 center = vec4(centerAndScaleData.xyz, 1);
-					vec4 camspace = gsModelViewMatrix * center;
-					vec4 pos2d = gsProjectionMatrix * camspace;
-
-					float bounds = 2.0 * pos2d.w;
-					if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds
-						|| pos2d.y < -bounds || pos2d.y > bounds) {
-						gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
-						return;
-					}
-
-					uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
-					vec2 cov3D_M11_M12 = unpackInt16(covAndColorData.x) * centerAndScaleData.w;
-					vec2 cov3D_M13_M22 = unpackInt16(covAndColorData.y) * centerAndScaleData.w;
-					vec2 cov3D_M23_M33 = unpackInt16(covAndColorData.z) * centerAndScaleData.w;
-					mat3 Vrk = mat3(
-						cov3D_M11_M12.x, cov3D_M11_M12.y, cov3D_M13_M22.x,
-						cov3D_M11_M12.y, cov3D_M13_M22.y, cov3D_M23_M33.x,
-						cov3D_M13_M22.x, cov3D_M23_M33.x, cov3D_M23_M33.y
-					);
-
-					mat3 J = mat3(
-						focal / camspace.z, 0., -(focal * camspace.x) / (camspace.z * camspace.z), 
-						0., -focal / camspace.z, (focal * camspace.y) / (camspace.z * camspace.z), 
-						0., 0., 0.
-					);
-
-					mat3 W = transpose(mat3(gsModelViewMatrix));
-					mat3 T = W * J;
-					mat3 cov = transpose(T) * Vrk * T;
-
-					vec2 vCenter = vec2(pos2d) / pos2d.w;
-
-					float diagonal1 = cov[0][0] + 0.3;
-					float offDiagonal = cov[0][1];
-					float diagonal2 = cov[1][1] + 0.3;
-
-					float mid = 0.5 * (diagonal1 + diagonal2);
-					float radius = length(vec2((diagonal1 - diagonal2) / 2.0, offDiagonal));
-					float lambda1 = mid + radius;
-					float lambda2 = max(mid - radius, 0.1);
-					vec2 diagonalVector = normalize(vec2(offDiagonal, lambda1 - diagonal1));
-					vec2 v1 = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector;
-					vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
-
-					uint colorUint = covAndColorData.w;
-					vColor = vec4(
-						float(colorUint & uint(0xFF)) / 255.0,
-						float((colorUint >> uint(8)) & uint(0xFF)) / 255.0,
-						float((colorUint >> uint(16)) & uint(0xFF)) / 255.0,
-						float(colorUint >> uint(24)) / 255.0
-					);
-					vPosition = position.xy;
-
-					gl_Position = vec4(
-						vCenter 
-							+ position.x * v2 / viewport * 2.0 
-							+ position.y * v1 / viewport * 2.0, pos2d.z / pos2d.w, 1.0);
-				}
-				`,
-			fragmentShader: `
-				in vec4 vColor;
-				in vec2 vPosition;
-
-				void main () {
-					float A = -dot(vPosition, vPosition);
-					if (A < -4.0) discard;
-					float B = exp(A) * vColor.a;
-					gl_FragColor = vec4(vColor.rgb, B);
-				}
-			`,
-			blending: THREE.CustomBlending,
-			blendSrcAlpha: THREE.OneFactor,
-			depthTest: true,
-			depthWrite: false,
-			transparent: true
-		});
-
-		material.onBeforeRender = ((renderer, scene, camera, geometry, object, group) => {
-			let projectionMatrix = this.getProjectionMatrix(camera);
-			mesh.material.uniforms.gsProjectionMatrix.value = projectionMatrix;
-			mesh.material.uniforms.gsModelViewMatrix.value = this.getModelViewMatrix(camera);
-
-			let viewport = new THREE.Vector4();
-			renderer.getCurrentViewport(viewport);
-			const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-			material.uniforms.viewport.value[0] = viewport.z;
-			material.uniforms.viewport.value[1] = viewport.w;
-			material.uniforms.focal.value = focal;
-		});
-
-		mesh = new THREE.Mesh(geometry, material);
-		mesh.frustumCulled = false;
-		this.object.add(mesh);
-
-		this.worker = new Worker(
-			URL.createObjectURL(
-				new Blob(["(", this.createWorker.toString(), ")(self)"], {
-					type: "application/javascript",
-				}),
-			),
-		);
-
-		this.worker.onmessage = (e) => {
-			let indexes = new Uint32Array(e.data.sortedIndexes);
-			mesh.geometry.attributes.splatIndex.set(indexes);
-			mesh.geometry.attributes.splatIndex.needsUpdate = true;
-			mesh.geometry.instanceCount = indexes.length;
-			this.sortReady = true;
-		};
-		this.sortReady = true;
-	},
-        loadData: function (src) {
-                this.loadedVertexCount = 0;
-                this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-                this.worker.postMessage({ method: "clear" });
-                this.originalBuffers = [];
-                this.isCaching = true;
-                const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-		fetch(src)
-			.then(async (data) => {
-				const reader = data.body.getReader();
-
-				let bytesDownloaded = 0;
-				let bytesProcesses = 0;
-				let _totalDownloadBytes = data.headers.get("Content-Length");
-				let totalDownloadBytes = _totalDownloadBytes ? parseInt(_totalDownloadBytes) : undefined;
-
-				const chunks = [];
-				const start = Date.now();
-				let lastReportedProgress = 0;
-				let isPly = true;
-
-				while (true) {
-					try {
-						const { value, done } = await reader.read();
-						if (done) {
-							console.log("Process Completed.");
-							break;
-						}
-						bytesDownloaded += value.length;
-						if (totalDownloadBytes != undefined) {
-							const mbps = (bytesDownloaded / 1024 / 1024) / ((Date.now() - start) / 1000);
-							const percent = bytesDownloaded / totalDownloadBytes * 100;
-							if (percent - lastReportedProgress > 1) {
-                                                        console.log("progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
-								lastReportedProgress = percent;
-							}
-						} else {
-                                                console.log("progress:", bytesDownloaded, ", unknown total");
-						}
-						chunks.push(value);
-						if (!this.textureReady &&
-							this.renderer.properties.get(this.centerAndScaleTexture) &&
-							this.renderer.properties.get(this.covAndColorTexture)) {
-							this.textureReady = true;
-						}
-
-						const bytesRemains = bytesDownloaded - bytesProcesses;
-						if (!isPly && this.textureReady && bytesRemains > this.rowLength) {
-							let vertexCount = Math.floor(bytesRemains / this.rowLength);
-							const concatenatedChunksbuffer = new Uint8Array(bytesRemains);
-							let offset = 0;
-							for (const chunk of chunks) {
-								concatenatedChunksbuffer.set(chunk, offset);
-								offset += chunk.length;
-							}
-							chunks.length = 0;
-							if (bytesRemains > vertexCount * this.rowLength) {
-								const extra_data = new Uint8Array(bytesRemains - vertexCount * this.rowLength);
-								extra_data.set(concatenatedChunksbuffer.subarray(bytesRemains - extra_data.length, bytesRemains), 0);
-								chunks.push(extra_data);
-							}
-							const buffer = new Uint8Array(vertexCount * this.rowLength);
-							buffer.set(concatenatedChunksbuffer.subarray(0, buffer.byteLength), 0);
-							this.pushDataBuffer(buffer.buffer, vertexCount);
-							bytesProcesses += vertexCount * this.rowLength;
-						}
-					} catch (error) {
-						console.error(error);
-						break;
-					}
-				}
-
-				if (bytesDownloaded - bytesProcesses > 0) {
-					// Concatenate the chunks into a single Uint8Array
-					let concatenatedChunks = new Uint8Array(
-						chunks.reduce((acc, chunk) => acc + chunk.length, 0)
-					);
-					let offset = 0;
-					for (const chunk of chunks) {
-						concatenatedChunks.set(chunk, offset);
-						offset += chunk.length;
-					}
-					if (isPly) {
-						concatenatedChunks = new Uint8Array(this.processPlyBuffer(concatenatedChunks.buffer));
-					}
-                                this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
-                                }
-                        })
-                        .finally(() => {
-                                this.isCaching = false;
-                                if (this.needsQualityUpdate) {
-                                        this.needsQualityUpdate = false;
-                                        this.updateQuality();
-                                }
-                        });
-        },
-        pushDataBuffer: function (buffer, vertexCount) {
-                if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
-                        vertexCount = 4096 * 4096 - this.loadedVertexCount;
-                }
-                if (vertexCount <= 0) {
-                        return;
-                }
-                if (this.isCaching) {
-                        this.originalBuffers.push(buffer.slice(0));
-                }
-                const sliderElement = document.getElementById("slider");
-                const sliderValueElement = document.getElementById("slider-value");
-                const sliderLabelElement = document.getElementById("slider-label");
-                let sliderValue = 1;
-                if (sliderElement) {
-                        const min = parseFloat(sliderElement.min);
-                        const max = parseFloat(sliderElement.max);
-                        
-                        sliderValue = parseFloat(sliderElement.value);
-                        
-                        window.latestSliderValue = sliderValue;
-                        
-                        sliderValue = min + max - sliderValue;
-                }
-                else if (typeof window !== 'undefined' &&
-                        typeof window.latestSliderValue === 'number') {
-                        sliderValue = window.latestSliderValue;
-                }
-
-                vertexCount = vertexCount / (isNaN(sliderValue) ? 1 : sliderValue);
-
-                // Keep the quality slider visible after loading so users can
-                // continue adjusting the value for subsequent loads.
-                if (sliderElement) {
-                        // sliderElement.style.display = 'none';
-                        if (sliderValueElement) {
-                                // sliderValueElement.style.display = 'none';
-                        }
-                        if (sliderLabelElement) {
-                                // sliderLabelElement.style.display = 'none';
-                        }
-                }
-
-		let u_buffer = new Uint8Array(buffer);
-		let f_buffer = new Float32Array(buffer);
-		let matrices = new Float32Array(vertexCount * 16);
-
-		const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
-		const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
-		for (let i = 0; i < vertexCount; i++) {
-			let quat = new THREE.Quaternion(
-				(u_buffer[32 * i + 28 + 1] - 128) / 128.0,
-				(u_buffer[32 * i + 28 + 2] - 128) / 128.0,
-				-(u_buffer[32 * i + 28 + 3] - 128) / 128.0,
-				(u_buffer[32 * i + 28 + 0] - 128) / 128.0,
-			);
-			let center = new THREE.Vector3(
-				f_buffer[8 * i + 0],
-				f_buffer[8 * i + 1],
-				-f_buffer[8 * i + 2]
-			);
-                        let scale = new THREE.Vector3(
-                                f_buffer[8 * i + 3 + 0],
-                                f_buffer[8 * i + 3 + 1],
-                                f_buffer[8 * i + 3 + 2]
-                        );
-                        const maxScale = 9.0;
-                        const minScale = 0.002;
-                        if (Math.max(scale.x, scale.y, scale.z) > maxScale ||
-                                Math.max(scale.x, scale.y, scale.z) < minScale) {
-                                continue;
-                        }
-			let mtx = new THREE.Matrix4();
-			mtx.makeRotationFromQuaternion(quat);
-			mtx.transpose();
-			mtx.scale(scale);
-			let mtx_t = mtx.clone()
-			mtx.transpose();
-			mtx.premultiply(mtx_t);
-			mtx.setPosition(center);
-
-			let cov_indexes = [0, 1, 2, 5, 6, 10];
-			let max_value = 0.0;
-			for (let j = 0; j < cov_indexes.length; j++) {
-				if (Math.abs(mtx.elements[cov_indexes[j]]) > max_value) {
-					max_value = Math.abs(mtx.elements[cov_indexes[j]]);
-				}
-			}
-
-			let destOffset = this.loadedVertexCount * 4 + i * 4;
-			this.centerAndScaleData[destOffset + 0] = center.x;
-			this.centerAndScaleData[destOffset + 1] = center.y;
-			this.centerAndScaleData[destOffset + 2] = center.z;
-			this.centerAndScaleData[destOffset + 3] = max_value / 32767.0;
-
-			destOffset = this.loadedVertexCount * 8 + i * 4 * 2;
-			for (let j = 0; j < cov_indexes.length; j++) {
-				covAndColorData_int16[destOffset + j] = parseInt(mtx.elements[cov_indexes[j]] * 32767.0 / max_value);
-			}
-
-			// RGBA
-			destOffset = this.loadedVertexCount * 16 + (i * 4 + 3) * 4;
-			covAndColorData_uint8[destOffset + 0] = u_buffer[32 * i + 24 + 0];
-			covAndColorData_uint8[destOffset + 1] = u_buffer[32 * i + 24 + 1];
-			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
-			covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
-
-			// Store scale and transparent to remove splat in sorting process
-			mtx.elements[15] = Math.max(scale.x, scale.y, scale.z) * u_buffer[32 * i + 24 + 3] / 255.0;
-
-			for (let j = 0; j < 16; j++) {
-				matrices[i * 16 + j] = mtx.elements[j];
-			}
-		}
-
-		const gl = this.renderer.getContext();
-		while (vertexCount > 0) {
-			let width = 0;
-			let height = 0;
-			let xoffset = (this.loadedVertexCount % 4096);
-			let yoffset = Math.floor(this.loadedVertexCount / 4096);
-			if (this.loadedVertexCount % 4096 != 0) {
-				width = Math.min(4096, xoffset + vertexCount) - xoffset;
-				height = 1;
-			} else if (Math.floor(vertexCount / 4096) > 0) {
-				width = 4096;
-				height = Math.floor(vertexCount / 4096);
-			} else {
-				width = vertexCount % 4096;
-				height = 1;
-			}
-
-			const centerAndScaleTextureProperties = this.renderer.properties.get(this.centerAndScaleTexture);
-			gl.bindTexture(gl.TEXTURE_2D, centerAndScaleTextureProperties.__webglTexture);
-			gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA, gl.FLOAT, this.centerAndScaleData, this.loadedVertexCount * 4);
-
-			const covAndColorTextureProperties = this.renderer.properties.get(this.covAndColorTexture);
-			gl.bindTexture(gl.TEXTURE_2D, covAndColorTextureProperties.__webglTexture);
-			gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, this.covAndColorData, this.loadedVertexCount * 4);
-
-			this.loadedVertexCount += width * height;
-			vertexCount -= width * height;
-		}
-
-		this.worker.postMessage({
-			method: "push",
-			matrices: matrices.buffer
-		}, [matrices.buffer]);
-	},
-        tick: function (time, timeDelta) {
-                if (this.sortReady) {
-                        this.sortReady = false;
-                        let camera_mtx = this.getModelViewMatrix().elements;
-                        let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
-                        const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
-                        this.worker.postMessage({
-                                method: "sort",
-                                view: view.buffer,
-                                scale: globalScale,
-                        }, [view.buffer]);
-                }
-        },
-        updateQuality: function () {
-                if (this.isCaching) {
-                        if (this.originalBuffers && this.originalBuffers.length > 0) {
-                                this.needsQualityUpdate = true;
-                        }
-                        return;
-                }
-                if (!this.originalBuffers || this.originalBuffers.length === 0) return;
-                this.loadedVertexCount = 0;
-                if (this.mesh && this.mesh.geometry) {
-                        this.mesh.geometry.instanceCount = 0;
-                }
-                this.worker.postMessage({ method: "clear" });
-                this.centerAndScaleTexture.needsUpdate = true;
-                this.covAndColorTexture.needsUpdate = true;
-                for (const buf of this.originalBuffers) {
-                        this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
-                }
-                this.sortReady = true;
-        },
-        getProjectionMatrix: function (camera) {
-                if (!camera) {
-                        camera = this.camera;
-                }
-                let mtx = camera.projectionMatrix.clone();
-		mtx.elements[4] *= -1;
-		mtx.elements[5] *= -1;
-		mtx.elements[6] *= -1;
-		mtx.elements[7] *= -1;
-		return mtx;
-	},
-	getModelViewMatrix: function (camera) {
-		if (!camera) {
-			camera = this.camera;
-		}
-		const viewMatrix = camera.matrixWorld.clone();
-		viewMatrix.elements[1] *= -1.0;
-		viewMatrix.elements[4] *= -1.0;
-		viewMatrix.elements[6] *= -1.0;
-		viewMatrix.elements[9] *= -1.0;
-		viewMatrix.elements[13] *= -1.0;
-		const mtx = this.object.matrixWorld.clone();
-		mtx.invert();
-		mtx.elements[1] *= -1.0;
-		mtx.elements[4] *= -1.0;
-		mtx.elements[6] *= -1.0;
-		mtx.elements[9] *= -1.0;
-		mtx.elements[13] *= -1.0;
-		mtx.multiply(viewMatrix);
-		mtx.invert();
-		return mtx;
-	},
-	createWorker: function (self) {
-		let matrices = undefined;
-
-                const sortSplats = function sortSplats(matrices, view, scaleFactor = 1.0) {
-			const vertexCount = matrices.length / 16;
-			let threshold = -0.001;
-
-			let maxDepth = -Infinity;
-			let minDepth = Infinity;
-			let depthList = new Float32Array(vertexCount);
-			let sizeList = new Int32Array(depthList.buffer);
-			let validIndexList = new Int32Array(vertexCount);
-			let validCount = 0;
-			for (let i = 0; i < vertexCount; i++) {
-				// Sign of depth is reversed
-				let depth =
-					(view[0] * matrices[i * 16 + 12]
-						+ view[1] * matrices[i * 16 + 13]
-						+ view[2] * matrices[i * 16 + 14]
-						+ view[3]);
-
-				// Skip behind of camera and small, transparent splat
-                                if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
-					depthList[validCount] = depth;
-					validIndexList[validCount] = i;
-					validCount++;
-					if (depth > maxDepth) maxDepth = depth;
-					if (depth < minDepth) minDepth = depth;
-				};
-			}
-
-			// This is a 16 bit single-pass counting sort
-			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
-			let counts0 = new Uint32Array(256 * 256);
-			for (let i = 0; i < validCount; i++) {
-				sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
-				counts0[sizeList[i]]++;
-			}
-			let starts0 = new Uint32Array(256 * 256);
-			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-			let depthIndex = new Uint32Array(validCount);
-			for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
-
-			return depthIndex;
-		};
-
-		self.onmessage = (e) => {
-			if (e.data.method == "clear") {
-				matrices = undefined;
-			}
-			if (e.data.method == "push") {
-				new_matrices = new Float32Array(e.data.matrices);
-				if (matrices === undefined) {
-					matrices = new_matrices;
-				} else {
-					resized = new Float32Array(matrices.length + new_matrices.length);
-					resized.set(matrices);
-					resized.set(new_matrices, matrices.length);
-					matrices = resized;
-				}
-			}
-                        if (e.data.method == "sort") {
-                                if (matrices === undefined) {
-                                        const sortedIndexes = new Uint32Array(1);
-                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
-                                } else {
-                                        const view = new Float32Array(e.data.view);
-                                        const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, scaleFactor);
-                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
-                                }
-                        }
-		};
-	},
-	processPlyBuffer: function (inputBuffer) {
-		const ubuf = new Uint8Array(inputBuffer);
-		// 10KB ought to be enough for a header...
-		const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 10));
-		const header_end = "end_header\n";
-		const header_end_index = header.indexOf(header_end);
-		if (header_end_index < 0)
-			throw new Error("Unable to read .ply file header");
-		const vertexCount = parseInt(/element vertex (\d+)\n/.exec(header)[1]);
-		console.log("Vertex Count", vertexCount);
-		let row_offset = 0,
-			offsets = {},
-			types = {};
-		const TYPE_MAP = {
-			double: "getFloat64",
-			int: "getInt32",
-			uint: "getUint32",
-			float: "getFloat32",
-			short: "getInt16",
-			ushort: "getUint16",
-			uchar: "getUint8",
-		};
-		for (let prop of header
-			.slice(0, header_end_index)
-			.split("\n")
-			.filter((k) => k.startsWith("property "))) {
-			const [p, type, name] = prop.split(" ");
-			const arrayType = TYPE_MAP[type] || "getInt8";
-			types[name] = arrayType;
-			offsets[name] = row_offset;
-			row_offset += parseInt(arrayType.replace(/[^\d]/g, "")) / 8;
-		}
-
-		let dataView = new DataView(
-			inputBuffer,
-			header_end_index + header_end.length,
-		);
-		let row = 0;
-		const attrs = new Proxy(
-			{},
-			{
-				get(target, prop) {
-					if (!types[prop]) throw new Error(prop + " not found");
-					return dataView[types[prop]](
-						row * row_offset + offsets[prop],
-						true,
-					);
-				},
-			},
-		);
-
-		console.time("calculate importance");
-		let sizeList = new Float32Array(vertexCount);
-		let sizeIndex = new Uint32Array(vertexCount);
-		for (row = 0; row < vertexCount; row++) {
-			sizeIndex[row] = row;
-			if (!types["scale_0"]) continue;
-			const size =
-				Math.exp(attrs.scale_0) *
-				Math.exp(attrs.scale_1) *
-				Math.exp(attrs.scale_2);
-			const opacity = 1 / (1 + Math.exp(-attrs.opacity));
-			sizeList[row] = size * opacity;
-		}
-		console.timeEnd("calculate importance");
-
-		console.time("sort");
-		sizeIndex.sort((b, a) => sizeList[a] - sizeList[b]);
-		console.timeEnd("sort");
-
-		// 6*4 + 4 + 4 = 8*4
-		// XYZ - Position (Float32)
-		// XYZ - Scale (Float32)
-		// RGBA - colors (uint8)
-		// IJKL - quaternion/rot (uint8)
-		const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-		const buffer = new ArrayBuffer(rowLength * vertexCount);
-
-		console.time("build buffer");
-		for (let j = 0; j < vertexCount; j++) {
-			row = sizeIndex[j];
-
-			const position = new Float32Array(buffer, j * rowLength, 3);
-			const scales = new Float32Array(buffer, j * rowLength + 4 * 3, 3);
-			const rgba = new Uint8ClampedArray(
-				buffer,
-				j * rowLength + 4 * 3 + 4 * 3,
-				4,
-			);
-			const rot = new Uint8ClampedArray(
-				buffer,
-				j * rowLength + 4 * 3 + 4 * 3 + 4,
-				4,
-			);
-
-			if (types["scale_0"]) {
-				const qlen = Math.sqrt(
-					attrs.rot_0 ** 2 +
-					attrs.rot_1 ** 2 +
-					attrs.rot_2 ** 2 +
-					attrs.rot_3 ** 2,
-				);
-
-				rot[0] = (attrs.rot_0 / qlen) * 128 + 128;
-				rot[1] = (attrs.rot_1 / qlen) * 128 + 128;
-				rot[2] = (attrs.rot_2 / qlen) * 128 + 128;
-				rot[3] = (attrs.rot_3 / qlen) * 128 + 128;
-
-				scales[0] = Math.exp(attrs.scale_0);
-				scales[1] = Math.exp(attrs.scale_1);
-				scales[2] = Math.exp(attrs.scale_2);
-			} else {
-				scales[0] = 0.01;
-				scales[1] = 0.01;
-				scales[2] = 0.01;
-
-				rot[0] = 255;
-				rot[1] = 0;
-				rot[2] = 0;
-				rot[3] = 0;
-			}
-
-			position[0] = attrs.x;
-			position[1] = attrs.y;
-			position[2] = attrs.z;
-
-			if (types["f_dc_0"]) {
-				const SH_C0 = 0.28209479177387814;
-				rgba[0] = (0.5 + SH_C0 * attrs.f_dc_0) * 255;
-				rgba[1] = (0.5 + SH_C0 * attrs.f_dc_1) * 255;
-				rgba[2] = (0.5 + SH_C0 * attrs.f_dc_2) * 255;
-			} else {
-				rgba[0] = attrs.red;
-				rgba[1] = attrs.green;
-				rgba[2] = attrs.blue;
-			}
-			if (types["opacity"]) {
-				rgba[3] = (1 / (1 + Math.exp(-attrs.opacity))) * 255;
-			} else {
-				rgba[3] = 255;
-			}
-		}
-		console.timeEnd("build buffer");
-		return buffer;
-	}
+  schema: {
+    src: { type: 'string', default: "train.splat" },
+    pixelRatio: { type: 'number', default: 0.5 },
+    xrPixelRatio: { type: 'number', default: 0.9 }
+  },
+  init: function () {
+    const pr = this.data.pixelRatio < 0 ? window.devicePixelRatio : this.data.pixelRatio;
+    const xrpr = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
+    this.el.sceneEl.renderer.setPixelRatio(pr);
+    this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrpr);
+    this.originalBuffers = [];
+    this.needsQualityUpdate = false;
+    this.initGL(
+      this.el.sceneEl.camera.el.components.camera.camera,
+      this.el.object3D,
+      this.el.sceneEl.renderer
+    );
+    this.loadData(this.data.src);
+  },
+  initGL: function (camera, object, renderer) {
+    this.camera = camera;
+    this.object = object;
+    this.renderer = renderer;
+    this.textureReady = false;
+    this.object.frustumCulled = false;
+    this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
+    this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
+    this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
+    this.centerAndScaleTexture.needsUpdate = true;
+    this.covAndColorTexture = new THREE.DataTexture(this.covAndColorData, 4096, 4096, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
+    this.covAndColorTexture.internalFormat = "RGBA32UI";
+    this.covAndColorTexture.needsUpdate = true;
+    const size = 256;
+    this.occlusionFBO = new THREE.WebGLRenderTarget(size, size, { format: THREE.RedFormat, type: THREE.FloatType });
+    let idxArray = new Uint32Array(4096 * 4096);
+    const idxAttr = new THREE.InstancedBufferAttribute(idxArray, 1, false);
+    idxAttr.setUsage(THREE.DynamicDrawUsage);
+    const baseGeo = new THREE.BufferGeometry();
+    const posArr = new Float32Array(6 * 3);
+    const posAttr = new THREE.BufferAttribute(posArr, 3);
+    baseGeo.setAttribute('position', posAttr);
+    posAttr.setXYZ(0, -2, -2, 0);
+    posAttr.setXYZ(1,  2,  2, 0);
+    posAttr.setXYZ(2, -2,  2, 0);
+    posAttr.setXYZ(3,  2, -2, 0);
+    posAttr.setXYZ(4,  2,  2, 0);
+    posAttr.setXYZ(5, -2, -2, 0);
+    posAttr.needsUpdate = true;
+    const instGeo = new THREE.InstancedBufferGeometry().copy(baseGeo);
+    instGeo.setAttribute('splatIndex', idxAttr);
+    instGeo.instanceCount = 1;
+    const commonUniforms = {
+      viewport: { value: new Float32Array([1980, 1080]) },
+      focal:    { value: 1000.0 },
+      centerAndScaleTexture: { value: this.centerAndScaleTexture },
+      covAndColorTexture:    { value: this.covAndColorTexture },
+      gsProjectionMatrix:    { value: this.getProjectionMatrix() },
+      gsModelViewMatrix:     { value: this.getModelViewMatrix() }
+    };
+    const vert = `
+precision highp usampler2D;
+out vec4 vColor;
+out vec2 vPosition;
+uniform vec2 viewport;
+uniform float focal;
+uniform mat4 gsProjectionMatrix;
+uniform mat4 gsModelViewMatrix;
+attribute uint splatIndex;
+uniform sampler2D centerAndScaleTexture;
+uniform usampler2D covAndColorTexture;
+vec2 unpackInt16(in uint value){
+  int v=int(value);
+  int v0=v>>16;
+  int v1=(v&0xFFFF);
+  if((v&0x8000)!=0)v1|=0xFFFF0000;
+  return vec2(float(v1),float(v0));
+}
+void main(){
+  ivec2 tp=ivec2(splatIndex%uint(4096),splatIndex/uint(4096));
+  vec4 cs=texelFetch(centerAndScaleTexture,tp,0);
+  vec4 c=vec4(cs.xyz,1);
+  vec4 cam=gsModelViewMatrix*c;
+  vec4 p=gsProjectionMatrix*cam;
+  float b=2.0*p.w;
+  if(p.z<-p.w||p.x<-b||p.x>b||p.y<-b||p.y>b){
+    gl_Position=vec4(0,0,2,1);
+    return;
+  }
+  uvec4 cd=texelFetch(covAndColorTexture,tp,0);
+  vec2 c1=unpackInt16(cd.x)*cs.w;
+  vec2 c2=unpackInt16(cd.y)*cs.w;
+  vec2 c3=unpackInt16(cd.z)*cs.w;
+  mat3 V=mat3(c1.x,c1.y,c3.x,c1.y,c3.y,c3.x,c3.x,c3.x,c3.y);
+  mat3 J=mat3(focal/cam.z,0.,-focal*cam.x/(cam.z*cam.z),0.,-focal/cam.z,focal*cam.y/(cam.z*cam.z),0.,0.,0.);
+  mat3 T=transpose(mat3(gsModelViewMatrix))*J;
+  mat3 cov=transpose(T)*V*T;
+  vec2 vc=vec2(p)/p.w;
+  float d1=cov[0][0]+0.3;
+  float od=cov[0][1];
+  float d2=cov[1][1]+0.3;
+  float mid=0.5*(d1+d2);
+  float rad=length(vec2((d1-d2)/2.0,od));
+  float l1=mid+rad;
+  float l2=max(mid-rad,0.1);
+  vec2 dv=normalize(vec2(od,l1-d1));
+  vec2 v1=min(sqrt(2.0*l1),1024.0)*dv;
+  vec2 v2=min(sqrt(2.0*l2),1024.0)*vec2(dv.y,-dv.x);
+  uint cu=cd.w;
+  vColor=vec4(float(cu&uint(0xFF))/255.,float((cu>>uint(8))&uint(0xFF))/255.,float((cu>>uint(16))&uint(0xFF))/255.,float(cu>>uint(24))/255.);
+  vPosition=position.xy;
+  gl_Position=vec4(vc+position.x*v2/viewport*2.0+position.y*v1/viewport*2.0,p.z/p.w,1);
+}`;
+    const frag = `
+in vec4 vColor;
+in vec2 vPosition;
+void main(){
+  float A=-dot(vPosition,vPosition);
+  if(A<-4.0)discard;
+  float B=exp(A)*vColor.a;
+  gl_FragColor=vec4(vColor.rgb,B);
+}`;
+    this.coverageMaterial = new THREE.ShaderMaterial({
+      uniforms: Object.assign({}, commonUniforms),
+      vertexShader: vert,
+      fragmentShader: `
+in vec4 vColor;
+void main(){
+  gl_FragColor = vec4(vColor.a,0,0,0);
+}`
+    });
+    this.mainMaterial = new THREE.ShaderMaterial({
+      uniforms: Object.assign({}, commonUniforms, {
+        occlusionTex: { value: this.occlusionFBO.texture },
+        occlThreshold: { value: 0.99 }
+      }),
+      vertexShader: vert.replace(
+        "void main(){",
+        `out vec2 vCenter;
+uniform sampler2D occlusionTex;
+uniform float occlThreshold;
+void main(){
+  vCenter = vec2((gl_Position.x/gl_Position.w)*0.5+0.5,(gl_Position.y/gl_Position.w)*0.5+0.5);
+  if(texture(occlusionTex,vCenter).r>=occlThreshold){gl_Position=vec4(2,2,2,1);return;}`
+      ),
+      fragmentShader: frag,
+      blending: THREE.CustomBlending,
+      blendSrcAlpha: THREE.OneFactor,
+      depthTest: true,
+      depthWrite: false,
+      transparent: true
+    });
+    const mesh = new THREE.Mesh(instGeo, this.mainMaterial);
+    mesh.frustumCulled = false;
+    this.mesh = mesh;
+    this.object.add(mesh);
+    this.worker = new Worker(URL.createObjectURL(new Blob(["(", this.createWorker.toString(), ")(self)"], { type: "application/javascript" })));
+    this.worker.onmessage = (e) => {
+      const a = new Uint32Array(e.data.sortedIndexes);
+      mesh.geometry.attributes.splatIndex.set(a);
+      mesh.geometry.attributes.splatIndex.needsUpdate = true;
+      mesh.geometry.instanceCount = a.length;
+      this.sortReady = true;
+    };
+    this.sortReady = true;
+  },
+  loadData: function (src) {
+    this.loadedVertexCount = 0;
+    this.rowLength = 3*4+3*4+4+4;
+    this.worker.postMessage({ method: "clear" });
+    this.originalBuffers = [];
+    this.isCaching = true;
+    fetch(src).then(async data => {
+      const reader = data.body.getReader();
+      let bytesDownloaded=0,bytesProcessed=0,chunks=[];const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+      const total = data.headers.get("Content-Length");
+      while(true){
+        const {value,done}=await reader.read();
+        if(done)break;
+        bytesDownloaded+=value.length;
+        chunks.push(value);
+        if(!this.textureReady&&this.renderer.properties.get(this.centerAndScaleTexture)&&this.renderer.properties.get(this.covAndColorTexture))this.textureReady=true;
+        const remains=bytesDownloaded-bytesProcessed;
+        if(this.textureReady&&remains>this.rowLength){
+          const vc=Math.floor(remains/this.rowLength);
+          const buf=new Uint8Array(vc*this.rowLength);
+          let off=0;
+          const cat=new Uint8Array(remains);
+          let o2=0;
+          for(const c of chunks){cat.set(c,o2);o2+=c.length;}
+          chunks=[];
+          buf.set(cat.subarray(0,buf.length),0);
+          bytesProcessed+=buf.length;
+          this.pushDataBuffer(buf.buffer,vc);
+        }
+      }
+      const rem=bytesDownloaded-bytesProcessed;
+      if(rem>0){
+        let cat=new Uint8Array(rem),o=0;
+        for(const c of chunks){cat.set(c,o);o+=c.length;}
+        this.pushDataBuffer(this.processPlyBuffer(cat.buffer),Math.floor(cat.byteLength/this.rowLength));
+      }
+    }).finally(()=>{
+      this.isCaching=false;
+      if(this.needsQualityUpdate){this.needsQualityUpdate=false;this.updateQuality();}
+    });
+  },
+  pushDataBuffer: function(buffer,vc){
+    if(this.loadedVertexCount+vc>4096*4096)vc=4096*4096-this.loadedVertexCount;
+    if(vc<=0)return;
+    if(this.isCaching)this.originalBuffers.push(buffer.slice(0));
+    const u8=new Uint8Array(buffer);
+    const f32=new Float32Array(buffer);
+    const mats=new Float32Array(vc*16);
+    const csc=this.centerAndScaleData;
+    const cc=new Uint8Array(this.covAndColorData.buffer);
+    const ci=new Int16Array(this.covAndColorData.buffer);
+    let added=0;
+    for(let i=0;i<vc;i++){
+      const q=new THREE.Quaternion(
+        (u8[32*i+29]-128)/128,(u8[32*i+30]-128)/128,-(u8[32*i+31]-128)/128,(u8[32*i+28]-128)/128
+      );
+      const cen=new THREE.Vector3(f32[8*i],f32[8*i+1],-f32[8*i+2]);
+      const sc=new THREE.Vector3(f32[8*i+3],f32[8*i+4],f32[8*i+5]);
+      const maxS=Math.max(sc.x,sc.y,sc.z);
+      if(maxS>9||maxS<0.002)continue;
+      const m=new THREE.Matrix4();
+      m.makeRotationFromQuaternion(q);
+      m.transpose();
+      m.scale(sc);
+      const mt=m.clone().transpose();
+      m.premultiply(mt);
+      m.setPosition(cen);
+      const idxs=[0,1,2,5,6,10];
+      let mv=0;
+      for(const j of idxs)mv=Math.max(mv,Math.abs(m.elements[j]));
+      const dst1=this.loadedVertexCount*4+added*4;
+      csc[dst1]=cen.x;csc[dst1+1]=cen.y;csc[dst1+2]=cen.z;csc[dst1+3]=mv/32767;
+      const dst2=this.loadedVertexCount*8+added*8;
+      for(let j=0;j<6;j++)ci[dst2+j]=parseInt(m.elements[idxs[j]]*32767/mv);
+      const dst3=this.loadedVertexCount*16+(added*4+3)*4;
+      cc[dst3]=u8[32*i+24];cc[dst3+1]=u8[32*i+25];cc[dst3+2]=u8[32*i+26];cc[dst3+3]=u8[32*i+27];
+      m.elements[15]=maxS*(u8[32*i+27]/255);
+      for(let j=0;j<16;j++)mats[added*16+j]=m.elements[j];
+      added++;
+    }
+    const gl=this.renderer.getContext();
+    let remain=added;
+    while(remain>0){
+      const x=this.loadedVertexCount%4096;
+      const y=Math.floor(this.loadedVertexCount/4096);
+      let w,h;
+      if(x!==0){
+        w=Math.min(4096,x+remain)-x;h=1;
+      } else if(Math.floor(remain/4096)>0){
+        w=4096;h=Math.floor(remain/4096);
+      } else {
+        w=remain%4096;h=1;
+      }
+      const prop1=this.renderer.properties.get(this.centerAndScaleTexture);
+      gl.bindTexture(gl.TEXTURE_2D,prop1.__webglTexture);
+      gl.texSubImage2D(gl.TEXTURE_2D,0,x,y,w,h,THREE.RGBA,THREE.FLOAT,this.centerAndScaleData,this.loadedVertexCount*4);
+      const prop2=this.renderer.properties.get(this.covAndColorTexture);
+      gl.bindTexture(gl.TEXTURE_2D,prop2.__webglTexture);
+      gl.texSubImage2D(gl.TEXTURE_2D,0,x,y,w,h,THREE.RGBA_INTEGER,THREE.UNSIGNED_INT,this.covAndColorData,this.loadedVertexCount*4);
+      this.loadedVertexCount+=w*h;
+      remain-=w*h;
+    }
+    this.worker.postMessage({ method:"push", matrices:mats.buffer }, [mats.buffer]);
+  },
+  tick: function () {
+    if (this.sortReady) {
+      this.sortReady = false;
+      const cm = this.getModelViewMatrix().elements;
+      const view = new Float32Array([cm[2],cm[6],cm[10],cm[14]]);
+      const scale = Math.max(this.object.scale.x,this.object.scale.y,this.object.scale.z);
+      this.worker.postMessage({ method:"sort", view:view.buffer, scale }, [view.buffer]);
+    }
+    this.renderer.setRenderTarget(this.occlusionFBO);
+    this.renderer.clear();
+    this.mesh.material = this.coverageMaterial;
+    this.renderer.render(this.mesh, this.camera);
+    this.renderer.setRenderTarget(null);
+    this.mesh.material = this.mainMaterial;
+    this.mainMaterial.uniforms.occlusionTex.value = this.occlusionFBO.texture;
+    this.renderer.render(this.mesh, this.camera);
+  },
+  updateQuality: function () {
+    if (this.isCaching) {
+      if (this.originalBuffers.length>0) this.needsQualityUpdate = true;
+      return;
+    }
+    if (!this.originalBuffers.length) return;
+    this.loadedVertexCount = 0;
+    this.mesh.geometry.instanceCount = 0;
+    this.worker.postMessage({ method: "clear" });
+    this.centerAndScaleTexture.needsUpdate = true;
+    this.covAndColorTexture.needsUpdate = true;
+    for (const b of this.originalBuffers) this.pushDataBuffer(b.slice(0), b.byteLength/this.rowLength);
+    this.sortReady = true;
+  },
+  getProjectionMatrix: function (cam) {
+    cam = cam || this.camera;
+    const m = cam.projectionMatrix.clone();
+    m.elements[4] *= -1; m.elements[5] *= -1;
+    m.elements[6] *= -1; m.elements[7] *= -1;
+    return m;
+  },
+  getModelViewMatrix: function (cam) {
+    cam = cam || this.camera;
+    const v = cam.matrixWorld.clone();
+    v.elements[1]*=-1;v.elements[4]*=-1;v.elements[6]*=-1;v.elements[9]*=-1;v.elements[13]*=-1;
+    const o = this.object.matrixWorld.clone();
+    o.invert();
+    o.elements[1]*=-1; o.elements[4]*=-1; o.elements[6]*=-1; o.elements[9]*=-1; o.elements[13]*=-1;
+    o.multiply(v); o.invert();
+    return o;
+  },
+  createWorker: function (self) {
+    let mats;
+    const sortFn = (m,view,scale=1)=>{
+      const n=m.length/16;
+      const ds=new Float32Array(n);
+      const ids=new Int32Array(n);
+      let vc=0,md=-Infinity,mi=Infinity;
+      for(let i=0;i<n;i++){
+        const d=view[0]*m[16*i+12]+view[1]*m[16*i+13]+view[2]*m[16*i+14]+view[3];
+        if(d<0&&m[16*i+15]*scale>-0.001*d){
+          ds[vc]=d;ids[vc]=i;
+          md=Math.max(md,d);mi=Math.min(mi,d);vc++;
+        }
+      }
+      const inv=(256*256-1)/(md-mi);
+      const sz=new Int32Array(ds.buffer);
+      const cnt=new Uint32Array(256*256);
+      for(let i=0;i<vc;i++){
+        sz[i]=((ds[i]-mi)*inv)|0;
+        cnt[sz[i]]++;
+      }
+      const st=new Uint32Array(256*256);
+      for(let i=1;i<256*256;i++)st[i]=st[i-1]+cnt[i-1];
+      const out=new Uint32Array(vc);
+      for(let i=0;i<vc;i++)out[st[sz[i]]++]=ids[i];
+      return out;
+    };
+    self.onmessage = e=>{
+      if(e.data.method=="clear")mats=undefined;
+      if(e.data.method=="push"){
+        const nm=new Float32Array(e.data.matrices);
+        mats = mats ? (()=>{const r=new Float32Array(mats.length+nm.length);r.set(mats);r.set(nm,mats.length);return r;})() : nm;
+      }
+      if(e.data.method=="sort"){
+        const out = mats ? sortFn(mats,new Float32Array(e.data.view),e.data.scale) : new Uint32Array(1);
+        self.postMessage({ sortedIndexes: out }, [out.buffer]);
+      }
+    };
+  },
+  processPlyBuffer: function (buf) {
+    const u=new Uint8Array(buf);
+    const hdr=new TextDecoder().decode(u.slice(0,1024*10));
+    const e="end_header\n";
+    const i=hdr.indexOf(e);
+    const vc=parseInt(/element vertex (\d+)\n/.exec(hdr)[1]);
+    const rowBytes=i+e.length;
+    const dv=new DataView(buf,rowBytes);
+    let ro=0,offs={},types={},map={double:"getFloat64",int:"getInt32",uint:"getUint32",float:"getFloat32",short:"getInt16",ushort:"getUint16",uchar:"getUint8"};
+    hdr.slice(0,i).split("\n").filter(l=>l.startsWith("property ")).forEach(l=>{
+      const [p,t,n]=l.split(" ");
+      types[n]=map[t]||"getInt8";
+      offs[n]=ro;
+      ro+=parseInt(types[n].replace(/\D/g,""))/8;
+    });
+    const sizeList=new Float32Array(vc);
+    const idx=new Uint32Array(vc);
+    for(let r=0;r<vc;r++){
+      idx[r]=r;
+      const s=types["scale_0"] ? Math.exp(dv[types["scale_0"]](r*ro+offs["scale_0"],true))*Math.exp(dv[types["scale_1"]](r*ro+offs["scale_1"],true))*Math.exp(dv[types["scale_2"]](r*ro+offs["scale_2"],true)) : 0.01;
+      const o=types["opacity"] ? 1/(1+Math.exp(-dv[types["opacity"]](r*ro+offs["opacity"],true))) : 1;
+      sizeList[r]=s*o;
+    }
+    idx.sort((a,b)=>sizeList[b]-sizeList[a]);
+    const rl=3*4+3*4+4+4;
+    const out=new ArrayBuffer(rl*vc);
+    for(let j=0;j<vc;j++){
+      const r=idx[j];
+      const p=new Float32Array(out,j*rl,3);
+      const sc=new Float32Array(out,j*rl+12,3);
+      const rgba=new Uint8ClampedArray(out,j*rl+24,4);
+      const rot=new Uint8ClampedArray(out,j*rl+28,4);
+      if(types["scale_0"]){
+        const ql=Math.sqrt(
+          dv[types["rot_0"]](r*ro+offs["rot_0"],true)**2+
+          dv[types["rot_1"]](r*ro+offs["rot_1"],true)**2+
+          dv[types["rot_2"]](r*ro+offs["rot_2"],true)**2+
+          dv[types["rot_3"]](r*ro+offs["rot_3"],true)**2
+        );
+        rot[0]=dv[types["rot_0"]](r*ro+offs["rot_0"],true)/ql*128+128;
+        rot[1]=dv[types["rot_1"]](r*ro+offs["rot_1"],true)/ql*128+128;
+        rot[2]=dv[types["rot_2"]](r*ro+offs["rot_2"],true)/ql*128+128;
+        rot[3]=dv[types["rot_3"]](r*ro+offs["rot_3"],true)/ql*128+128;
+        sc[0]=Math.exp(dv[types["scale_0"]](r*ro+offs["scale_0"],true));
+        sc[1]=Math.exp(dv[types["scale_1"]](r*ro+offs["scale_1"],true));
+        sc[2]=Math.exp(dv[types["scale_2"]](r*ro+offs["scale_2"],true));
+      } else {
+        sc[0]=sc[1]=sc[2]=0.01;
+        rot[0]=255;rot[1]=rot[2]=rot[3]=0;
+      }
+      p[0]=dv[types["x"]](r*ro+offs["x"],true);
+      p[1]=dv[types["y"]](r*ro+offs["y"],true);
+      p[2]=dv[types["z"]](r*ro+offs["z"],true);
+      if(types["f_dc_0"]){
+        const C=0.28209479177387814;
+        rgba[0]=(0.5+C*dv[types["f_dc_0"]](r*ro+offs["f_dc_0"],true))*255;
+        rgba[1]=(0.5+C*dv[types]["f_dc_1"](r*ro+offs["f_dc_1"],true))*255;
+        rgba[2]=(0.5+C*dv[types]["f_dc_2"](r*ro+offs["f_dc_2"],true))*255;
+      } else {
+        rgba[0]=dv[types["red"]](r*ro+offs["red"],true);
+        rgba[1]=dv[types["green"]](r*ro+offs["green"],true);
+        rgba[2]=dv[types["blue"]](r*ro+offs["blue"],true);
+      }
+      rgba[3]=types["opacity"]?1/(1+Math.exp(-dv[types["opacity"]](r*ro+offs["opacity"],true)))*255:255;
+    }
+    return out;
+  }
 });
