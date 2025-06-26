@@ -200,10 +200,30 @@
 
         const baseHeight = cam ? cam.object3D.position.y : 1.6;
 
+        // Remove any collider components from the hand entities if present
+        ['rightHand', 'leftHand'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const removeColliders = () => {
+                ['aabb-collider', 'sphere-collider', 'static-body', 'dynamic-body']
+                    .forEach(attr => el.removeAttribute(attr));
+            };
+            el.addEventListener('model-loaded', removeColliders);
+            removeColliders();
+        });
+
         sceneEl.addEventListener('enter-vr', () => {
             if (!cam) return;
             rig.object3D.position.y += baseHeight;
             cam.object3D.position.set(0, 0, 0);
+
+            ['rightHand', 'leftHand'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                // Controllers disable matrixAutoUpdate while tracked. Re-disable
+                // it when entering VR so A-Frame can handle updates.
+                el.object3D.matrixAutoUpdate = false;
+            });
         });
 
         sceneEl.addEventListener('exit-vr', () => {
@@ -214,10 +234,15 @@
             ['rightHand', 'leftHand'].forEach(id => {
                 const el = document.getElementById(id);
                 if (!el) return;
-                // Avoid forcing a zero offset which can leave hands under the
-                // user when a session resumes. Just update the matrix so any
-                // child meshes reset correctly after the controllers stop
-                // updating themselves.
+                // Remove any collider components that may interfere when
+                // the controllers stop tracking.
+                ['aabb-collider', 'sphere-collider', 'static-body', 'dynamic-body']
+                    .forEach(attr => el.removeAttribute(attr));
+
+                // Keep hand meshes in place after VR exit by enabling automatic
+                // matrix updates.
+                el.object3D.matrixAutoUpdate = true;
+
                 el.object3D.updateMatrix();
             });
         });
