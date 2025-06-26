@@ -193,6 +193,21 @@
             attributes: true,
             attributeFilter: ['style']
         });
+
+        const sceneEl = document.querySelector('a-scene');
+        const rig = document.getElementById('rig');
+        const cam = rig.querySelector('[camera]');
+        const setCameraHeight = () => {
+            if (cam) cam.object3D.position.set(0, sceneEl.is('vr-mode') ? 0 : 1.6, 0);
+        };
+        sceneEl.addEventListener('enter-vr', setCameraHeight);
+        sceneEl.addEventListener('exit-vr', () => {
+            setCameraHeight();
+            ['rightHand', 'leftHand'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.object3D.position.set(0, 0, 0);
+            });
+        });
     </script>
 </body>
 </html>
