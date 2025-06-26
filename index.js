@@ -3,8 +3,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 0.1 },
                 xrPixelRatio: { type: 'number', default: 1.0 },
-                autoPixelRatio: { type: 'boolean', default: true },
-                targetFps: { type: 'number', default: 60 },
         },
         init: function () {
                 // aframe-specific data
@@ -12,9 +10,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
-                this.currentPixelRatio = pixelRatio;
-                this.frameTimes = [];
-                this.targetFps = this.data.targetFps;
                 this.originalBuffers = [];
                 this.needsQualityUpdate = false;
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
@@ -461,36 +456,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 view: view.buffer,
                                 scale: globalScale,
                         }, [view.buffer]);
-                }
-                this.adjustPixelRatio(timeDelta);
-        },
-        adjustPixelRatio: function (timeDelta) {
-                if (!this.data.autoPixelRatio) return;
-                const now = performance.now();
-                this.frameTimes.push(now);
-                while (this.frameTimes.length > 60) this.frameTimes.shift();
-                if (this.frameTimes.length < 2) return;
-                const fps = (this.frameTimes.length - 1) / ((now - this.frameTimes[0]) / 1000);
-                const target = this.targetFps;
-                let ratio = this.currentPixelRatio || this.renderer.getPixelRatio();
-                let changed = false;
-                if (fps < target * 0.8 && ratio > 0.35) {
-                        ratio = Math.max(0.35, ratio * 0.75);
-                        changed = true;
-                } else if (fps > target && ratio < window.devicePixelRatio) {
-                        ratio = Math.min(window.devicePixelRatio, ratio * 1.1);
-                        changed = true;
-                }
-                if (changed) {
-                        this.currentPixelRatio = ratio;
-                        this.renderer.setPixelRatio(ratio);
-                        const session = this.renderer.xr.getSession && this.renderer.xr.getSession();
-                        if (session && typeof XRWebGLLayer !== 'undefined') {
-                                const gl = this.renderer.getContext();
-                                session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl, { framebufferScaleFactor: ratio }) });
-                        } else {
-                                this.renderer.xr.setFramebufferScaleFactor(ratio);
-                        }
                 }
         },
         updateQuality: function () {
