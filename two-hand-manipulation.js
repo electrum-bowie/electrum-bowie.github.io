@@ -223,9 +223,37 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const currentDistance = leftPos.distanceTo(rightPos);
         if (this.startDistance === 0) return;
 
+        const midpoint = leftPos.clone().add(rightPos).multiplyScalar(0.5);
+
+        const now = performance.now();
+        const delayActive = this.delayScaleRotate && (now - this.twoHandStartTime < 100);
+
+        if (delayActive) {
+            const offset = this.startOffset.clone();
+            const newWorldPos = midpoint.clone().add(offset);
+            if (this.el.object3D.parent) {
+                this.el.object3D.parent.worldToLocal(newWorldPos);
+            }
+            this.el.object3D.position.copy(newWorldPos);
+            return;
+        }
+
+        if (this.delayScaleRotate) {
+            this.delayScaleRotate = false;
+            this.startDistance = currentDistance;
+            this.startScale.copy(this.el.object3D.scale);
+            this.startMidpoint.copy(midpoint);
+            this.el.object3D.getWorldPosition(this.startPosition);
+            this.startOffset.copy(this.startPosition).sub(midpoint);
+            this.startVector.copy(rightPos).sub(leftPos).normalize();
+            this.el.object3D.getWorldQuaternion(this.startQuaternion);
+        }
+
         const scaleFactor = currentDistance / this.startDistance;
         const newScale = this.startScale.clone().multiplyScalar(scaleFactor);
 
+<<<<<<< 51776l-codex/new-task
+=======
         const midpoint = leftPos.clone().add(rightPos).multiplyScalar(0.5);
 
         const now = performance.now();
@@ -245,6 +273,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
             this.el.object3D.scale.copy(newScale);
         }
 
+>>>>>>> alpha-hashing
         const currentVector = rightPos.clone().sub(leftPos).normalize();
         const rotQuat = new THREE.Quaternion().setFromUnitVectors(this.startVector, currentVector);
 
