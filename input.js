@@ -42,18 +42,7 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
-        if (window.loadedBlobURL) {
-            try {
-                URL.revokeObjectURL(window.loadedBlobURL);
-            } catch (e) {
-                console.warn('Failed to revoke old object URL', e);
-            }
-        }
-
         const url = URL.createObjectURL(blob);
-
-        window.loadedBlob = blob;
-        window.loadedBlobURL = url;
 
         const entity = document.createElement("a-entity");
         entity.setAttribute("gaussian_splatting", `src: ${url};`);
