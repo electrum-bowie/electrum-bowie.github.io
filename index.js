@@ -20,14 +20,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 		this.camera = camera;
 		this.object = object;
 		this.renderer = renderer;
-                this.textureReady = false;
-                this.object.frustumCulled = false;
+		this.textureReady = false;
+		this.object.frustumCulled = false;
 
-                this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
-                this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
-                this.covColorU8 = new Uint8Array(this.covAndColorData.buffer);
-                this.currentModelViewMatrix = new THREE.Matrix4();
-                this.currentProjectionMatrix = new THREE.Matrix4();
+		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
+		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
 		this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
 		this.centerAndScaleTexture.needsUpdate = true;
 		this.covAndColorTexture = new THREE.DataTexture(this.covAndColorData, 4096, 4096, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
@@ -193,14 +190,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 			),
 		);
 
-                this.worker.onmessage = (e) => {
-                        let indexes = new Uint32Array(e.data.sortedIndexes);
-                        let culled = this.cullOccludedSplats(indexes);
-                        mesh.geometry.attributes.splatIndex.set(culled);
-                        mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                        mesh.geometry.instanceCount = culled.length;
-                        this.sortReady = true;
-                };
+		this.worker.onmessage = (e) => {
+			let indexes = new Uint32Array(e.data.sortedIndexes);
+			mesh.geometry.attributes.splatIndex.set(indexes);
+			mesh.geometry.attributes.splatIndex.needsUpdate = true;
+			mesh.geometry.instanceCount = indexes.length;
+			this.sortReady = true;
+		};
 		this.sortReady = true;
 	},
         loadData: function (src) {
@@ -452,9 +448,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         tick: function (time, timeDelta) {
                 if (this.sortReady) {
                         this.sortReady = false;
-                        this.currentModelViewMatrix = this.getModelViewMatrix();
-                        this.currentProjectionMatrix = this.getProjectionMatrix();
-                        let camera_mtx = this.currentModelViewMatrix.elements;
+                        let camera_mtx = this.getModelViewMatrix().elements;
                         let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
                         const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
                         this.worker.postMessage({
@@ -495,10 +489,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 		mtx.elements[7] *= -1;
 		return mtx;
 	},
-        getModelViewMatrix: function (camera) {
-                if (!camera) {
-                        camera = this.camera;
-                }
+	getModelViewMatrix: function (camera) {
+		if (!camera) {
+			camera = this.camera;
+		}
 		const viewMatrix = camera.matrixWorld.clone();
 		viewMatrix.elements[1] *= -1.0;
 		viewMatrix.elements[4] *= -1.0;
@@ -512,60 +506,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 		mtx.elements[6] *= -1.0;
 		mtx.elements[9] *= -1.0;
 		mtx.elements[13] *= -1.0;
-                mtx.multiply(viewMatrix);
-                mtx.invert();
-                return mtx;
-        },
-        cullOccludedSplats: function(sortedIndexes) {
-                const gridSize = 128;
-                if (!this.covColorU8) {
-                        this.covColorU8 = new Uint8Array(this.covAndColorData.buffer);
-                }
-
-                const accum = new Float32Array(gridSize * gridSize);
-                const visible = new Uint32Array(sortedIndexes.length);
-
-                const projView = new THREE.Matrix4();
-                projView.multiplyMatrices(this.currentProjectionMatrix, this.currentModelViewMatrix);
-                const v = new THREE.Vector4();
-
-                let count = 0;
-                for (let idx = sortedIndexes.length - 1; idx >= 0; idx--) {
-                        const i = sortedIndexes[idx];
-                        const cx = this.centerAndScaleData[i * 4 + 0];
-                        const cy = this.centerAndScaleData[i * 4 + 1];
-                        const cz = this.centerAndScaleData[i * 4 + 2];
-
-                        v.set(cx, cy, cz, 1.0).applyMatrix4(projView);
-                        if (v.w === 0) continue;
-                        const ndcX = v.x / v.w;
-                        const ndcY = v.y / v.w;
-                        if (ndcX < -1 || ndcX > 1 || ndcY < -1 || ndcY > 1) {
-                                visible[count++] = i;
-                                continue;
-                        }
-
-                        const px = Math.floor((ndcX * 0.5 + 0.5) * gridSize);
-                        const py = Math.floor((ndcY * 0.5 + 0.5) * gridSize);
-                        const id = py * gridSize + px;
-
-                        const alpha = this.covColorU8[(i * 16 + 12) * 4 + 3] / 255.0;
-                        let accumAlpha = accum[id];
-                        if (accumAlpha > 0.99) continue;
-
-                        accumAlpha += alpha * (1 - accumAlpha);
-                        accum[id] = accumAlpha;
-                        visible[count++] = i;
-                }
-
-                const result = new Uint32Array(count);
-                for (let j = 0; j < count; j++) {
-                        result[j] = visible[count - 1 - j];
-                }
-                return result;
-        },
-        createWorker: function (self) {
-                let matrices = undefined;
+		mtx.multiply(viewMatrix);
+		mtx.invert();
+		return mtx;
+	},
+	createWorker: function (self) {
+		let matrices = undefined;
 
                 const sortSplats = function sortSplats(matrices, view, scaleFactor = 1.0) {
 			const vertexCount = matrices.length / 16;
