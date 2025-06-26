@@ -468,11 +468,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.loadData(this.data.src);
         },
         filterOcclusion: function (indexes) {
-                const res = 64;
-                const coverage = new Float32Array(res * res);
+                const res = 256;
+                const zBuffer = new Float32Array(res * res);
+                zBuffer.fill(Infinity);
                 const mv = this.getModelViewMatrix().elements;
                 const proj = this.getProjectionMatrix().elements;
                 const result = [];
+                const bias = 1e-4;
                 for (let idx = indexes.length - 1; idx >= 0; idx--) {
                         const i = indexes[idx];
                         const off = i * 5;
@@ -480,7 +482,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const cy = this.splatInfo[off + 1];
                         const cz = this.splatInfo[off + 2];
                         const scale = this.splatInfo[off + 3];
-                        const alpha = this.splatInfo[off + 4];
                         const wx = mv[0] * cx + mv[4] * cy + mv[8] * cz + mv[12];
                         const wy = mv[1] * cx + mv[5] * cy + mv[9] * cz + mv[13];
                         const wz = mv[2] * cx + mv[6] * cy + mv[10] * cz + mv[14];
@@ -499,18 +500,21 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let maxx = Math.min(res - 1, Math.ceil(sx + radius));
                         let miny = Math.max(0, Math.floor(sy - radius));
                         let maxy = Math.min(res - 1, Math.ceil(sy + radius));
-                        let covered = true;
-                        for (let y = miny; y <= maxy && covered; y++) {
+                        let occluded = true;
+                        for (let y = miny; y <= maxy && occluded; y++) {
                                 for (let x = minx; x <= maxx; x++) {
                                         const dx = x + 0.5 - sx;
                                         const dy = y + 0.5 - sy;
-                                        if (dx * dx + dy * dy <= r2 && coverage[y * res + x] < 0.99) {
-                                                covered = false;
-                                                break;
+                                        if (dx * dx + dy * dy <= r2) {
+                                                const idxc = y * res + x;
+                                                if (depth < zBuffer[idxc] - bias) {
+                                                        occluded = false;
+                                                        break;
+                                                }
                                         }
                                 }
                         }
-                        if (covered) continue;
+                        if (occluded) continue;
                         result.push(i);
                         for (let y = miny; y <= maxy; y++) {
                                 for (let x = minx; x <= maxx; x++) {
@@ -518,7 +522,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const dy = y + 0.5 - sy;
                                         if (dx * dx + dy * dy <= r2) {
                                                 const idxc = y * res + x;
-                                                coverage[idxc] += (1 - coverage[idxc]) * alpha;
+                                                if (depth < zBuffer[idxc]) {
+                                                        zBuffer[idxc] = depth;
+                                                }
                                         }
                                 }
                         }
