@@ -226,7 +226,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const midpoint = leftPos.clone().add(rightPos).multiplyScalar(0.5);
 
         const now = performance.now();
-        const delayActive = this.delayScaleRotate && (now - this.twoHandStartTime < 100);
+        const delayActive = this.delayScaleRotate && (now - this.twoHandStartTime < 250);
 
         if (delayActive) {
             const offset = this.startOffset.clone();
