@@ -1,7 +1,7 @@
 AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
-                pixelRatio: { type: 'number', default: 0.5 },
+                pixelRatio: { type: 'number', default: 0.1 },
                 xrPixelRatio: { type: 'number', default: 1.0 },
                 autoPixelRatio: { type: 'boolean', default: true },
                 targetFps: { type: 'number', default: 60 },
