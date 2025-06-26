@@ -16,12 +16,12 @@
     "aframe-component",
     "gaussian-splatting"
   ],
-  "author": "Junya Kuwada <kuwada.junya@gmail.com>",
-  "license": "MIT",
+  "author": "Boec",
+  "license": "",
   "bugs": {
-    "url": "https://github.com/quadjr/aframe-gaussian-splatting/issues"
+    "url": ""
   },
-  "homepage": "https://github.com/quadjr/aframe-gaussian-splatting#readme",
+  "homepage": "",
   "dependencies": {
     "uglify-js": "^3.17.4"
   }

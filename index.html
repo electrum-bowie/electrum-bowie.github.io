@@ -7,7 +7,6 @@
     <script src="index.js"></script>
     <script src="dist/jszip.js"></script>
     <script src="input.js"></script>
-    <script src="simple-fly.js"></script>
     <script src="two-hand-manipulation.js"></script>
     <style>
         /* CSS for button */
@@ -243,6 +242,7 @@
                 // Keep hand meshes in place after VR exit by enabling automatic
                 // matrix updates.
                 el.object3D.matrixAutoUpdate = true;
+
                 el.object3D.updateMatrix();
             });
         });
