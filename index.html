@@ -196,13 +196,19 @@
 
         // Attempt to enable WebXR Space Warp when entering VR
         document.querySelector('a-scene').addEventListener('enter-vr', function () {
-            var renderer = this.renderer;
+            const renderer = this.renderer;
             if (!renderer || !renderer.xr) return;
-            var session = renderer.xr.getSession && renderer.xr.getSession();
+            const session = renderer.xr.getSession && renderer.xr.getSession();
             if (session && session.updateRenderState) {
                 try {
-                    session.updateRenderState({ spaceWarp: true });
-                    console.log('Space Warp enabled');
+                    const state = session.renderState;
+                    if ('spaceWarp' in state) {
+                        session.updateRenderState({ spaceWarp: { enabled: true } });
+                        if (typeof session.updateTargetFrameRate === 'function') {
+                            session.updateTargetFrameRate(45);
+                        }
+                        console.log('Space Warp enabled');
+                    }
                 } catch (e) {
                     console.warn('Space Warp not supported', e);
                 }
