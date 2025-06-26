@@ -94,7 +94,7 @@
     </style>
 </head>
 <body>
-        <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking, layers, space-warp;">
+        <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking; requiredFeatures: layers, space-warp;">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
             <a-entity id="rightController" oculus-touch-controls="hand: right"></a-entity>
@@ -201,8 +201,8 @@
             const xrMgr = scene.renderer && scene.renderer.xr;
             if (xrMgr) {
                 xrMgr.setSessionInit({
-                    optionalFeatures: ['hand-tracking', 'layers'],
-                    requiredFeatures: ['space-warp']
+                    optionalFeatures: ['hand-tracking'],
+                    requiredFeatures: ['layers', 'space-warp']
                 });
                 console.log('XR session init configured for space warp');
             } else {
@@ -219,6 +219,10 @@
             }
             try {
                 const gl = scene.renderer.getContext();
+                const ext = gl.getExtension('EXT_color_buffer_half_float');
+                if (!ext) {
+                    console.warn('EXT_color_buffer_half_float not supported');
+                }
                 const binding = new XRWebGLBinding(session, gl);
                 const layer = binding.createProjectionLayer({
                     textureType: 'texture-array',
