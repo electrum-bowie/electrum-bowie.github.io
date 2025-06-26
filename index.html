@@ -220,9 +220,8 @@
             ['rightHand', 'leftHand'].forEach(id => {
                 const el = document.getElementById(id);
                 if (!el) return;
-                // Controllers disable matrixAutoUpdate while tracked. Re-disable
-                // it when entering VR so A-Frame can handle updates.
-                el.object3D.matrixAutoUpdate = false;
+                // Ensure orientation updates correctly when entering VR.
+                el.object3D.updateMatrix();
             });
         });
 
