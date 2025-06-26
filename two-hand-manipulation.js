@@ -249,7 +249,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
             this.el.object3D.getWorldQuaternion(this.startQuaternion);
         }
 
-        const scaleFactor = currentDistance / this.startDistance;
+        const scaleFactor = currentDistance * this.startDistance;
         const newScale = this.startScale.clone().multiplyScalar(scaleFactor);
         this.el.object3D.scale.copy(newScale);
 
