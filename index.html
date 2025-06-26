@@ -2,7 +2,8 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
+    <!-- Use the latest master build of A-Frame to pull in bug fixes -->
+    <script src="https://cdn.jsdelivr.net/gh/aframevr/aframe@master/dist/aframe-master.min.js"></script>
     <script src="index.js"></script>
     <script src="dist/jszip.js"></script>
     <script src="input.js"></script>
@@ -200,10 +201,30 @@
 
         const baseHeight = cam ? cam.object3D.position.y : 1.6;
 
+        // Remove any collider components from the hand entities if present
+        ['rightHand', 'leftHand'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const removeColliders = () => {
+                ['aabb-collider', 'sphere-collider', 'static-body', 'dynamic-body']
+                    .forEach(attr => el.removeAttribute(attr));
+            };
+            el.addEventListener('model-loaded', removeColliders);
+            removeColliders();
+        });
+
         sceneEl.addEventListener('enter-vr', () => {
             if (!cam) return;
             rig.object3D.position.y += baseHeight;
             cam.object3D.position.set(0, 0, 0);
+
+            ['rightHand', 'leftHand'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                // Controllers disable matrixAutoUpdate while tracked. Re-disable
+                // it when entering VR so A-Frame can handle updates.
+                el.object3D.matrixAutoUpdate = false;
+            });
         });
 
         sceneEl.addEventListener('exit-vr', () => {
@@ -214,10 +235,14 @@
             ['rightHand', 'leftHand'].forEach(id => {
                 const el = document.getElementById(id);
                 if (!el) return;
-                el.object3D.position.set(0, 0, 0);
-                el.object3D.rotation.set(0, 0, 0);
-                // Tracked controllers disable matrixAutoUpdate. Manually update
-                // the matrix so child meshes reset correctly.
+                // Remove any collider components that may interfere when
+                // the controllers stop tracking.
+                ['aabb-collider', 'sphere-collider', 'static-body', 'dynamic-body']
+                    .forEach(attr => el.removeAttribute(attr));
+
+                // Keep hand meshes in place after VR exit by enabling automatic
+                // matrix updates.
+                el.object3D.matrixAutoUpdate = true;
                 el.object3D.updateMatrix();
             });
         });
