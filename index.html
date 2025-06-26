@@ -205,8 +205,14 @@
                 return;
             }
             try {
-                session.updateRenderState({ spaceWarp: { enabled: true } });
-                console.log('Space warp enabled');
+                const gl = scene.renderer.getContext();
+                const binding = new XRWebGLBinding(session, gl);
+                const layer = binding.createProjectionLayer({
+                    textureType: 'texture-array',
+                    depthFormat: gl.DEPTH_COMPONENT24
+                });
+                session.updateRenderState({ layers: [layer], spaceWarp: { enabled: true } });
+                console.log('Space warp enabled with projection layer');
             } catch (err) {
                 console.warn('Failed to enable space warp', err);
             }
