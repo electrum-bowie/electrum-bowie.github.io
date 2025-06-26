@@ -8,7 +8,6 @@
     <script src="input.js"></script>
     <script src="simple-fly.js"></script>
     <script src="two-hand-manipulation.js"></script>
-    <script src="mobile-tap-move.js"></script>
     <style>
         /* CSS for button */
         #fileButton {
@@ -198,6 +197,7 @@
         const sceneEl = document.querySelector('a-scene');
         const rig = document.getElementById('rig');
         const cam = rig.querySelector('[camera]');
+
         const baseHeight = cam ? cam.object3D.position.y : 1.6;
 
         sceneEl.addEventListener('enter-vr', () => {
@@ -210,6 +210,7 @@
             if (!cam) return;
             cam.object3D.position.set(0, baseHeight, 0);
             rig.object3D.position.y -= baseHeight;
+
             ['rightHand', 'leftHand'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.object3D.position.set(0, 0, 0);
