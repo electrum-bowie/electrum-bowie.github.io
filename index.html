@@ -94,7 +94,7 @@
     </style>
 </head>
 <body>
-        <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking; requiredFeatures: layers, space-warp;">
+        <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking, multiview; requiredFeatures: layers, space-warp;">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
             <a-entity id="rightController" oculus-touch-controls="hand: right"></a-entity>
@@ -201,7 +201,7 @@
             const xrMgr = scene.renderer && scene.renderer.xr;
             if (xrMgr) {
                 xrMgr.setSessionInit({
-                    optionalFeatures: ['hand-tracking'],
+                    optionalFeatures: ['hand-tracking', 'multiview'],
                     requiredFeatures: ['layers', 'space-warp']
                 });
                 console.log('XR session init configured for space warp');
@@ -224,10 +224,21 @@
                     console.warn('EXT_color_buffer_half_float not supported');
                 }
                 const binding = new XRWebGLBinding(session, gl);
-                const layer = binding.createProjectionLayer({
-                    textureType: 'texture-array',
-                    depthFormat: gl.DEPTH_COMPONENT24
-                });
+                let layer;
+                try {
+                    layer = binding.createProjectionLayer({
+                        textureType: 'texture-array',
+                        layout: 'stereo-multiview',
+                        depthFormat: gl.DEPTH_COMPONENT24
+                    });
+                    console.log('Multiview projection layer created');
+                } catch (e) {
+                    console.warn('Failed to create multiview layer, falling back', e);
+                    layer = binding.createProjectionLayer({
+                        textureType: 'texture-array',
+                        depthFormat: gl.DEPTH_COMPONENT24
+                    });
+                }
                 session.updateRenderState({ layers: [layer], spaceWarp: { enabled: true } });
                 console.log('Space warp enabled with projection layer');
             } catch (err) {
