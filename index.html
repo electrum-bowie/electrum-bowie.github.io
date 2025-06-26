@@ -94,7 +94,7 @@
     </style>
 </head>
 <body>
-        <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking, layers, space-warp;">
+        <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking, layers, XR_FB_space_warp;">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
             <a-entity id="rightController" oculus-touch-controls="hand: right"></a-entity>
@@ -195,53 +195,44 @@
         });
 
         // Attempt to enable WebXR Space Warp when entering VR
-        document.querySelector('a-scene').addEventListener('enter-vr', function () {
-            const renderer = this.renderer;
-      
-            if (!renderer || !renderer.xr) {
-                console.warn('WebXR renderer not available');
+        const scene = document.querySelector('a-scene');
+        const xrManager = scene.renderer && scene.renderer.xr;
+
+        function enableSpaceWarp() {
+            const session = xrManager && xrManager.getSession && xrManager.getSession();
+            if (!session || !session.updateRenderState) {
+                console.warn('Space Warp not supported by session');
                 return;
             }
-            const xrManager = renderer.xr;
+            try {
+                session.updateRenderState({ spaceWarp: { enabled: true } });
+                console.log('Space Warp enabled');
+            } catch (err) {
+                console.warn('Failed to enable Space Warp', err);
+            }
 
-            const enableSpaceWarp = async () => {
-                const session = xrManager.getSession && xrManager.getSession();
-                if (!session) {
-                    console.warn('No XR session found');
-                    return;
-                }
-
-                if (!session.updateRenderState) {
-                    console.warn('updateRenderState not supported');
-                    return;
-                }
-
-                try {
-                    session.updateRenderState({ spaceWarp: true });
-                    console.log('Requested Space Warp');
-                } catch (e) {
-                    console.warn('Space Warp not supported', e);
-                }
-
-                if (typeof session.updateTargetFrameRate === 'function' && session.supportedFrameRates) {
-                    try {
-                        const rates = await session.supportedFrameRates;
-                        console.log('Supported frame rates:', rates);
-                        if (Array.isArray(rates) && rates.includes(45)) {
+            const ratesPromise = session.supportedFrameRates;
+            if (ratesPromise && typeof ratesPromise.then === 'function' && typeof session.updateTargetFrameRate === 'function') {
+                ratesPromise.then(async (rates) => {
+                    console.log('Supported frame rates:', rates);
+                    if (Array.isArray(rates) && rates.includes(45)) {
+                        try {
                             await session.updateTargetFrameRate(45);
-                            console.log('Target frame rate set to 45');
+                            console.log('Frame rate set to 45');
+                        } catch (e) {
+                            console.warn('Failed to set frame rate', e);
                         }
-                    } catch (e) {
-                        console.warn('updateTargetFrameRate failed', e);
                     }
-                }
+                });
+            }
 
-                xrManager.removeEventListener('sessionstart', enableSpaceWarp);
-            };
+            xrManager.removeEventListener('sessionstart', enableSpaceWarp);
+        }
 
-            if (xrManager.getSession && xrManager.getSession()) {
+        scene.addEventListener('enter-vr', () => {
+            if (xrManager && xrManager.isPresenting) {
                 enableSpaceWarp();
-            } else {
+            } else if (xrManager) {
                 xrManager.addEventListener('sessionstart', enableSpaceWarp);
             }
         });
