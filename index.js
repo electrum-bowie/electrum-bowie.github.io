@@ -475,9 +475,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (fps < target * 0.8 && ratio > 0.1) {
                         ratio = Math.max(0.1, ratio * 0.75);
                         this.renderer.setPixelRatio(ratio);
+                        this.renderer.xr.setFramebufferScaleFactor(ratio);
                 } else if (fps > target && ratio < window.devicePixelRatio) {
                         ratio = Math.min(window.devicePixelRatio, ratio * 1.1);
                         this.renderer.setPixelRatio(ratio);
+                        this.renderer.xr.setFramebufferScaleFactor(ratio);
                 }
         },
         updateQuality: function () {
