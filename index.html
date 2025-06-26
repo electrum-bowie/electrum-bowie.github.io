@@ -94,7 +94,7 @@
     </style>
 </head>
 <body>
-        <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking, layers, XR_EXT_frame_synthesis;">
+        <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking, layers, space-warp;">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
             <a-entity id="rightController" oculus-touch-controls="hand: right"></a-entity>
@@ -194,21 +194,21 @@
             attributeFilter: ['style']
         });
 
-        // Attempt to enable frame synthesis when entering VR
+        // Attempt to enable space warp when entering VR
         const scene = document.querySelector('a-scene');
         const xrManager = scene.renderer && scene.renderer.xr;
 
-        function enableFrameSynthesis() {
+        function enableSpaceWarp() {
             const session = xrManager && xrManager.getSession && xrManager.getSession();
             if (!session || !session.updateRenderState) {
-                console.warn('Frame synthesis not supported by session');
+                console.warn('Space warp not supported by session');
                 return;
             }
             try {
-                session.updateRenderState({ frameSynthesis: { enabled: true } });
-                console.log('Frame synthesis enabled');
+                session.updateRenderState({ spaceWarp: { enabled: true } });
+                console.log('Space warp enabled');
             } catch (err) {
-                console.warn('Failed to enable frame synthesis', err);
+                console.warn('Failed to enable space warp', err);
             }
 
             const ratesPromise = session.supportedFrameRates;
@@ -226,14 +226,14 @@
                 });
             }
 
-            xrManager.removeEventListener('sessionstart', enableFrameSynthesis);
+            xrManager.removeEventListener('sessionstart', enableSpaceWarp);
         }
 
         scene.addEventListener('enter-vr', () => {
             if (xrManager && xrManager.isPresenting) {
-                enableFrameSynthesis();
+                enableSpaceWarp();
             } else if (xrManager) {
-                xrManager.addEventListener('sessionstart', enableFrameSynthesis);
+                xrManager.addEventListener('sessionstart', enableSpaceWarp);
             }
         });
     </script>
