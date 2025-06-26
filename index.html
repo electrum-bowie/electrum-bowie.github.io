@@ -94,13 +94,11 @@
     </style>
 </head>
 <body>
-    <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking;">
+        <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking;">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
-            <a-entity id="rightHand" oculus-touch-controls="hand: right" hand-controls="hand: right; handModelStyle: lowPoly"
-                      hand-tracking-controls="hand: right; modelStyle: mesh" simple-fly="speed: -0.025"></a-entity>
-            <a-entity id="leftHand" oculus-touch-controls="hand: left" hand-controls="hand: left; handModelStyle: lowPoly"
-                      hand-tracking-controls="hand: left; modelStyle: mesh"></a-entity>
+            <a-entity id="rightHand" hand-tracking-controls="hand: right"></a-entity>
+            <a-entity id="leftHand" hand-tracking-controls="hand: left"></a-entity>
         </a-entity>
 
         <!-- Add a container to hold the dynamically created entity -->
@@ -194,57 +192,8 @@
             attributeFilter: ['style']
         });
 
-        const sceneEl = document.querySelector('a-scene');
-        const rig = document.getElementById('rig');
-        const cam = rig.querySelector('[camera]');
 
-        const baseHeight = cam ? cam.object3D.position.y : 1.6;
-
-        // Remove any collider components from the hand entities if present
-        ['rightHand', 'leftHand'].forEach(id => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            const removeColliders = () => {
-                ['aabb-collider', 'sphere-collider', 'static-body', 'dynamic-body']
-                    .forEach(attr => el.removeAttribute(attr));
-            };
-            el.addEventListener('model-loaded', removeColliders);
-            removeColliders();
-        });
-
-        sceneEl.addEventListener('enter-vr', () => {
-            if (!cam) return;
-            rig.object3D.position.y += baseHeight;
-            cam.object3D.position.set(0, 0, 0);
-
-            ['rightHand', 'leftHand'].forEach(id => {
-                const el = document.getElementById(id);
-                if (!el) return;
-                // Ensure orientation updates correctly when entering VR.
-                el.object3D.updateMatrix();
-            });
-        });
-
-        sceneEl.addEventListener('exit-vr', () => {
-            if (!cam) return;
-            cam.object3D.position.set(0, baseHeight, 0);
-            rig.object3D.position.y -= baseHeight;
-
-            ['rightHand', 'leftHand'].forEach(id => {
-                const el = document.getElementById(id);
-                if (!el) return;
-                // Remove any collider components that may interfere when
-                // the controllers stop tracking.
-                ['aabb-collider', 'sphere-collider', 'static-body', 'dynamic-body']
-                    .forEach(attr => el.removeAttribute(attr));
-
-                // Keep hand meshes in place after VR exit by enabling automatic
-                // matrix updates.
-                el.object3D.matrixAutoUpdate = true;
-
-                el.object3D.updateMatrix();
-            });
-        });
+        
     </script>
 </body>
 </html>
