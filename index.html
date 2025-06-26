@@ -236,9 +236,18 @@
         }
 
         scene.addEventListener('enter-vr', () => {
-            if (xrManager && xrManager.isPresenting) {
+            if (!xrManager) {
+                console.warn('No XR manager');
+                return;
+            }
+            xrManager.setSessionInit({
+                optionalFeatures: ['hand-tracking', 'layers'],
+                requiredFeatures: ['space-warp']
+            });
+
+            if (xrManager.isPresenting) {
                 enableSpaceWarp();
-            } else if (xrManager) {
+            } else {
                 xrManager.addEventListener('sessionstart', enableSpaceWarp);
             }
         });
