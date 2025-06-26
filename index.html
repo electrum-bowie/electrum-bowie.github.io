@@ -97,10 +97,10 @@
     <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking;">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
-            <a-entity oculus-touch-controls="hand: right" simple-fly="speed: -0.025"></a-entity>
-            <a-entity oculus-touch-controls="hand: left"></a-entity>
-            <a-entity hand-controls="hand: right; handModelStyle: lowPoly" hand-tracking-controls="hand: right; modelStyle: mesh"></a-entity>
-            <a-entity hand-controls="hand: left; handModelStyle: lowPoly" hand-tracking-controls="hand: left; modelStyle: mesh"></a-entity>
+            <a-entity id="rightHand" oculus-touch-controls="hand: right" hand-controls="hand: right; handModelStyle: lowPoly"
+                      hand-tracking-controls="hand: right; modelStyle: mesh" simple-fly="speed: -0.025"></a-entity>
+            <a-entity id="leftHand" oculus-touch-controls="hand: left" hand-controls="hand: left; handModelStyle: lowPoly"
+                      hand-tracking-controls="hand: left; modelStyle: mesh"></a-entity>
         </a-entity>
 
         <!-- Add a container to hold the dynamically created entity -->

@@ -3,12 +3,10 @@ AFRAME.registerComponent('simple-fly', {
         speed: { type: 'number', default: 0.1 }
     },
     init: function () {
-        this.rightController = null;
+        this.rightController = this.el; // controller this component is attached to
         this.isFlying = false;
 
-        const controllers = document.querySelectorAll('a-entity[oculus-touch-controls]');
-        if (controllers.length >= 2) {
-            this.rightController = controllers[0]; // Use 0 for the right hand
+        if (this.rightController) {
             this.rightController.addEventListener('triggerdown', () => {
                 this.startFlying();
                 console.log('Flying started');
@@ -18,7 +16,7 @@ AFRAME.registerComponent('simple-fly', {
                 console.log('Flying stopped');
             });
         } else {
-            console.warn('No Oculus Touch controllers found.');
+            console.warn('simple-fly component has no controller to bind to.');
         }
     },
     tick: function () {
