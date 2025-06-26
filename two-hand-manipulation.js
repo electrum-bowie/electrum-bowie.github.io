@@ -30,6 +30,12 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.rightUsingPinch = false;
         this.twoHandStartTime = 0;
         this.delayScaleRotate = false;
+        this._tmpVec1 = new THREE.Vector3();
+        this._tmpVec2 = new THREE.Vector3();
+        this._tmpVec3 = new THREE.Vector3();
+        this._tmpVec4 = new THREE.Vector3();
+        this._tmpQuat = new THREE.Quaternion();
+        this._tmpQuat2 = new THREE.Quaternion();
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
@@ -98,8 +104,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const leftObj = this.leftSource || this.leftController || this.leftHand;
         const rightObj = this.rightSource || this.rightController || this.rightHand;
         if (!leftObj || !rightObj) return;
-        const leftPos = this.leftUsingPinch ? this.leftPinchPos.clone() : new THREE.Vector3().copy(leftObj.object3D.getWorldPosition(new THREE.Vector3()));
-        const rightPos = this.rightUsingPinch ? this.rightPinchPos.clone() : new THREE.Vector3().copy(rightObj.object3D.getWorldPosition(new THREE.Vector3()));
+        const leftPos = this.leftUsingPinch ? this.leftPinchPos.clone() : this._tmpVec1.copy(leftObj.object3D.getWorldPosition(this._tmpVec1));
+        const rightPos = this.rightUsingPinch ? this.rightPinchPos.clone() : this._tmpVec2.copy(rightObj.object3D.getWorldPosition(this._tmpVec2));
         const midpoint = leftPos.clone().add(rightPos).multiplyScalar(0.5);
         this.startMidpoint.copy(midpoint);
         this.el.object3D.getWorldPosition(this.startPosition);
@@ -115,8 +121,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const obj = hand === 'left' ? (this.leftSource || this.leftController || this.leftHand) : (this.rightSource || this.rightController || this.rightHand);
         if (!obj) return;
         const pos = hand === 'left'
-            ? (this.leftUsingPinch ? this.leftPinchPos.clone() : new THREE.Vector3().copy(obj.object3D.getWorldPosition(new THREE.Vector3())))
-            : (this.rightUsingPinch ? this.rightPinchPos.clone() : new THREE.Vector3().copy(obj.object3D.getWorldPosition(new THREE.Vector3())));
+            ? (this.leftUsingPinch ? this.leftPinchPos.clone() : this._tmpVec1.copy(obj.object3D.getWorldPosition(this._tmpVec1)))
+            : (this.rightUsingPinch ? this.rightPinchPos.clone() : this._tmpVec1.copy(obj.object3D.getWorldPosition(this._tmpVec1)));
         this.el.object3D.getWorldPosition(this.startPosition);
         this.startOffsetSingle.copy(this.startPosition).sub(pos);
         this.singleHand = hand;
@@ -141,8 +147,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 : (this.rightSource || this.rightController || this.rightHand);
             if (!obj) return;
             const pos = this.singleHand === 'left'
-                ? (this.leftUsingPinch ? this.leftPinchPos.clone() : new THREE.Vector3().copy(obj.object3D.getWorldPosition(new THREE.Vector3())))
-                : (this.rightUsingPinch ? this.rightPinchPos.clone() : new THREE.Vector3().copy(obj.object3D.getWorldPosition(new THREE.Vector3())));
+                ? (this.leftUsingPinch ? this.leftPinchPos.clone() : this._tmpVec1.copy(obj.object3D.getWorldPosition(this._tmpVec1)))
+                : (this.rightUsingPinch ? this.rightPinchPos.clone() : this._tmpVec1.copy(obj.object3D.getWorldPosition(this._tmpVec1)));
             const newPos = pos.clone().add(this.startOffsetSingle);
             if (this.el.object3D.parent) this.el.object3D.parent.worldToLocal(newPos);
             this.el.object3D.position.copy(newPos);
@@ -152,8 +158,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const leftObj = this.leftSource || this.leftController || this.leftHand;
         const rightObj = this.rightSource || this.rightController || this.rightHand;
         if (!leftObj || !rightObj) return;
-        const leftPos = this.leftUsingPinch ? this.leftPinchPos.clone() : new THREE.Vector3().copy(leftObj.object3D.getWorldPosition(new THREE.Vector3()));
-        const rightPos = this.rightUsingPinch ? this.rightPinchPos.clone() : new THREE.Vector3().copy(rightObj.object3D.getWorldPosition(new THREE.Vector3()));
+        const leftPos = this.leftUsingPinch ? this.leftPinchPos.clone() : this._tmpVec1.copy(leftObj.object3D.getWorldPosition(this._tmpVec1));
+        const rightPos = this.rightUsingPinch ? this.rightPinchPos.clone() : this._tmpVec2.copy(rightObj.object3D.getWorldPosition(this._tmpVec2));
         const currentDistance = leftPos.distanceTo(rightPos);
         const midpoint = leftPos.clone().add(rightPos).multiplyScalar(0.5);
         const now = performance.now();
@@ -172,12 +178,12 @@ AFRAME.registerComponent('two-hand-manipulation', {
         }
 
         const scaleFactor = currentDistance / this.startDistance;
-        const newScale = this.startScale.clone().multiplyScalar(scaleFactor);
+        const newScale = this._tmpVec3.copy(this.startScale).multiplyScalar(scaleFactor);
         this.el.object3D.scale.copy(newScale);
 
-        const currentVector = rightPos.clone().sub(leftPos).normalize();
-        const rotQuat = new THREE.Quaternion().setFromUnitVectors(this.startVector, currentVector);
-        const offset = this.startOffset.clone().multiplyScalar(scaleFactor).applyQuaternion(rotQuat);
+        const currentVector = this._tmpVec3.copy(rightPos).sub(leftPos).normalize();
+        const rotQuat = this._tmpQuat.setFromUnitVectors(this.startVector, currentVector);
+        const offset = this._tmpVec4.copy(this.startOffset).multiplyScalar(scaleFactor).applyQuaternion(rotQuat);
         const newWorldPos = midpoint.clone().add(offset);
         if (this.el.object3D.parent) this.el.object3D.parent.worldToLocal(newWorldPos);
         this.el.object3D.position.copy(newWorldPos);
@@ -185,7 +191,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const worldQuat = this.startQuaternion.clone();
         worldQuat.premultiply(rotQuat);
         if (this.el.object3D.parent) {
-            const parentQuat = new THREE.Quaternion();
+            const parentQuat = this._tmpQuat2;
             this.el.object3D.parent.getWorldQuaternion(parentQuat);
             parentQuat.invert();
             worldQuat.premultiply(parentQuat);
