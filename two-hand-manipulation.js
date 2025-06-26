@@ -165,7 +165,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const now = performance.now();
 
         if (this.delayScaleRotate) {
-            if (now - this.twoHandStartTime < 125) {
+            if (now - this.twoHandStartTime < 100) {
                 const newWorldPos = midpoint.clone().add(this.startOffset);
                 if (this.el.object3D.parent) this.el.object3D.parent.worldToLocal(newWorldPos);
                 this.el.object3D.position.copy(newWorldPos);
