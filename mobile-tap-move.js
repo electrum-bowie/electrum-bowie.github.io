@@ -7,6 +7,7 @@ AFRAME.registerComponent('mobile-tap-move', {
         this.moveDirection = 0; // 1 for forward, -1 for backward, 0 for none
         this.currentSpeed = 0;
         this.pointerIds = new Set();
+        this._dir = new THREE.Vector3();
         this.onTap = this.onTap.bind(this);
         this.onPointerDown = this.onPointerDown.bind(this);
         this.onPointerUp = this.onPointerUp.bind(this);
@@ -98,7 +99,7 @@ AFRAME.registerComponent('mobile-tap-move', {
         }
 
         if (this.currentSpeed === 0 || this.moveDirection === 0) return;
-        const dir = new THREE.Vector3();
+        const dir = this._dir;
         camera.getWorldDirection(dir);
         const d = this.currentSpeed * deltaSec * this.moveDirection;
         dir.multiplyScalar(d);

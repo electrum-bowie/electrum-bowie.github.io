@@ -5,6 +5,7 @@ AFRAME.registerComponent('simple-fly', {
     init: function () {
         this.rightController = this.el; // controller this component is attached to
         this.isFlying = false;
+        this._direction = new THREE.Vector3();
 
         if (this.rightController) {
             this.rightController.addEventListener('triggerdown', () => {
@@ -43,9 +44,9 @@ AFRAME.registerComponent('simple-fly', {
     },
     fly: function () {
         if (this.rightController && this.gaussianSplattingEntity) {
-            const direction = new THREE.Vector3();
+            const direction = this._direction;
             this.rightController.object3D.getWorldDirection(direction);
-            direction.multiplyScalar(this.data.speed); // Invert the direction for the opposite translation
+            direction.multiplyScalar(this.data.speed);
             this.gaussianSplattingEntity.object3D.position.add(direction.clone().negate());
             console.log('Flying in the opposite direction.');
         } else {
