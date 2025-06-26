@@ -94,7 +94,7 @@
     </style>
 </head>
 <body>
-        <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking; requiredFeatures: layers, space-warp;">
+        <a-scene renderer="antialias: false" webxr="optionalFeatures: hand-tracking;">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
             <a-entity id="rightController" oculus-touch-controls="hand: right"></a-entity>
@@ -192,80 +192,6 @@
         new MutationObserver(syncSliderVisibility).observe(slider, {
             attributes: true,
             attributeFilter: ['style']
-        });
-
-        // Attempt to enable space warp when entering VR
-        const scene = document.querySelector('a-scene');
-
-        scene.addEventListener('renderstart', () => {
-            const xrMgr = scene.renderer && scene.renderer.xr;
-            if (xrMgr) {
-                xrMgr.setSessionInit({
-                    optionalFeatures: ['hand-tracking'],
-                    requiredFeatures: ['layers', 'space-warp']
-                });
-                console.log('XR session init configured for space warp');
-            } else {
-                console.warn('XR manager not initialized');
-            }
-        });
-
-        function enableSpaceWarp() {
-            const xrManager = scene.renderer && scene.renderer.xr;
-            const session = xrManager && xrManager.getSession && xrManager.getSession();
-            if (!session || !session.updateRenderState) {
-                console.warn('Space warp not supported by session');
-                return;
-            }
-            try {
-                const gl = scene.renderer.getContext();
-                const ext = gl.getExtension('EXT_color_buffer_half_float');
-                if (!ext) {
-                    console.warn('EXT_color_buffer_half_float not supported');
-                }
-                const binding = new XRWebGLBinding(session, gl);
-                const layer = binding.createProjectionLayer({
-                    textureType: 'texture-array',
-                    depthFormat: gl.DEPTH_COMPONENT24
-                });
-                session.updateRenderState({ layers: [layer], spaceWarp: { enabled: true } });
-                console.log('Space warp enabled with projection layer');
-            } catch (err) {
-                console.warn('Failed to enable space warp', err);
-            }
-
-            const ratesPromise = session.supportedFrameRates;
-            if (ratesPromise && typeof ratesPromise.then === 'function' && typeof session.updateTargetFrameRate === 'function') {
-                ratesPromise.then(async (rates) => {
-                    console.log('Supported frame rates:', rates);
-                    if (Array.isArray(rates) && rates.includes(45)) {
-                        try {
-                            await session.updateTargetFrameRate(45);
-                            console.log('Frame rate set to 45');
-                        } catch (e) {
-                            console.warn('Failed to set frame rate', e);
-                        }
-                    }
-                });
-            }
-
-            if (xrManager) {
-                xrManager.removeEventListener('sessionstart', enableSpaceWarp);
-            }
-        }
-
-        scene.addEventListener('enter-vr', () => {
-            const xrManager = scene.renderer && scene.renderer.xr;
-            if (!xrManager) {
-                console.warn('No XR manager');
-                return;
-            }
-
-            if (xrManager.isPresenting) {
-                enableSpaceWarp();
-            } else {
-                xrManager.addEventListener('sessionstart', enableSpaceWarp);
-            }
         });
     </script>
 </body>
