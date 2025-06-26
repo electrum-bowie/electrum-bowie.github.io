@@ -196,9 +196,22 @@
 
         // Attempt to enable space warp when entering VR
         const scene = document.querySelector('a-scene');
-        const xrManager = scene.renderer && scene.renderer.xr;
+
+        scene.addEventListener('renderstart', () => {
+            const xrMgr = scene.renderer && scene.renderer.xr;
+            if (xrMgr) {
+                xrMgr.setSessionInit({
+                    optionalFeatures: ['hand-tracking', 'layers'],
+                    requiredFeatures: ['space-warp']
+                });
+                console.log('XR session init configured for space warp');
+            } else {
+                console.warn('XR manager not initialized');
+            }
+        });
 
         function enableSpaceWarp() {
+            const xrManager = scene.renderer && scene.renderer.xr;
             const session = xrManager && xrManager.getSession && xrManager.getSession();
             if (!session || !session.updateRenderState) {
                 console.warn('Space warp not supported by session');
@@ -232,18 +245,17 @@
                 });
             }
 
-            xrManager.removeEventListener('sessionstart', enableSpaceWarp);
+            if (xrManager) {
+                xrManager.removeEventListener('sessionstart', enableSpaceWarp);
+            }
         }
 
         scene.addEventListener('enter-vr', () => {
+            const xrManager = scene.renderer && scene.renderer.xr;
             if (!xrManager) {
                 console.warn('No XR manager');
                 return;
             }
-            xrManager.setSessionInit({
-                optionalFeatures: ['hand-tracking', 'layers'],
-                requiredFeatures: ['space-warp']
-            });
 
             if (xrManager.isPresenting) {
                 enableSpaceWarp();
