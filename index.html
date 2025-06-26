@@ -198,20 +198,27 @@
         document.querySelector('a-scene').addEventListener('enter-vr', function () {
             const renderer = this.renderer;
             if (!renderer || !renderer.xr) return;
-            const session = renderer.xr.getSession && renderer.xr.getSession();
-            if (session && session.updateRenderState) {
+            const xrManager = renderer.xr;
+
+            const enableSpaceWarp = () => {
+                const session = xrManager.getSession && xrManager.getSession();
+                if (!session || !session.updateRenderState) return;
                 try {
-                    const state = session.renderState;
-                    if ('spaceWarp' in state) {
-                        session.updateRenderState({ spaceWarp: { enabled: true } });
-                        if (typeof session.updateTargetFrameRate === 'function') {
-                            session.updateTargetFrameRate(45);
-                        }
-                        console.log('Space Warp enabled');
+                    session.updateRenderState({ spaceWarp: { enabled: true } });
+                    if (typeof session.updateTargetFrameRate === 'function') {
+                        session.updateTargetFrameRate(45);
                     }
+                    console.log('Space Warp enabled');
                 } catch (e) {
                     console.warn('Space Warp not supported', e);
                 }
+                xrManager.removeEventListener('sessionstart', enableSpaceWarp);
+            };
+
+            if (xrManager.getSession && xrManager.getSession()) {
+                enableSpaceWarp();
+            } else {
+                xrManager.addEventListener('sessionstart', enableSpaceWarp);
             }
         });
     </script>
