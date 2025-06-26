@@ -33,25 +33,18 @@ AFRAME.registerComponent('two-hand-manipulation', {
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
-            const updatePinch = (evt) => {
+            const updatePinch = evt => {
                 if (evt.detail && evt.detail.position) {
                     const pos = evt.detail.position;
-                    if (hand === 'left') {
-                        this.leftPinchPos.set(pos.x, pos.y, pos.z);
-                    } else {
-                        this.rightPinchPos.set(pos.x, pos.y, pos.z);
-                    }
+                    if (hand === 'left') this.leftPinchPos.set(pos.x, pos.y, pos.z);
+                    else this.rightPinchPos.set(pos.x, pos.y, pos.z);
                 }
             };
-            const updatePressedState = (hand) => {
-                if (hand === 'left') {
-                    this.leftGripPressed = this.leftGripButton || this.leftTriggerButton || this.leftUsingPinch;
-                } else {
-                    this.rightGripPressed = this.rightGripButton || this.rightTriggerButton || this.rightUsingPinch;
-                }
+            const updatePressedState = hand => {
+                if (hand === 'left') this.leftGripPressed = this.leftGripButton || this.leftTriggerButton || this.leftUsingPinch;
+                else this.rightGripPressed = this.rightGripButton || this.rightTriggerButton || this.rightUsingPinch;
             };
-            const onDown = (evt) => {
-                console.log('onDown', hand, evt.type);
+            const onDown = evt => {
                 updatePinch(evt);
                 const isPinch = evt.type.startsWith('pinch');
                 const isGrip = evt.type.startsWith('grip') || evt.type.startsWith('squeeze');
@@ -60,20 +53,17 @@ AFRAME.registerComponent('two-hand-manipulation', {
                     if (isGrip) this.leftGripButton = true;
                     if (isTrigger) this.leftTriggerButton = true;
                     this.leftUsingPinch = isPinch;
-                    if (isPinch) this.leftSource = controller;
-                    else if (isGrip || isTrigger) this.leftSource = controller;
+                    this.leftSource = controller;
                 } else {
                     if (isGrip) this.rightGripButton = true;
                     if (isTrigger) this.rightTriggerButton = true;
                     this.rightUsingPinch = isPinch;
-                    if (isPinch) this.rightSource = controller;
-                    else if (isGrip || isTrigger) this.rightSource = controller;
+                    this.rightSource = controller;
                 }
                 updatePressedState(hand);
                 this.tryStart();
             };
-            const onUp = (evt) => {
-                console.log('onUp', hand, evt.type);
+            const onUp = evt => {
                 const isPinch = evt.type.startsWith('pinch');
                 const isGrip = evt.type.startsWith('grip') || evt.type.startsWith('squeeze');
                 const isTrigger = evt.type.startsWith('trigger');
@@ -107,74 +97,42 @@ AFRAME.registerComponent('two-hand-manipulation', {
     startTwoHand: function () {
         const leftObj = this.leftSource || this.leftController || this.leftHand;
         const rightObj = this.rightSource || this.rightController || this.rightHand;
-        if (!leftObj || !rightObj) { return; }
-        const leftPos = new THREE.Vector3();
-        const rightPos = new THREE.Vector3();
-        if (this.leftUsingPinch) {
-            leftPos.copy(this.leftPinchPos);
-        } else {
-            leftObj.object3D.getWorldPosition(leftPos);
-        }
-        if (this.rightUsingPinch) {
-            rightPos.copy(this.rightPinchPos);
-        } else {
-            rightObj.object3D.getWorldPosition(rightPos);
-        }
-
-        this.startDistance = leftPos.distanceTo(rightPos);
-        this.startScale.copy(this.el.object3D.scale);
-        this.startMidpoint.copy(leftPos).add(rightPos).multiplyScalar(0.5);
+        if (!leftObj || !rightObj) return;
+        const leftPos = this.leftUsingPinch ? this.leftPinchPos.clone() : new THREE.Vector3().copy(leftObj.object3D.getWorldPosition(new THREE.Vector3()));
+        const rightPos = this.rightUsingPinch ? this.rightPinchPos.clone() : new THREE.Vector3().copy(rightObj.object3D.getWorldPosition(new THREE.Vector3()));
+        const midpoint = leftPos.clone().add(rightPos).multiplyScalar(0.5);
+        this.startMidpoint.copy(midpoint);
         this.el.object3D.getWorldPosition(this.startPosition);
-        this.startOffset.copy(this.startPosition).sub(this.startMidpoint);
-        this.startVector.copy(rightPos).sub(leftPos).normalize();
+        this.startOffset.copy(this.startPosition).sub(midpoint);
         this.el.object3D.getWorldQuaternion(this.startQuaternion);
-        this.mode = 'two';
-        this.isInteracting = true;
         this.twoHandStartTime = performance.now();
-        this.delayScaleRotate = this.leftUsingPinch && this.rightUsingPinch;
+        this.delayScaleRotate = true;
+        this.isInteracting = true;
+        this.mode = 'two';
     },
+
     startSingleHand: function (hand) {
-        const obj = hand === 'left'
-            ? (this.leftSource || this.leftController || this.leftHand)
-            : (this.rightSource || this.rightController || this.rightHand);
+        const obj = hand === 'left' ? (this.leftSource || this.leftController || this.leftHand) : (this.rightSource || this.rightController || this.rightHand);
         if (!obj) return;
-        const pos = new THREE.Vector3();
-        if (hand === 'left') {
-            if (this.leftUsingPinch) {
-                pos.copy(this.leftPinchPos);
-            } else {
-                obj.object3D.getWorldPosition(pos);
-            }
-        } else {
-            if (this.rightUsingPinch) {
-                pos.copy(this.rightPinchPos);
-            } else {
-                obj.object3D.getWorldPosition(pos);
-            }
-        }
+        const pos = hand === 'left'
+            ? (this.leftUsingPinch ? this.leftPinchPos.clone() : new THREE.Vector3().copy(obj.object3D.getWorldPosition(new THREE.Vector3())))
+            : (this.rightUsingPinch ? this.rightPinchPos.clone() : new THREE.Vector3().copy(obj.object3D.getWorldPosition(new THREE.Vector3())));
         this.el.object3D.getWorldPosition(this.startPosition);
         this.startOffsetSingle.copy(this.startPosition).sub(pos);
         this.singleHand = hand;
         this.mode = 'single';
         this.isInteracting = true;
     },
+
     tryStart: function () {
         if (this.leftGripPressed && this.rightGripPressed) {
-            if (!this.isInteracting || this.mode !== 'two') {
-                this.isInteracting = false;
-                this.startTwoHand();
-            }
+            if (!this.isInteracting || this.mode !== 'two') this.startTwoHand();
         } else if (this.leftGripPressed || this.rightGripPressed) {
             const hand = this.leftGripPressed ? 'left' : 'right';
-            if (!this.isInteracting) {
-                this.startSingleHand(hand);
-            } else if (this.mode === 'single' && this.singleHand !== hand) {
-                // switch controlling hand
-                this.isInteracting = false;
-                this.startSingleHand(hand);
-            }
+            if (!this.isInteracting || (this.mode === 'single' && this.singleHand !== hand)) this.startSingleHand(hand);
         }
     },
+
     tick: function () {
         if (!this.isInteracting) return;
         if (this.mode === 'single') {
@@ -182,102 +140,56 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 ? (this.leftSource || this.leftController || this.leftHand)
                 : (this.rightSource || this.rightController || this.rightHand);
             if (!obj) return;
-            const pos = new THREE.Vector3();
-            if (this.singleHand === 'left') {
-                if (this.leftUsingPinch) {
-                    pos.copy(this.leftPinchPos);
-                } else {
-                    obj.object3D.getWorldPosition(pos);
-                }
-            } else {
-                if (this.rightUsingPinch) {
-                    pos.copy(this.rightPinchPos);
-                } else {
-                    obj.object3D.getWorldPosition(pos);
-                }
-            }
+            const pos = this.singleHand === 'left'
+                ? (this.leftUsingPinch ? this.leftPinchPos.clone() : new THREE.Vector3().copy(obj.object3D.getWorldPosition(new THREE.Vector3())))
+                : (this.rightUsingPinch ? this.rightPinchPos.clone() : new THREE.Vector3().copy(obj.object3D.getWorldPosition(new THREE.Vector3())));
             const newPos = pos.clone().add(this.startOffsetSingle);
-            if (this.el.object3D.parent) {
-                this.el.object3D.parent.worldToLocal(newPos);
-            }
+            if (this.el.object3D.parent) this.el.object3D.parent.worldToLocal(newPos);
             this.el.object3D.position.copy(newPos);
             return;
         }
 
         const leftObj = this.leftSource || this.leftController || this.leftHand;
         const rightObj = this.rightSource || this.rightController || this.rightHand;
-        if (!leftObj || !rightObj) { return; }
-        const leftPos = new THREE.Vector3();
-        const rightPos = new THREE.Vector3();
-        if (this.leftUsingPinch) {
-            leftPos.copy(this.leftPinchPos);
-        } else {
-            leftObj.object3D.getWorldPosition(leftPos);
-        }
-        if (this.rightUsingPinch) {
-            rightPos.copy(this.rightPinchPos);
-        } else {
-            rightObj.object3D.getWorldPosition(rightPos);
-        }
-
+        if (!leftObj || !rightObj) return;
+        const leftPos = this.leftUsingPinch ? this.leftPinchPos.clone() : new THREE.Vector3().copy(leftObj.object3D.getWorldPosition(new THREE.Vector3()));
+        const rightPos = this.rightUsingPinch ? this.rightPinchPos.clone() : new THREE.Vector3().copy(rightObj.object3D.getWorldPosition(new THREE.Vector3()));
         const currentDistance = leftPos.distanceTo(rightPos);
-        if (this.startDistance === 0) return;
-
         const midpoint = leftPos.clone().add(rightPos).multiplyScalar(0.5);
-
         const now = performance.now();
-        const delayActive = this.delayScaleRotate && (now - this.twoHandStartTime < 100);
-
-        if (delayActive) {
-            const offset = this.startOffset.clone();
-            const newWorldPos = midpoint.clone().add(offset);
-            if (this.el.object3D.parent) {
-                this.el.object3D.parent.worldToLocal(newWorldPos);
-            }
-            this.el.object3D.position.copy(newWorldPos);
-            return;
-        }
 
         if (this.delayScaleRotate) {
+            if (now - this.twoHandStartTime < 100) {
+                const newWorldPos = midpoint.clone().add(this.startOffset);
+                if (this.el.object3D.parent) this.el.object3D.parent.worldToLocal(newWorldPos);
+                this.el.object3D.position.copy(newWorldPos);
+                return;
+            }
             this.delayScaleRotate = false;
             this.startDistance = currentDistance;
             this.startScale.copy(this.el.object3D.scale);
-            this.startMidpoint.copy(midpoint);
-            this.el.object3D.getWorldPosition(this.startPosition);
-            this.startOffset.copy(this.startPosition).sub(midpoint);
             this.startVector.copy(rightPos).sub(leftPos).normalize();
-            this.el.object3D.getWorldQuaternion(this.startQuaternion);
         }
 
-        const scaleFactor = currentDistance * this.startDistance;
+        const scaleFactor = currentDistance / this.startDistance;
         const newScale = this.startScale.clone().multiplyScalar(scaleFactor);
         this.el.object3D.scale.copy(newScale);
 
         const currentVector = rightPos.clone().sub(leftPos).normalize();
         const rotQuat = new THREE.Quaternion().setFromUnitVectors(this.startVector, currentVector);
-
-        let offset = this.startOffset.clone();
-        let newWorldPos;
-        if (!delayActive) {
-            offset.multiplyScalar(scaleFactor).applyQuaternion(rotQuat);
-            newWorldPos = midpoint.clone().add(offset);
-        } else {
-            newWorldPos = midpoint.clone().add(offset);
-        }
-        if (this.el.object3D.parent) {
-            this.el.object3D.parent.worldToLocal(newWorldPos);
-        }
+        const offset = this.startOffset.clone().multiplyScalar(scaleFactor).applyQuaternion(rotQuat);
+        const newWorldPos = midpoint.clone().add(offset);
+        if (this.el.object3D.parent) this.el.object3D.parent.worldToLocal(newWorldPos);
         this.el.object3D.position.copy(newWorldPos);
-        if (!delayActive) {
-            const worldQuat = this.startQuaternion.clone();
-            worldQuat.premultiply(rotQuat);
-            if (this.el.object3D.parent) {
-                const parentQuat = new THREE.Quaternion();
-                this.el.object3D.parent.getWorldQuaternion(parentQuat);
-                parentQuat.invert();
-                worldQuat.premultiply(parentQuat);
-            }
-            this.el.object3D.quaternion.copy(worldQuat);
+
+        const worldQuat = this.startQuaternion.clone();
+        worldQuat.premultiply(rotQuat);
+        if (this.el.object3D.parent) {
+            const parentQuat = new THREE.Quaternion();
+            this.el.object3D.parent.getWorldQuaternion(parentQuat);
+            parentQuat.invert();
+            worldQuat.premultiply(parentQuat);
         }
+        this.el.object3D.quaternion.copy(worldQuat);
     }
 });
