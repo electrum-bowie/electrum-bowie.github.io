@@ -197,6 +197,7 @@
         // Attempt to enable WebXR Space Warp when entering VR
         document.querySelector('a-scene').addEventListener('enter-vr', function () {
             const renderer = this.renderer;
+      
             if (!renderer || !renderer.xr) {
                 console.warn('WebXR renderer not available');
                 return;
