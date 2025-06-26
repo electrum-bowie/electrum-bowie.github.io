@@ -217,7 +217,7 @@
                 }
 
                 try {
-                    session.updateRenderState({ spaceWarp: { enabled: true } });
+                    session.updateRenderState({ spaceWarp: true });
                     console.log('Requested Space Warp');
                 } catch (e) {
                     console.warn('Space Warp not supported', e);
