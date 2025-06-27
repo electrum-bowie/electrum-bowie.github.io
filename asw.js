@@ -41,10 +41,10 @@ AFRAME.registerSystem('space-warp', {
     this.framebuffer = gl.createFramebuffer();
     this.motionFramebuffer = gl.createFramebuffer();
 
-    const origLoop = renderer.getAnimationLoop();
+    this.origLoop = renderer.getAnimationLoop();
     renderer.setAnimationLoop((time, frame) => {
       this.onXRFrame(time, frame);
-      if (origLoop) origLoop(time, frame);
+      if (this.origLoop) this.origLoop(time, frame);
     });
 
     this.refSpace = renderer.xr.getReferenceSpace();
@@ -52,7 +52,9 @@ AFRAME.registerSystem('space-warp', {
 
   onSessionEnd: function () {
     const renderer = this.sceneEl.renderer;
-    renderer.setAnimationLoop(null);
+
+    renderer.setAnimationLoop(this.origLoop || null);
+
     this.prevPose = null;
     this.prevMatrices = [];
   },
@@ -105,8 +107,6 @@ AFRAME.registerSystem('space-warp', {
     }
     this.prevPose = pose;
 
-    renderer.render(this.sceneEl.object3D, this.sceneEl.camera);
-
     const views = pose.views;
     for (let i = 0; i < views.length; i++) {
       const view = views[i];
@@ -135,5 +135,6 @@ AFRAME.registerSystem('space-warp', {
   tmpPosition: vec3.create(),
   currentOrientation: quat.create(),
   prevOrientationInv: quat.create(),
-  prevPositionInv: vec3.create()
+  prevPositionInv: vec3.create(),
+  origLoop: null
 });
