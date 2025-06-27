@@ -188,10 +188,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 				in vec2 vPosition;
 
 				void main () {
-					float g = exp(-dot(vPosition, vPosition));
-                                        float alpha = g * vColor.a;
-                                        alpha = clamp((alpha - 0.003) * 400.0, 0.0, 1.0);
-                                        gl_FragColor = vec4(vColor.rgb * alpha, alpha);
+					float A = -dot(vPosition, vPosition);
+					if (A < -4.0) discard;
+					float B = exp(A) * vColor.a;
+					gl_FragColor = vec4(vColor.rgb, B);
 				}
 			`,
 			blending: THREE.CustomBlending,
@@ -200,8 +200,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 			depthWrite: false,
 			transparent: true
 		});
-                
-                material.premultipliedAlpha = true;
 
 		material.onBeforeRender = ((renderer, scene, camera, geometry, object, group) => {
 			let projectionMatrix = this.getProjectionMatrix(camera);
