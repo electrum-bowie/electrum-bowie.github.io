@@ -13,4 +13,4 @@ resolution using the `pixelRatio` and `xrPixelRatio` properties on the
 
 ## XR Frame Synthesis
 
-This project includes an experimental `xr-frame-synthesis` component that reprojects the last rendered frame to synthesize additional frames between real renders. Set `fakeFrames` to control how many synthetic frames are inserted for each real frame.
+This project includes an experimental `xr-frame-synthesis` component that reprojects the last rendered frame to synthesize additional frames between real renders. It now performs asynchronous reprojection using the captured depth buffer and predicted viewer motion so fake frames are warped in 3D space. Set `fakeFrames` to control how many synthetic frames are inserted for each real frame.
