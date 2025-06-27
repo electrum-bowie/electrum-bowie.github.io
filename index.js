@@ -251,10 +251,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 				let _totalDownloadBytes = data.headers.get("Content-Length");
 				let totalDownloadBytes = _totalDownloadBytes ? parseInt(_totalDownloadBytes) : undefined;
 
-				const chunks = [];
-				const start = Date.now();
-				let lastReportedProgress = 0;
-				let isPly = true;
+                                const chunks = [];
+                                const start = Date.now();
+                                let lastReportedProgress = 0;
+                                let isPly = src.toLowerCase().endsWith('.ply');
 
 				while (true) {
 					try {
