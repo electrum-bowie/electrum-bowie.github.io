@@ -10,7 +10,3 @@ When supported, the page requests the `multiview` feature to take advantage of s
 Rendering millions of splats can strain mobile GPUs. Adjust the render
 resolution using the `pixelRatio` and `xrPixelRatio` properties on the
 `gaussian_splatting` component.
-
-## XR Frame Synthesis
-
-This project includes an experimental `xr-frame-synthesis` component that reprojects the last rendered frame to synthesize additional frames between real renders. It now performs asynchronous reprojection using the captured depth buffer and predicted viewer motion so fake frames are warped in 3D space. Set `fakeFrames` to control how many synthetic frames are inserted for each real frame.
