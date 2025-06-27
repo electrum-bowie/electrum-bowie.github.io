@@ -52,7 +52,9 @@ AFRAME.registerSystem('space-warp', {
 
   onSessionEnd: function () {
     const renderer = this.sceneEl.renderer;
+
     renderer.setAnimationLoop(this.origLoop || null);
+
     this.prevPose = null;
     this.prevMatrices = [];
   },
@@ -104,7 +106,6 @@ AFRAME.registerSystem('space-warp', {
       this.layer.deltaPose = null;
     }
     this.prevPose = pose;
-
 
     const views = pose.views;
     for (let i = 0; i < views.length; i++) {
