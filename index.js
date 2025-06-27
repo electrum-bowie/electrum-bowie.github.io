@@ -55,6 +55,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 		this.camera = camera;
 		this.object = object;
 		this.renderer = renderer;
+
+                // BEGIN NEW
+                const gl = this.renderer.getContext();
+                this.shadingRateExt = gl.getExtension('QCOM_shading_rate');
+                if (!this.shadingRateExt) {
+                        console.warn('QCOM_shading_rate not supported – dots may still appear');
+                }
+                // END NEW
+
 		this.textureReady = false;
 		this.object.frustumCulled = false;
 
@@ -211,7 +220,23 @@ AFRAME.registerComponent("gaussian_splatting", {
 			material.uniforms.viewport.value[0] = viewport.z;
 			material.uniforms.viewport.value[1] = viewport.w;
 			material.uniforms.focal.value = focal;
+
+                        // BEGIN NEW
+                        if (this.shadingRateExt) {
+                                const ext = this.shadingRateExt;
+                                ext.shadingRateQCOM(ext.SHADING_RATE_1X1_PIXELS_QCOM);
+                        }
+                        // END NEW
 		});
+
+                // BEGIN NEW
+                material.onAfterRender = (renderer /*, scene, camera */) => {
+                        if (this.shadingRateExt) {
+                                const ext = this.shadingRateExt;
+                                ext.shadingRateQCOM(ext.SHADING_RATE_2X2_PIXELS_QCOM);
+                        }
+                };
+                // END NEW
 
 		mesh = new THREE.Mesh(geometry, material);
 		mesh.frustumCulled = false;
