@@ -3,7 +3,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 0.5 },
                 xrPixelRatio: { type: 'number', default: 1.0 },
-                foveation: { type: 'number', default: 3.0 },
+                foveation: { type: 'number', default: 4.0 },
         },
         init: function () {
                 // aframe-specific data
@@ -11,7 +11,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 // this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
-		this.el.sceneEl.renderer.xr.setPixelRatio(xrPixelRatio);
+		// this.el.sceneEl.renderer.xr.setPixelRatio(xrPixelRatio);
                 this.originalBuffers = [];
                 this.needsQualityUpdate = false;
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
