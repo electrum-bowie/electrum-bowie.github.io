@@ -19,6 +19,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.startMidpoint = new THREE.Vector3();
         this.startPosition = new THREE.Vector3();
         this.startVector = new THREE.Vector3();
+        this.startYaw = 0;
         this.startQuaternion = new THREE.Quaternion();
         this.startOffset = new THREE.Vector3();
         this.startOffsetSingle = new THREE.Vector3();
@@ -175,6 +176,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
             this.startDistance = currentDistance;
             this.startScale.copy(this.el.object3D.scale);
             this.startVector.copy(rightPos).sub(leftPos).normalize();
+            this.startYaw = Math.atan2(this.startVector.x, this.startVector.z);
         }
 
         const scaleFactor = currentDistance / this.startDistance;
@@ -182,7 +184,9 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.el.object3D.scale.copy(newScale);
 
         const currentVector = this._tmpVec3.copy(rightPos).sub(leftPos).normalize();
-        const rotQuat = this._tmpQuat.setFromUnitVectors(this.startVector, currentVector);
+        const currentYaw = Math.atan2(currentVector.x, currentVector.z);
+        const yawDelta = currentYaw - this.startYaw;
+        const rotQuat = this._tmpQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawDelta);
         const offset = this._tmpVec4.copy(this.startOffset).multiplyScalar(scaleFactor).applyQuaternion(rotQuat);
         const newWorldPos = midpoint.clone().add(offset);
         if (this.el.object3D.parent) this.el.object3D.parent.worldToLocal(newWorldPos);
