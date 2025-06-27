@@ -14,9 +14,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.needsQualityUpdate = false;
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
                 this.loadData(this.data.src);
-                this.el.sceneEl.renderer.xr.addEventListener("sessionstart", () => {
+                this.el.sceneEl.renderer.xr.addEventListener("sessionstart", async () => {
                         const gl = this.el.sceneEl.renderer.getContext();
-                        const ext = gl.getExtension("OVR_multiview2") || gl.getExtension("OVR_multiview");
+                        if (gl.makeXRCompatible) {
+                                try {
+                                        await gl.makeXRCompatible();
+                                } catch (e) {
+                                        console.warn("makeXRCompatible failed", e);
+                                }
+                        }
+                        const ext = gl.getExtension("OVR_multiview2") ||
+                                    gl.getExtension("OVR_multiview") ||
+                                    gl.getExtension("OCULUS_multiview") ||
+                                    gl.getExtension("WEBGL_multiview");
                         if (ext && this.el.sceneEl.renderer.xr.setMultiviewEnabled) {
                                 this.el.sceneEl.renderer.xr.setMultiviewEnabled(true);
                                 console.log("Multiview enabled");
