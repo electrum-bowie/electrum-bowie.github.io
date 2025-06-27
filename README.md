@@ -12,3 +12,5 @@ resolution using the `pixelRatio` and `xrPixelRatio` properties on the
 `gaussian_splatting` component.
 
 This viewer now supports loading `.splat` and `.gsplat` files in addition to `.ply`.
+Zipped files are auto-detected even when they don't use a `.zip` extension, so
+compressed `.splat` archives will load correctly.

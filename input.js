@@ -18,7 +18,12 @@ document.addEventListener("DOMContentLoaded", function () {
         
         let blob = file;
         const nameLower = file.name.toLowerCase();
-        if (nameLower.endsWith(".zip")) {
+
+        const headerBuf = await file.slice(0, 4).arrayBuffer();
+        const header = new Uint8Array(headerBuf);
+        const zipMagic = header[0] === 0x50 && header[1] === 0x4b;
+
+        if (nameLower.endsWith(".zip") || zipMagic) {
             try {
                 if (typeof JSZip === 'undefined') {
                     console.error('JSZip library missing');
