@@ -11,11 +11,13 @@ AFRAME.registerComponent('xr-frame-synthesis', {
         this.prevDepth = null;
         this.prevPose = null;
         this.frameCount = 0;
-        this.overlay = null;
         this.colorTexture = null;
+        this.depthTexture = null;
         this.overlayMesh = null;
+        this.warpMaterial = null;
         this.syntheticScene = new THREE.Scene();
         this.syntheticCamera = new THREE.Camera();
+        this.prevInvViewProj = new THREE.Matrix4();
 
         if (!this.renderer) {
             console.warn('XR Frame Synthesis: renderer not ready');
@@ -61,8 +63,8 @@ AFRAME.registerComponent('xr-frame-synthesis', {
     },
 
     predictPose: function (frame, lastPose) {
-        // With no motion data, return last pose as approximation
-        return lastPose;
+        const predicted = this.getViewerPose(frame);
+        return predicted || lastPose;
     },
 
     captureCurrentFrame: function () {
@@ -83,58 +85,83 @@ AFRAME.registerComponent('xr-frame-synthesis', {
             this.colorTexture = new THREE.DataTexture(this.prevColor, size.x, size.y, THREE.RGBAFormat);
             this.colorTexture.flipY = true;
             this.colorTexture.needsUpdate = true;
-            const geometry = new THREE.PlaneGeometry(2, 2);
-            const material = new THREE.MeshBasicMaterial({ map: this.colorTexture });
-            this.overlayMesh = new THREE.Mesh(geometry, material);
-            this.syntheticScene.add(this.overlayMesh);
         } else {
             this.colorTexture.image.data.set(this.prevColor);
             this.colorTexture.needsUpdate = true;
         }
-    },
 
-    quatToYaw: function (q) {
-        const ysqr = q.y * q.y;
-        const t3 = 2.0 * (q.w * q.y + q.z * q.x);
-        const t4 = 1.0 - 2.0 * (ysqr + q.z * q.z);
-        return Math.atan2(t3, t4);
+        if (!this.depthTexture) {
+            this.depthTexture = new THREE.DataTexture(this.prevDepth, size.x, size.y, THREE.RedFormat, THREE.FloatType);
+            this.depthTexture.flipY = true;
+            this.depthTexture.needsUpdate = true;
+        } else {
+            this.depthTexture.image.data.set(this.prevDepth);
+            this.depthTexture.needsUpdate = true;
+        }
+
+        if (!this.warpMaterial) {
+            const geometry = new THREE.PlaneGeometry(2, 2);
+            this.warpMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    colorTexture: { value: this.colorTexture },
+                    depthTexture: { value: this.depthTexture },
+                    warpMatrix: { value: new THREE.Matrix4() }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = vec4(position.xy, 0.0, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    precision highp float;
+                    uniform sampler2D colorTexture;
+                    uniform sampler2D depthTexture;
+                    uniform mat4 warpMatrix;
+                    varying vec2 vUv;
+                    void main() {
+                        float d = texture2D(depthTexture, vUv).r;
+                        vec4 clipPrev = vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+                        vec4 clipCurr = warpMatrix * clipPrev;
+                        clipCurr /= clipCurr.w;
+                        vec2 uv = clipCurr.xy * 0.5 + 0.5;
+                        gl_FragColor = texture2D(colorTexture, uv);
+                    }
+                `,
+                depthWrite: false,
+                depthTest: false
+            });
+            this.overlayMesh = new THREE.Mesh(geometry, this.warpMaterial);
+            this.syntheticScene.add(this.overlayMesh);
+        }
+
+        const camera = this.el.sceneEl.camera && this.el.sceneEl.camera.el.components.camera.camera;
+        if (camera) {
+            const prevProj = camera.projectionMatrix.clone();
+            const prevView = camera.matrixWorldInverse.clone();
+            const viewProj = new THREE.Matrix4().multiplyMatrices(prevProj, prevView);
+            this.prevInvViewProj.copy(viewProj).invert();
+        }
     },
 
     composeSyntheticFrame: function (pose) {
-        if (!pose || !this.prevPose) return;
-        const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-        if (!this.overlay) {
-            this.overlay = document.createElement('canvas');
-            this.overlay.style.position = 'absolute';
-            this.overlay.style.left = '0';
-            this.overlay.style.top = '0';
-            this.overlay.style.pointerEvents = 'none';
-            document.body.appendChild(this.overlay);
-        }
-        if (this.overlay.width !== size.x) this.overlay.width = size.x;
-        if (this.overlay.height !== size.y) this.overlay.height = size.y;
+        if (!pose || !this.prevPose || !this.warpMaterial) return;
 
-        const ctx = this.overlay.getContext('2d');
-        const imageData = new ImageData(new Uint8ClampedArray(this.prevColor.buffer), size.x, size.y);
-        const temp = document.createElement('canvas');
-        temp.width = size.x;
-        temp.height = size.y;
-        temp.getContext('2d').putImageData(imageData, 0, 0);
+        const camera = this.el.sceneEl.camera && this.el.sceneEl.camera.el.components.camera.camera;
+        if (!camera) return;
 
-        const yawPrev = this.quatToYaw(this.prevPose.orientation);
-        const yawCurr = this.quatToYaw(pose.orientation);
-        const yawDiff = yawCurr - yawPrev;
-        const pxShift = yawDiff * size.x * 0.5;
+        const quat = new THREE.Quaternion(pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w);
+        const pos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
+        const world = new THREE.Matrix4().compose(pos, quat, new THREE.Vector3(1, 1, 1));
+        const view = world.clone().invert();
+        const proj = camera.projectionMatrix.clone();
+        const warpMatrix = new THREE.Matrix4().multiplyMatrices(proj, view).multiply(this.prevInvViewProj);
+        this.warpMaterial.uniforms.warpMatrix.value.copy(warpMatrix);
+        this.warpMaterial.uniforms.colorTexture.value = this.colorTexture;
+        this.warpMaterial.uniforms.depthTexture.value = this.depthTexture;
 
-        ctx.setTransform(1, 0, 0, 1, pxShift, 0);
-        ctx.clearRect(-pxShift, 0, size.x, size.y);
-        ctx.drawImage(temp, 0, 0);
-
-        if (this.overlayMesh) {
-            this.overlayMesh.position.set(0, 0, -1);
-            this.overlayMesh.rotation.set(0, yawDiff, 0);
-            this.renderer.autoClear = true;
-            this.renderer.render(this.syntheticScene, this.syntheticCamera);
-        }
+        this.renderer.autoClear = true;
+        this.renderer.render(this.syntheticScene, this.syntheticCamera);
     }
 });
