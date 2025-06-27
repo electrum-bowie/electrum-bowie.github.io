@@ -3,6 +3,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 0.5 },
                 xrPixelRatio: { type: 'number', default: 1.0 },
+                foveation: { type: 'number', default: 1.0 },
         },
         init: function () {
                 // aframe-specific data
@@ -32,6 +33,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 console.log("Multiview enabled");
                         } else {
                                 console.log("Multiview not supported");
+                        }
+                        const session = this.el.sceneEl.renderer.xr.getSession?.();
+                        const level = this.data.foveation;
+                        if (session && session.renderState && session.renderState.baseLayer) {
+                                const baseLayer = session.renderState.baseLayer;
+                                if (baseLayer && 'fixedFoveation' in baseLayer) {
+                                        baseLayer.fixedFoveation = level;
+                                        console.log('Fixed foveated rendering set to', level);
+                                } else if (this.el.sceneEl.renderer.xr.setFoveation) {
+                                        this.el.sceneEl.renderer.xr.setFoveation(level);
+                                        console.log('Fixed foveated rendering set to', level);
+                                } else {
+                                        console.log('Fixed foveated rendering not supported');
+                                }
                         }
                 });
         },
