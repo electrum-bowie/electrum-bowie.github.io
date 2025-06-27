@@ -12,6 +12,10 @@ AFRAME.registerComponent('xr-frame-synthesis', {
         this.prevPose = null;
         this.frameCount = 0;
         this.overlay = null;
+        this.colorTexture = null;
+        this.overlayMesh = null;
+        this.syntheticScene = new THREE.Scene();
+        this.syntheticCamera = new THREE.Camera();
 
         if (!this.renderer) {
             console.warn('XR Frame Synthesis: renderer not ready');
@@ -74,6 +78,19 @@ AFRAME.registerComponent('xr-frame-synthesis', {
         if (gl.getParameter(gl.DEPTH_BITS) > 0) {
             gl.readPixels(0, 0, size.x, size.y, gl.DEPTH_COMPONENT, gl.FLOAT, this.prevDepth);
         }
+
+        if (!this.colorTexture) {
+            this.colorTexture = new THREE.DataTexture(this.prevColor, size.x, size.y, THREE.RGBAFormat);
+            this.colorTexture.flipY = true;
+            this.colorTexture.needsUpdate = true;
+            const geometry = new THREE.PlaneGeometry(2, 2);
+            const material = new THREE.MeshBasicMaterial({ map: this.colorTexture });
+            this.overlayMesh = new THREE.Mesh(geometry, material);
+            this.syntheticScene.add(this.overlayMesh);
+        } else {
+            this.colorTexture.image.data.set(this.prevColor);
+            this.colorTexture.needsUpdate = true;
+        }
     },
 
     quatToYaw: function (q) {
@@ -112,5 +129,12 @@ AFRAME.registerComponent('xr-frame-synthesis', {
         ctx.setTransform(1, 0, 0, 1, pxShift, 0);
         ctx.clearRect(-pxShift, 0, size.x, size.y);
         ctx.drawImage(temp, 0, 0);
+
+        if (this.overlayMesh) {
+            this.overlayMesh.position.set(0, 0, -1);
+            this.overlayMesh.rotation.set(0, yawDiff, 0);
+            this.renderer.autoClear = true;
+            this.renderer.render(this.syntheticScene, this.syntheticCamera);
+        }
     }
 });
