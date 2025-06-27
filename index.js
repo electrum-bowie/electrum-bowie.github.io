@@ -11,6 +11,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
+                const gl = this.el.sceneEl.renderer.getContext();
+                gl.disable(gl.DITHER);
                 this.originalBuffers = [];
                 this.needsQualityUpdate = false;
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
@@ -87,7 +89,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 		geometry.setAttribute('splatIndex', splatIndexes);
 		geometry.instanceCount = 1;
 
-		const material = new THREE.ShaderMaterial({
+                const material = new THREE.ShaderMaterial({
 			uniforms: {
 				viewport: { value: new Float32Array([1980, 1080]) }, // Dummy. will be overwritten
 				focal: { value: 1000.0 }, // Dummy. will be overwritten
@@ -198,8 +200,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 			blendSrcAlpha: THREE.OneFactor,
 			depthTest: true,
 			depthWrite: false,
-			transparent: true
-		});
+                        transparent: true
+                });
+                material.dithering = false;
 
 		material.onBeforeRender = ((renderer, scene, camera, geometry, object, group) => {
 			let projectionMatrix = this.getProjectionMatrix(camera);
