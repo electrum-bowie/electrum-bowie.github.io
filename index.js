@@ -11,6 +11,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
+		this.el.sceneEl.renderer.xr.setPixelRatio(xrPixelRatio);
                 this.originalBuffers = [];
                 this.needsQualityUpdate = false;
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
