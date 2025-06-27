@@ -10,3 +10,5 @@ When supported, the page requests the `multiview` feature to take advantage of s
 Rendering millions of splats can strain mobile GPUs. Adjust the render
 resolution using the `pixelRatio` and `xrPixelRatio` properties on the
 `gaussian_splatting` component.
+
+This viewer now supports loading `.splat` and `.gsplat` files in addition to `.ply`.

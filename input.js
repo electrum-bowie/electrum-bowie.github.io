@@ -26,7 +26,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
                 const zip = await JSZip.loadAsync(file);
                 const entries = Object.values(zip.files);
-                const target = entries.find(e => /\.ply$/i.test(e.name) || /\.splat$/i.test(e.name));
+                const target = entries.find(e => /\.ply$/i.test(e.name) || /\.splat$/i.test(e.name) || /\.gsplat$/i.test(e.name));
                 if (!target) {
                     console.error("No supported file found inside zip");
                     return;
@@ -37,7 +37,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 console.error("Failed to extract zip", err);
                 return;
             }
-        } else if (!(nameLower.endsWith(".ply") || nameLower.endsWith(".splat"))) {
+        } else if (!(nameLower.endsWith(".ply") || nameLower.endsWith(".splat") || nameLower.endsWith(".gsplat"))) {
             console.error("Unsupported file type");
             return;
         }
