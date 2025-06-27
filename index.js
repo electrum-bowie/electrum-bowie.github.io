@@ -1,275 +1,288 @@
-/* eslint-disable no-bitwise */
 AFRAME.registerComponent("gaussian_splatting", {
-  schema: {
-    src:          { type: "string",  default: ""   },
-    pixelRatio:   { type: "number",  default: 0.5  },
-    xrPixelRatio: { type: "number",  default: 0.9  },
-    foveation:    { type: "number",  default: 3.0  }
-  },
+        schema: {
+                src:         { type: "string",  default: ""   },
+                pixelRatio:  { type: "number",  default: 0.5  },
+                xrPixelRatio:{ type: "number",  default: 0.9  },
+                foveation:   { type: "number",  default: 3.0  }
+        },
 
-  init() {
-    // Setup pixel ratios
-    const pr  = this.data.pixelRatio   < 0 ? window.devicePixelRatio : this.data.pixelRatio;
-    const xpr = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
-    this.el.sceneEl.renderer.setPixelRatio(pr);
-    this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xpr);
+        init: function () {
+                /* ---------- scene / renderer initial-isation ---------- */
+                const pixelRatio   = this.data.pixelRatio  < 0 ? window.devicePixelRatio : this.data.pixelRatio;
+                const xrPixelRatio = this.data.xrPixelRatio< 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
+                this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
+                this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
 
-    // State
-    this.originalBuffers    = [];
-    this.needsQualityUpdate = false;
+                this.originalBuffers   = [];
+                this.needsQualityUpdate = false;
 
-    // Initialize GL resources and load data
-    this.initGL(
-      this.el.sceneEl.camera.el.components.camera.camera,
-      this.el.object3D,
-      this.el.sceneEl.renderer
-    );
-    this.loadData(this.data.src);
+                this.initGL(this.el.sceneEl.camera.el.components.camera.camera,
+                            this.el.object3D,
+                            this.el.sceneEl.renderer);
+                this.loadData(this.data.src);
 
-    // Optional: on XR session start, enable multiview & foveation
-    this.el.sceneEl.renderer.xr.addEventListener("sessionstart", async () => {
-      const gl = this.el.sceneEl.renderer.getContext();
-      if (gl.makeXRCompatible) {
-        try { await gl.makeXRCompatible(); }
-        catch (e) { console.warn("makeXRCompatible failed", e); }
-      }
+                /* ---------- XR session hooks ---------- */
+                this.el.sceneEl.renderer.xr.addEventListener("sessionstart", async () => {
+                        const gl = this.el.sceneEl.renderer.getContext();
+                        if (gl.makeXRCompatible) {
+                                try { await gl.makeXRCompatible(); }
+                                catch (e) { console.warn("makeXRCompatible failed", e); }
+                        }
+                        const ext = gl.getExtension("OVR_multiview2") ||
+                                    gl.getExtension("OVR_multiview")  ||
+                                    gl.getExtension("OCULUS_multiview") ||
+                                    gl.getExtension("WEBGL_multiview");
+                        if (ext && this.el.sceneEl.renderer.xr.setMultiviewEnabled) {
+                                this.el.sceneEl.renderer.xr.setMultiviewEnabled(true);
+                                console.log("Multiview enabled");
+                        } else {
+                                console.log("Multiview not supported");
+                        }
 
-      const mvExt =
-          gl.getExtension("OVR_multiview2") ||
-          gl.getExtension("OVR_multiview")  ||
-          gl.getExtension("OCULUS_multiview")||
-          gl.getExtension("WEBGL_multiview");
-      if (mvExt && this.el.sceneEl.renderer.xr.setMultiviewEnabled) {
-        this.el.sceneEl.renderer.xr.setMultiviewEnabled(true);
-        console.log("Multiview enabled");
-      } else {
-        console.log("Multiview not supported");
-      }
+                        const session = this.el.sceneEl.renderer.xr.getSession?.();
+                        const level   = this.data.foveation;
+                        if (session && session.renderState && session.renderState.baseLayer) {
+                                const baseLayer = session.renderState.baseLayer;
+                                if (baseLayer && "fixedFoveation" in baseLayer) {
+                                        baseLayer.fixedFoveation = level;
+                                        console.log("Fixed foveated rendering set to", level);
+                                } else if (this.el.sceneEl.renderer.xr.setFoveation) {
+                                        this.el.sceneEl.renderer.xr.setFoveation(level);
+                                        console.log("Fixed foveated rendering set to", level);
+                                } else {
+                                        console.log("Fixed foveated rendering not supported");
+                                }
+                        }
+                });
+        },
 
-      const session = this.el.sceneEl.renderer.xr.getSession?.();
-      const level   = this.data.foveation;
-      if (session && session.renderState?.baseLayer) {
-        const bl = session.renderState.baseLayer;
-        if (bl && "fixedFoveation" in bl) {
-          bl.fixedFoveation = level;
-          console.log("Fixed foveated rendering set to", level);
-        } else if (this.el.sceneEl.renderer.xr.setFoveation) {
-          this.el.sceneEl.renderer.xr.setFoveation(level);
-          console.log("Fixed foveated rendering set to", level);
-        } else {
-          console.log("Fixed foveated rendering not supported");
-        }
-      }
-    });
-  },
+        /* ================================================================
+         *  OpenGL / Three.js initial-isation
+         * ================================================================ */
+        initGL: function (camera, object, renderer) {
+                this.camera        = camera;
+                this.object        = object;
+                this.renderer      = renderer;
+                this.textureReady  = false;
+                this.object.frustumCulled = false;
 
-  initGL(camera, object, renderer) {
-    this.camera   = camera;
-    this.object   = object;
-    this.renderer = renderer;
-    this.textureReady = false;
+                /* ------ textures that hold packed splat data ------ */
+                this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
+                this.covAndColorData    = new Uint32Array(4096 * 4096 * 4);
+                this.centerAndScaleTexture = new THREE.DataTexture(
+                        this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
+                this.centerAndScaleTexture.needsUpdate = true;
 
-    // Allocate data arrays
-    this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
-    this.covAndColorData    = new Uint32Array(4096 * 4096 * 4);
+                this.covAndColorTexture = new THREE.DataTexture(
+                        this.covAndColorData, 4096, 4096,
+                        THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
+                this.covAndColorTexture.internalFormat = "RGBA32UI";
+                this.covAndColorTexture.needsUpdate = true;
 
-    // Create DataTextures
-    this.centerAndScaleTexture = new THREE.DataTexture(
-      this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType
-    );
-    this.centerAndScaleTexture.needsUpdate = true;
+                /* ------ instanced geometry / attributes ------ */
+                let splatIndexArray = new Uint32Array(4096 * 4096);
+                const splatIndexes  = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
+                splatIndexes.setUsage(THREE.DynamicDrawUsage);
 
-    this.covAndColorTexture = new THREE.DataTexture(
-      this.covAndColorData, 4096, 4096,
-      THREE.RGBAIntegerFormat, THREE.UnsignedIntType
-    );
-    this.covAndColorTexture.internalFormat = "RGBA32UI";
-    this.covAndColorTexture.needsUpdate    = true;
+                const baseGeometry = new THREE.BufferGeometry();
+                const positionsArray = new Float32Array(6 * 3);
+                const positions = new THREE.BufferAttribute(positionsArray, 3);
+                baseGeometry.setAttribute("position", positions);
 
-    // Build instanced quad geometry
-    const baseGeom      = new THREE.BufferGeometry();
-    const quadPositions = new Float32Array(6 * 3);
-    const posAttr       = new THREE.BufferAttribute(quadPositions, 3);
-    baseGeom.setAttribute("position", posAttr);
-    posAttr.setXYZ(2, -2,  2, 0);
-    posAttr.setXYZ(1,  2,  2, 0);
-    posAttr.setXYZ(0, -2, -2, 0);
-    posAttr.setXYZ(5, -2, -2, 0);
-    posAttr.setXYZ(4,  2,  2, 0);
-    posAttr.setXYZ(3,  2, -2, 0);
-    posAttr.needsUpdate = true;
+                /* two-triangle quad (clip-space) */
+                positions.setXYZ(2, -2.0,  2.0, 0.0);
+                positions.setXYZ(1,  2.0,  2.0, 0.0);
+                positions.setXYZ(0, -2.0, -2.0, 0.0);
+                positions.setXYZ(5, -2.0, -2.0, 0.0);
+                positions.setXYZ(4,  2.0,  2.0, 0.0);
+                positions.setXYZ(3,  2.0, -2.0, 0.0);
+                positions.needsUpdate = true;
 
-    const instGeom = new THREE.InstancedBufferGeometry().copy(baseGeom);
-    instGeom.setAttribute(
-      "splatIndex",
-      new THREE.InstancedBufferAttribute(new Uint32Array(4096 * 4096), 1, false)
-    );
-    instGeom.instanceCount = 1;
+                const geometry = new THREE.InstancedBufferGeometry().copy(baseGeometry);
+                geometry.setAttribute("splatIndex", splatIndexes);
+                geometry.instanceCount = 1;
 
-    // Create shader material
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        viewport:              { value: new Float32Array([1980, 1080]) },
-        focal:                 { value: 1000.0 },
-        centerAndScaleTexture: { value: this.centerAndScaleTexture },
-        covAndColorTexture:    { value: this.covAndColorTexture },
-        gsProjectionMatrix:    { value: this.getProjectionMatrix() },
-        gsModelViewMatrix:     { value: this.getModelViewMatrix() }
-      },
-      vertexShader: `
-        precision highp usampler2D;
+                /* ========================================================
+                 *  ShaderMaterial   (premultiplied-RGB version)
+                 * ======================================================== */
+                const material = new THREE.ShaderMaterial({
+                        uniforms: {
+                                viewport:             { value: new Float32Array([1980, 1080]) },
+                                focal:                { value: 1000.0 },
+                                centerAndScaleTexture:{ value: this.centerAndScaleTexture },
+                                covAndColorTexture:   { value: this.covAndColorTexture },
+                                gsProjectionMatrix:   { value: this.getProjectionMatrix() },
+                                gsModelViewMatrix:    { value: this.getModelViewMatrix() }
+                        },
 
-        out vec4 vColor;
-        out vec2 vPosition;
+                        vertexShader: `
+                                precision highp usampler2D;
 
-        uniform vec2  viewport;
-        uniform float focal;
-        uniform mat4  gsProjectionMatrix;
-        uniform mat4  gsModelViewMatrix;
+                                out vec4 vColor;
+                                out vec2 vPosition;
 
-        attribute uint splatIndex;
-        uniform sampler2D  centerAndScaleTexture;
-        uniform usampler2D covAndColorTexture;
+                                uniform vec2  viewport;
+                                uniform float focal;
+                                uniform mat4  gsProjectionMatrix;
+                                uniform mat4  gsModelViewMatrix;
 
-        vec2 unpackInt16(uint value) {
-          int v = int(value);
-          int v0 = v >> 16;
-          int v1 = v & 0xFFFF;
-          if ((v & 0x8000) != 0) v1 |= 0xFFFF0000;
-          return vec2(float(v1), float(v0));
-        }
+                                attribute uint splatIndex;
+                                uniform sampler2D  centerAndScaleTexture;
+                                uniform usampler2D covAndColorTexture;
 
-        void main() {
-          ivec2 texPos = ivec2(splatIndex % 4096u, splatIndex / 4096u);
-          vec4  csData = texelFetch(centerAndScaleTexture, texPos, 0);
+                                vec2 unpackInt16(uint value) {
+                                        int v = int(value);
+                                        int v0 =  v >> 16;
+                                        int v1 = (v & 0xFFFF);
+                                        if ((v & 0x8000) != 0) v1 |= 0xFFFF0000;
+                                        return vec2(float(v1), float(v0));
+                                }
 
-          vec4 center   = vec4(csData.xyz, 1.0);
-          vec4 camspace = gsModelViewMatrix * center;
-          vec4 pos2d    = gsProjectionMatrix * camspace;
+                                void main () {
+                                        ivec2 texPos = ivec2(splatIndex % uint(4096), splatIndex / uint(4096));
 
-          float bounds = 2.0 * pos2d.w;
-          if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds ||
-              pos2d.y < -bounds || pos2d.y > bounds) {
-            gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
-            return;
-          }
+                                        vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
 
-          uvec4 covCol = texelFetch(covAndColorTexture, texPos, 0);
-          vec2 c11_12 = unpackInt16(covCol.x) * csData.w;
-          vec2 c13_22 = unpackInt16(covCol.y) * csData.w;
-          vec2 c23_33 = unpackInt16(covCol.z) * csData.w;
+                                        /* camera-space transform */
+                                        vec4 center   = vec4(centerAndScaleData.xyz, 1.0);
+                                        vec4 camspace = gsModelViewMatrix * center;
+                                        vec4 pos2d    = gsProjectionMatrix * camspace;
 
-          mat3 V = mat3(
-            c11_12.x, c11_12.y, c13_22.x,
-            c11_12.y, c13_22.y, c23_33.x,
-            c13_22.x, c23_33.x, c23_33.y
-          );
+                                        /* trivial reject (bounding box in clip space) */
+                                        float bounds = 2.0 * pos2d.w;
+                                        if (pos2d.z < -pos2d.w ||
+                                            pos2d.x < -bounds || pos2d.x > bounds ||
+                                            pos2d.y < -bounds || pos2d.y > bounds) {
+                                                gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+                                                return;
+                                        }
 
-          mat3 J = mat3(
-             focal / camspace.z, 0.0, -(focal * camspace.x) / (camspace.z * camspace.z),
-             0.0, -focal / camspace.z,  (focal * camspace.y) / (camspace.z * camspace.z),
-             0.0, 0.0, 0.0
-          );
+                                        /* unpack cov + colour */
+                                        uvec4 covAndColorData  = texelFetch(covAndColorTexture, texPos, 0);
+                                        vec2 cov3D_M11_M12     = unpackInt16(covAndColorData.x) * centerAndScaleData.w;
+                                        vec2 cov3D_M13_M22     = unpackInt16(covAndColorData.y) * centerAndScaleData.w;
+                                        vec2 cov3D_M23_M33     = unpackInt16(covAndColorData.z) * centerAndScaleData.w;
+                                        mat3 Vrk = mat3(
+                                                 cov3D_M11_M12.x, cov3D_M11_M12.y, cov3D_M13_M22.x,
+                                                 cov3D_M11_M12.y, cov3D_M13_M22.y, cov3D_M23_M33.x,
+                                                 cov3D_M13_M22.x, cov3D_M23_M33.x, cov3D_M23_M33.y );
 
-          mat3 W   = transpose(mat3(gsModelViewMatrix));
-          mat3 cov = transpose(W * J) * V * (W * J);
+                                        mat3 J = mat3(
+                                                 focal / camspace.z, 0.0, -(focal * camspace.x) / (camspace.z*camspace.z),
+                                                 0.0, -focal / camspace.z, (focal * camspace.y) / (camspace.z*camspace.z),
+                                                 0.0, 0.0, 0.0 );
 
-          vec2 vCenter = pos2d.xy / pos2d.w;
+                                        mat3 W   = transpose(mat3(gsModelViewMatrix));
+                                        mat3 T   = W * J;
+                                        mat3 cov = transpose(T) * Vrk * T;
 
-          float d1  = cov[0][0] + 0.3;
-          float off = cov[0][1];
-          float d2  = cov[1][1] + 0.3;
+                                        vec2 vCenter = vec2(pos2d) / pos2d.w;
 
-          float mid    = 0.5 * (d1 + d2);
-          float radius = length(vec2((d1 - d2) * 0.5, off));
-          float lam1   = mid + radius;
-          float lam2   = max(mid - radius, 0.1);
+                                        /* eigen-analysis (2×2) */
+                                        float d1  = cov[0][0] + 0.3;
+                                        float od  = cov[0][1];
+                                        float d2  = cov[1][1] + 0.3;
 
-          vec2 diag = normalize(vec2(off, lam1 - d1));
-          vec2 v1   = min(sqrt(2.0 * lam1), 1024.0) * diag;
-          vec2 v2   = min(sqrt(2.0 * lam2), 1024.0) * vec2(diag.y, -diag.x);
+                                        float mid     = 0.5 * (d1 + d2);
+                                        float radius  = length(vec2((d1 - d2)/2.0, od));
+                                        float lambda1 = mid + radius;
+                                        float lambda2 = max(mid - radius, 0.1);
 
-          uint c = covCol.w;
-          vColor = vec4(
-            float(c & 0xFFu)          / 255.0,
-            float((c >> 8u) & 0xFFu)  / 255.0,
-            float((c >> 16u) & 0xFFu) / 255.0,
-            float(c >> 24u)           / 255.0
-          );
+                                        vec2  diagVec = normalize(vec2(od, lambda1 - d1));
+                                        vec2  v1      = min(sqrt(2.0 * lambda1), 1024.0) * diagVec;
+                                        vec2  v2      = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagVec.y, -diagVec.x);
 
-          vPosition = position.xy;
-          gl_Position = vec4(
-            vCenter +
-            position.x * v2 / viewport * 2.0 +
-            position.y * v1 / viewport * 2.0,
-            pos2d.z / pos2d.w,
-            1.0
-          );
-        }
-      `,
-      fragmentShader: `
-        in vec4 vColor;
-        in vec2 vPosition;
+                                        /* colour */
+                                        uint colorUint  = covAndColorData.w;
+                                        vColor = vec4(
+                                                float(colorUint &          0xFFu) / 255.0,
+                                                float((colorUint >>  8u) & 0xFFu) / 255.0,
+                                                float((colorUint >> 16u) & 0xFFu) / 255.0,
+                                                float((colorUint >> 24u)       ) / 255.0 );
 
-        void main() {
-          float A = -dot(vPosition, vPosition);
-          if (A < -4.0) discard;
-          float B = exp(A) * vColor.a;
-          gl_FragColor = vec4(vColor.rgb, B);
-        }
-      `,
-      blending:      THREE.CustomBlending,
-      blendSrcAlpha: THREE.OneFactor,
-      depthTest:     true,
-      depthWrite:    false,
-      transparent:   true
-    });
+                                        vPosition = position.xy;
 
-    // Force full-rate shading (1×1) just for splats
-    const gl     = this.renderer.getContext();
-    const extSR  = gl.getExtension("QCOM_shading_rate");
-    material.onBeforeRender = (r,s,c,g,o,grp) => {
-      if (extSR) {
-        extSR.shadingRateQCOM(extSR.SHADING_RATE_1X1_PIXELS_QCOM);
-      }
-      // Update dynamic uniforms
-      const proj = this.getProjectionMatrix(c);
-      material.uniforms.gsProjectionMatrix.value = proj;
-      material.uniforms.gsModelViewMatrix.value  = this.getModelViewMatrix(c);
-      const vp = new THREE.Vector4();
-      r.getCurrentViewport(vp);
-      material.uniforms.viewport.value[0] = vp.z;
-      material.uniforms.viewport.value[1] = vp.w;
-      material.uniforms.focal.value       = (vp.w * 0.5) * Math.abs(proj.elements[5]);
-    };
-    if (extSR) {
-      material.onAfterRender = () => {
-        extSR.shadingRateQCOM(extSR.SHADING_RATE_2X2_PIXELS_QCOM);
-      };
-    } else {
-      console.warn("QCOM_shading_rate not supported — pepper grid may persist");
-    }
+                                        gl_Position = vec4(
+                                                vCenter
+                                                + position.x * v2 / viewport * 2.0
+                                                + position.y * v1 / viewport * 2.0,
+                                                pos2d.z / pos2d.w, 1.0);
+                                }
+                        `,
 
-    // Create mesh and add to scene
-    const mesh = new THREE.Mesh(instGeom, material);
-    mesh.frustumCulled = false;
-    this.object.add(mesh);
+                        /* ── fragment shader ── */
+                        fragmentShader: `
+                                in  vec4 vColor;
+                                in  vec2 vPosition;
 
-    // Worker for sorting
-    this.worker = new Worker(
-      URL.createObjectURL(
-        new Blob(["(", this.createWorker.toString(), ")(self)"], { type: "application/javascript" })
-      )
-    );
-    this.worker.onmessage = (e) => {
-      const idx = new Uint32Array(e.data.sortedIndexes);
-      mesh.geometry.attributes.splatIndex.set(idx);
-      mesh.geometry.attributes.splatIndex.needsUpdate = true;
-      mesh.geometry.instanceCount = idx.length;
-      this.sortReady = true;
-    };
-    this.sortReady = true;
-  },
+                                void main () {
+                                        float A = -dot(vPosition, vPosition);
+                                        if (A < -4.0) discard;
+
+                                        float B = exp(A) * vColor.a;          // Gaussian weight * opacity
+
+                                        /*  premultiplied-RGB output  */
+                                        gl_FragColor = vec4(vColor.rgb * B, B);
+                                }
+                        `,
+
+                        transparent: true,
+                        depthTest:   true,
+                        depthWrite:  false,
+
+                        /* -----------------------------------------------------------------
+                         *  PREMULTIPLIED-RGB BLENDING STATE
+                         *  RGB: src = ONE (already multiplied by alpha)
+                         *       dst = ONE_MINUS_SRC_ALPHA
+                         *  A  : src = ONE
+                         *       dst = ONE_MINUS_SRC_ALPHA
+                         * ----------------------------------------------------------------- */
+                        blending:       THREE.CustomBlending,
+                        blendEquation:  THREE.AddEquation,
+
+                        blendSrc:       THREE.OneFactor,
+                        blendDst:       THREE.OneMinusSrcAlphaFactor,
+                        blendSrcAlpha:  THREE.OneFactor,
+                        blendDstAlpha:  THREE.OneMinusSrcAlphaFactor
+                });
+
+                /* onBeforeRender – update uniforms every frame */
+                material.onBeforeRender = ((renderer, scene, camera, geometry, object, group) => {
+                        /* projection / model-view */
+                        let proj = this.getProjectionMatrix(camera);
+                        mesh.material.uniforms.gsProjectionMatrix.value  = proj;
+                        mesh.material.uniforms.gsModelViewMatrix.value   = this.getModelViewMatrix(camera);
+
+                        /* viewport-dependent focal length */
+                        let vp = new THREE.Vector4();
+                        renderer.getCurrentViewport(vp);
+                        const focal = (vp.w / 2.0) * Math.abs(proj.elements[5]);
+                        material.uniforms.viewport.value[0] = vp.z;
+                        material.uniforms.viewport.value[1] = vp.w;
+                        material.uniforms.focal.value       = focal;
+
+                        /* (optional) re-apply XR scale if runtimes change it */
+                        // renderer.xr.setFramebufferScaleFactor(this.data.xrPixelRatio);
+                });
+
+                /* ------ build mesh ------ */
+                mesh = new THREE.Mesh(geometry, material);
+                mesh.frustumCulled = false;
+                this.object.add(mesh);
+
+                /* worker for depth-sort */
+                this.worker = new Worker(
+                        URL.createObjectURL(new Blob(["(", this.createWorker.toString(), ")(self)"],
+                                                     { type: "application/javascript" })));
+
+                this.worker.onmessage = (e) => {
+                        let indexes = new Uint32Array(e.data.sortedIndexes);
+                        mesh.geometry.attributes.splatIndex.set(indexes);
+                        mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                        mesh.geometry.instanceCount = indexes.length;
+                        this.sortReady = true;
+                };
+                this.sortReady = true;
 
   loadData(src) {
     this.loadedVertexCount = 0;
