@@ -2,7 +2,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 0.5 },
-                xrPixelRatio: { type: 'number', default: 0.8 },
+                xrPixelRatio: { type: 'number', default: 0.7 },
                 foveation: { type: 'number', default: 3.0 },
         },
         init: function () {
@@ -191,7 +191,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				void main () {
 					float A = -dot(vPosition, vPosition);
-					if (A < -4.0) discard;
+					if (A < -2.5) discard;
 					float B = exp(A) * vColor.a;
 					gl_FragColor = vec4(vColor.rgb, B);
 				}
