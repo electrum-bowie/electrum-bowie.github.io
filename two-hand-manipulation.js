@@ -37,6 +37,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this._tmpVec4 = new THREE.Vector3();
         this._tmpQuat = new THREE.Quaternion();
         this._tmpQuat2 = new THREE.Quaternion();
+        this.rotationMode = null; // Tracks current rotation mode
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
@@ -114,6 +115,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.el.object3D.getWorldQuaternion(this.startQuaternion);
         this.twoHandStartTime = performance.now();
         this.delayScaleRotate = true;
+        this.rotationMode = null; // reset rotation mode
         this.isInteracting = true;
         this.mode = 'two';
     },
@@ -184,10 +186,25 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.el.object3D.scale.copy(newScale);
 
         const currentVector = this._tmpVec3.copy(rightPos).sub(leftPos).normalize();
-        let rotQuat;
         const heightDiff = Math.abs(leftPos.y - rightPos.y);
         const heightThresh = currentDistance * 0.1;
-        if (heightDiff < heightThresh) {
+        const newMode = heightDiff < heightThresh ? 'yaw' : 'axis';
+
+        if (this.rotationMode !== newMode) {
+            // Update reference orientation and offset to avoid snapping
+            this.el.object3D.getWorldQuaternion(this.startQuaternion);
+            this.el.object3D.getWorldPosition(this.startPosition);
+            this.startOffset.copy(this.startPosition).sub(midpoint);
+            if (newMode === 'yaw') {
+                this.startYaw = Math.atan2(currentVector.x, currentVector.z);
+            } else {
+                this.startVector.copy(currentVector);
+            }
+            this.rotationMode = newMode;
+        }
+
+        let rotQuat;
+        if (this.rotationMode === 'yaw') {
             const currentYaw = Math.atan2(currentVector.x, currentVector.z);
             const yawDelta = currentYaw - this.startYaw;
             rotQuat = this._tmpQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawDelta);
