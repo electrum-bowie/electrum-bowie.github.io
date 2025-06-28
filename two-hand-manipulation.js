@@ -19,12 +19,10 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.startMidpoint = new THREE.Vector3();
         this.startPosition = new THREE.Vector3();
         this.startVector = new THREE.Vector3();
+        this.startYaw = 0;
         this.startQuaternion = new THREE.Quaternion();
         this.startOffset = new THREE.Vector3();
         this.startOffsetSingle = new THREE.Vector3();
-        this.startUpDir = new THREE.Vector3();
-        this.leftStartQuat = new THREE.Quaternion();
-        this.rightStartQuat = new THREE.Quaternion();
         this.singleHand = null;
         this.mode = null;
         this.leftPinchPos = new THREE.Vector3();
@@ -37,10 +35,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this._tmpVec2 = new THREE.Vector3();
         this._tmpVec3 = new THREE.Vector3();
         this._tmpVec4 = new THREE.Vector3();
-        this._tmpVec5 = new THREE.Vector3();
         this._tmpQuat = new THREE.Quaternion();
         this._tmpQuat2 = new THREE.Quaternion();
-        this._upVec = new THREE.Vector3(0, 1, 0);
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
@@ -180,54 +176,17 @@ AFRAME.registerComponent('two-hand-manipulation', {
             this.startDistance = currentDistance;
             this.startScale.copy(this.el.object3D.scale);
             this.startVector.copy(rightPos).sub(leftPos).normalize();
-
-            leftObj.object3D.getWorldQuaternion(this.leftStartQuat);
-            rightObj.object3D.getWorldQuaternion(this.rightStartQuat);
-            const leftUp = this._tmpVec1.set(0, 1, 0).applyQuaternion(this.leftStartQuat).projectOnPlane(this.startVector).normalize();
-            const rightUp = this._tmpVec2.set(0, 1, 0).applyQuaternion(this.rightStartQuat).projectOnPlane(this.startVector).normalize();
-            this.startUpDir.copy(leftUp.add(rightUp));
-            if (this.startUpDir.lengthSq() < 1e-8) this.startUpDir.set(0, 0, 1);
-            this.startUpDir.normalize();
+            this.startYaw = Math.atan2(this.startVector.x, this.startVector.z);
         }
 
         const scaleFactor = currentDistance / this.startDistance;
         const newScale = this._tmpVec3.copy(this.startScale).multiplyScalar(scaleFactor);
         this.el.object3D.scale.copy(newScale);
 
-        const currentVector = this._tmpVec2.copy(rightPos).sub(leftPos).normalize();
-
-        const startHoriz = this._tmpVec3.copy(this.startVector).projectOnPlane(this._upVec);
-        if (startHoriz.lengthSq() < 1e-8) startHoriz.set(1, 0, 0);
-        startHoriz.normalize();
-        const currentHoriz = this._tmpVec4.copy(currentVector).projectOnPlane(this._upVec);
-        if (currentHoriz.lengthSq() < 1e-8) currentHoriz.set(1, 0, 0);
-        currentHoriz.normalize();
-        const yawCross = this._tmpVec5.crossVectors(startHoriz, currentHoriz);
-        let yawAngle = startHoriz.angleTo(currentHoriz);
-        if (yawCross.dot(this._upVec) < 0) yawAngle = -yawAngle;
-
-        leftObj.object3D.getWorldQuaternion(this._tmpQuat);
-        rightObj.object3D.getWorldQuaternion(this._tmpQuat2);
-        const leftUpCur = this._tmpVec1.set(0, 1, 0).applyQuaternion(this._tmpQuat).projectOnPlane(currentVector);
-        const rightUpCur = this._tmpVec2.set(0, 1, 0).applyQuaternion(this._tmpQuat2).projectOnPlane(currentVector);
-        const currentUpDir = this._tmpVec5.copy(leftUpCur).add(rightUpCur);
-        if (currentUpDir.lengthSq() < 1e-8) currentUpDir.copy(this.startUpDir);
-        currentUpDir.normalize();
-        const pitchCross = this._tmpVec1.crossVectors(this.startUpDir, currentUpDir);
-        let pitchAngle = this.startUpDir.angleTo(currentUpDir);
-        if (pitchCross.dot(currentVector) < 0) pitchAngle = -pitchAngle;
-
-        let axis;
-        let angle;
-        if (Math.abs(pitchAngle) >= Math.abs(yawAngle)) {
-            axis = currentVector.clone();
-            angle = pitchAngle;
-        } else {
-            axis = this._upVec.clone();
-            angle = yawAngle;
-        }
-
-        const rotQuat = this._tmpQuat.setFromAxisAngle(axis.normalize(), angle);
+        const currentVector = this._tmpVec3.copy(rightPos).sub(leftPos).normalize();
+        const currentYaw = Math.atan2(currentVector.x, currentVector.z);
+        const yawDelta = currentYaw - this.startYaw;
+        const rotQuat = this._tmpQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawDelta);
         const offset = this._tmpVec4.copy(this.startOffset).multiplyScalar(scaleFactor).applyQuaternion(rotQuat);
         const newWorldPos = midpoint.clone().add(offset);
         if (this.el.object3D.parent) this.el.object3D.parent.worldToLocal(newWorldPos);
