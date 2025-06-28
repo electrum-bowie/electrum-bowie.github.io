@@ -36,6 +36,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this._tmpVec4 = new THREE.Vector3();
         this._tmpQuat = new THREE.Quaternion();
         this._tmpQuat2 = new THREE.Quaternion();
+        this._upVec = new THREE.Vector3(0, 1, 0);
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
@@ -181,21 +182,30 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const newScale = this._tmpVec3.copy(this.startScale).multiplyScalar(scaleFactor);
         this.el.object3D.scale.copy(newScale);
 
-        const currentVector = this._tmpVec3.copy(rightPos).sub(leftPos).normalize();
+        const currentVector = this._tmpVec2.copy(rightPos).sub(leftPos).normalize();
         const quatDelta = this._tmpQuat.setFromUnitVectors(this.startVector, currentVector);
         let angle = 2 * Math.acos(THREE.MathUtils.clamp(quatDelta.w, -1, 1));
         if (angle > Math.PI) angle -= 2 * Math.PI;
+
+        // Axis of rotation from the hand movement.
         this._tmpVec1.set(quatDelta.x, quatDelta.y, quatDelta.z);
         if (this._tmpVec1.lengthSq() < 1e-8) this._tmpVec1.set(0, 1, 0);
         this._tmpVec1.normalize();
-        const ax = Math.abs(this._tmpVec1.x);
-        const ay = Math.abs(this._tmpVec1.y);
-        // Only allow rotation around the vertical (Y) and pitch (X) axes.
-        if (ax >= ay) {
-            this._tmpVec1.set(Math.sign(this._tmpVec1.x), 0, 0);
+
+        // Determine pitch axis using the line between the hands.
+        const pitchAxis = this._tmpVec3.copy(this.startVector);
+        if (pitchAxis.lengthSq() < 1e-8) pitchAxis.set(1, 0, 0);
+        pitchAxis.normalize();
+
+        const dotPitch = Math.abs(this._tmpVec1.dot(pitchAxis));
+        const dotYaw = Math.abs(this._tmpVec1.y);
+
+        if (dotPitch >= dotYaw) {
+            this._tmpVec1.copy(pitchAxis).multiplyScalar(Math.sign(this._tmpVec1.dot(pitchAxis)) || 1);
         } else {
-            this._tmpVec1.set(0, Math.sign(this._tmpVec1.y), 0);
+            this._tmpVec1.set(0, Math.sign(this._tmpVec1.y) || 1, 0);
         }
+
         const rotQuat = this._tmpQuat.setFromAxisAngle(this._tmpVec1, angle);
         const offset = this._tmpVec4.copy(this.startOffset).multiplyScalar(scaleFactor).applyQuaternion(rotQuat);
         const newWorldPos = midpoint.clone().add(offset);
