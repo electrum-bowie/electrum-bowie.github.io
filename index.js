@@ -59,7 +59,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 		this.renderer = renderer;
 		
 		this.textureReady = false;
-		this.object.frustumCulled = false;
+		this.object.frustumCulled = true;
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
@@ -129,13 +129,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 					vec4 camspace = gsModelViewMatrix * center;
 					vec4 pos2d = gsProjectionMatrix * camspace;
 
-					float bounds = 2.0 * pos2d.w;
-					if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds
-						|| pos2d.y < -bounds || pos2d.y > bounds) {
-						gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
-						return;
-					}
-
 					uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
 					vec2 cov3D_M11_M12 = unpackInt16(covAndColorData.x) * centerAndScaleData.w;
 					vec2 cov3D_M13_M22 = unpackInt16(covAndColorData.y) * centerAndScaleData.w;
@@ -191,7 +184,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				void main () {
 					float A = -dot(vPosition, vPosition);
-					if (A < -4.0) discard;
+					if (A < -5.0) discard;
 					float B = exp(A) * vColor.a;
 					gl_FragColor = vec4(vColor.rgb, B);
 				}
@@ -199,7 +192,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 			blending: THREE.CustomBlending,
 			blendSrcAlpha: THREE.OneFactor,
 			depthTest: true,
-			depthWrite: false,
+        		depthWrite: false,
                         transparent: true
                 });
                 material.dithering = false;
@@ -220,7 +213,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 		});
 		
 		mesh = new THREE.Mesh(geometry, material);
-		mesh.frustumCulled = false;
+		mesh.frustumCulled = true;
 		this.object.add(mesh);
 
 		this.worker = new Worker(
