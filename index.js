@@ -267,11 +267,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 							const mbps = (bytesDownloaded / 1024 / 1024) / ((Date.now() - start) / 1000);
 							const percent = bytesDownloaded / totalDownloadBytes * 100;
 							if (percent - lastReportedProgress > 1) {
-                                                        console.log("progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
+                                                        console.log("Progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
 								lastReportedProgress = percent;
 							}
 						} else {
-                                                console.log("progress:", bytesDownloaded, ", unknown total");
+                                                console.log("Progress:", bytesDownloaded, ", unknown total");
 						}
 						chunks.push(value);
 						if (!this.textureReady &&
@@ -646,7 +646,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 		if (header_end_index < 0)
 			throw new Error("Unable to read .ply file header");
 		const vertexCount = parseInt(/element vertex (\d+)\n/.exec(header)[1]);
-		console.log("Vertex Count", vertexCount);
 		let row_offset = 0,
 			offsets = {},
 			types = {};
