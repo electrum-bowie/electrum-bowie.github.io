@@ -146,17 +146,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 						cov3D_M13_M22.x, cov3D_M23_M33.x, cov3D_M23_M33.y
 					);
 
-                                        if (camspace.z > -0.01) {
-                                                gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
-                                                return;
-                                        }
-
-                                        float safeZ = min(camspace.z, -0.01);
-                                        mat3 J = mat3(
-                                                focal / safeZ, 0., -(focal * camspace.x) / (safeZ * safeZ),
-                                                0., -focal / safeZ, (focal * camspace.y) / (safeZ * safeZ),
-                                                0., 0., 0.
-                                        );
+                                       float safeZ = min(camspace.z, -0.01);
+                                       mat3 J = mat3(
+                                               focal / safeZ, 0., -(focal * camspace.x) / (safeZ * safeZ),
+                                               0., -focal / safeZ, (focal * camspace.y) / (safeZ * safeZ),
+                                               0., 0., 0.
+                                       );
 
 					mat3 W = transpose(mat3(gsModelViewMatrix));
 					mat3 T = W * J;
@@ -568,6 +563,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0) {
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
+                        const nearPlane = -0.01;
 
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
@@ -583,7 +579,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 + view[2] * matrices[i * 16 + 14]
                                                 + view[3]);
 
-                                if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
+                                if (depth < nearPlane && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         const x = matrices[i * 16 + 12];
                                         const y = matrices[i * 16 + 13];
                                         const z = matrices[i * 16 + 14];
