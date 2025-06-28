@@ -575,14 +575,18 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
+                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+                                const camspace_z = -depth;
+                                if (camspace_z <= 0.02) {
+                                        continue;
+                                }
+
                                 const bounds = 2.0 * clip_w;
                                 if (clip_z < -clip_w - radius ||
                                         clip_x < -bounds - radius || clip_x > bounds + radius ||
                                         clip_y < -bounds - radius || clip_y > bounds + radius) {
                                         continue;
                                 }
-
-                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
                                 if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
