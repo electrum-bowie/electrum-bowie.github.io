@@ -191,6 +191,10 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const newMode = heightDiff < heightThresh ? 'yaw' : 'axis';
 
         if (this.rotationMode !== newMode) {
+            // Update reference orientation and offset to avoid snapping
+            this.el.object3D.getWorldQuaternion(this.startQuaternion);
+            this.el.object3D.getWorldPosition(this.startPosition);
+            this.startOffset.copy(this.startPosition).sub(midpoint);
             if (newMode === 'yaw') {
                 this.startYaw = Math.atan2(currentVector.x, currentVector.z);
             } else {
