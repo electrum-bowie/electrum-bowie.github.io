@@ -488,14 +488,20 @@ AFRAME.registerComponent("gaussian_splatting", {
         tick: function (time, timeDelta) {
                 if (this.sortReady) {
                         this.sortReady = false;
-                        let camera_mtx = this.getModelViewMatrix().elements;
+                        let mv = this.getModelViewMatrix();
+                        let camera_mtx = mv.elements;
                         let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
+                        let proj = this.getProjectionMatrix();
+                        let mvp = new THREE.Matrix4();
+                        mvp.multiplyMatrices(proj, mv);
+                        let mvpArr = new Float32Array(mvp.elements);
                         const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
                         this.worker.postMessage({
                                 method: "sort",
                                 view: view.buffer,
+                                mvp: mvpArr.buffer,
                                 scale: globalScale,
-                        }, [view.buffer]);
+                        }, [view.buffer, mvpArr.buffer]);
                 }
         },
         updateQuality: function () {
@@ -553,33 +559,48 @@ AFRAME.registerComponent("gaussian_splatting", {
 	createWorker: function (self) {
 		let matrices = undefined;
 
-                const sortSplats = function sortSplats(matrices, view, scaleFactor = 1.0) {
-			const vertexCount = matrices.length / 16;
-			let threshold = -0.001;
+                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0) {
+                        const vertexCount = matrices.length / 16;
+                        let threshold = -0.001;
 
-			let maxDepth = -Infinity;
-			let minDepth = Infinity;
+                        let maxDepth = -Infinity;
+                        let minDepth = Infinity;
 			let depthList = new Float32Array(vertexCount);
 			let sizeList = new Int32Array(depthList.buffer);
 			let validIndexList = new Int32Array(vertexCount);
 			let validCount = 0;
-			for (let i = 0; i < vertexCount; i++) {
-				// Sign of depth is reversed
-				let depth =
-					(view[0] * matrices[i * 16 + 12]
-						+ view[1] * matrices[i * 16 + 13]
-						+ view[2] * matrices[i * 16 + 14]
-						+ view[3]);
+                        for (let i = 0; i < vertexCount; i++) {
+                                // Sign of depth is reversed
+                                let depth =
+                                        (view[0] * matrices[i * 16 + 12]
+                                                + view[1] * matrices[i * 16 + 13]
+                                                + view[2] * matrices[i * 16 + 14]
+                                                + view[3]);
 
-				// Skip behind of camera and small, transparent splat
                                 if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
-					depthList[validCount] = depth;
-					validIndexList[validCount] = i;
-					validCount++;
-					if (depth > maxDepth) maxDepth = depth;
-					if (depth < minDepth) minDepth = depth;
-				};
-			}
+                                        const x = matrices[i * 16 + 12];
+                                        const y = matrices[i * 16 + 13];
+                                        const z = matrices[i * 16 + 14];
+
+                                        const cx = mvp[0] * x + mvp[4] * y + mvp[8] * z + mvp[12];
+                                        const cy = mvp[1] * x + mvp[5] * y + mvp[9] * z + mvp[13];
+                                        const cz = mvp[2] * x + mvp[6] * y + mvp[10] * z + mvp[14];
+                                        const cw = mvp[3] * x + mvp[7] * y + mvp[11] * z + mvp[15];
+
+                                        const bounds = 2.0 * cw;
+                                        if (!(cz < -cw || cx < -bounds || cx > bounds || cy < -bounds || cy > bounds)) {
+                                                const ndx = cx / cw;
+                                                const ndy = cy / cw;
+                                                if ((ndx * ndx + ndy * ndy) >= 0.05 * 0.05) {
+                                                        depthList[validCount] = depth;
+                                                        validIndexList[validCount] = i;
+                                                        validCount++;
+                                                        if (depth > maxDepth) maxDepth = depth;
+                                                        if (depth < minDepth) minDepth = depth;
+                                                }
+                                        }
+                                }
+                        }
 
 			// This is a 16 bit single-pass counting sort
 			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
@@ -617,8 +638,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 } else {
                                         const view = new Float32Array(e.data.view);
+                                        const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, scaleFactor);
+                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor);
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
