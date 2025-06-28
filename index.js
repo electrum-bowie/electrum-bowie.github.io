@@ -633,7 +633,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 		if (header_end_index < 0)
 			throw new Error("Unable to read .ply file header");
 		const vertexCount = parseInt(/element vertex (\d+)\n/.exec(header)[1]);
-		console.log("Vertex Count", vertexCount);
 		let row_offset = 0,
 			offsets = {},
 			types = {};
