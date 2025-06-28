@@ -212,11 +212,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 			let viewport = new THREE.Vector4();
 			renderer.getCurrentViewport(viewport);
 			
-                        const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                        material.uniforms.viewport.value[0] = viewport.z;
-                        material.uniforms.viewport.value[1] = viewport.w;
-                        material.uniforms.focal.value = focal;
-                });
+      const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
+
+			material.uniforms.viewport.value[0] = viewport.z;
+			material.uniforms.viewport.value[1] = viewport.w;
+			material.uniforms.focal.value = focal;
+		});
 		
 		mesh = new THREE.Mesh(geometry, material);
 		mesh.frustumCulled = false;
