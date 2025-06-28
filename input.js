@@ -3,6 +3,9 @@ document.addEventListener("DOMContentLoaded", function () {
     const fileInput = document.getElementById("fileInput");
     const backButton = document.getElementById("backButton");
 
+    let splatLoading = false;
+    let splatLoaded = false;
+
     if (backButton) {
         backButton.addEventListener("click", () => {
             location.reload();
@@ -10,6 +13,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     fileButton.addEventListener("click", () => {
+        if (splatLoading || splatLoaded) return;
         fileInput.click();
     });
 
@@ -95,6 +99,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
     async function handleFile(file) {
         if (!file) return;
+        if (splatLoading || splatLoaded) return;
+        splatLoading = true;
 
         let blob = file;
         const nameLower = file.name.toLowerCase();
@@ -103,6 +109,7 @@ document.addEventListener("DOMContentLoaded", function () {
             try {
                 if (typeof JSZip === 'undefined') {
                     console.error('JSZip library missing');
+                    splatLoading = false;
                     return;
                 }
                 const zip = await JSZip.loadAsync(file);
@@ -110,6 +117,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 const target = entries.find(e => /\.ply$/i.test(e.name) || /\.splat$/i.test(e.name));
                 if (!target) {
                     console.error("No supported file found inside zip");
+                    splatLoading = false;
                     return;
                 }
                 targetName = target.name;
@@ -117,10 +125,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 blob = new Blob([data]);
             } catch (err) {
                 console.error("Failed to extract zip", err);
+                splatLoading = false;
                 return;
             }
         } else if (!(nameLower.endsWith(".ply") || nameLower.endsWith(".splat"))) {
             console.error("Unsupported file type");
+            splatLoading = false;
             return;
         }
 
@@ -131,6 +141,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 blob = new Blob([plyBuffer]);
             } catch (err) {
                 console.error('Failed to convert .splat file', err);
+                splatLoading = false;
                 return;
             }
         }
@@ -148,6 +159,8 @@ document.addEventListener("DOMContentLoaded", function () {
             if (window.gaussianComponent && typeof window.gaussianComponent.updateQuality === 'function') {
                 window.gaussianComponent.updateQuality();
             }
+            splatLoading = false;
+            splatLoaded = true;
         });
 
         // Reattach slider listeners in case the element was recreated
@@ -167,6 +180,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     fileInput.addEventListener("change", (event) => {
+        if (splatLoading || splatLoaded) return;
         const file = event.target.files[0];
         if (file) console.log('Loading...');
         handleFile(file);
