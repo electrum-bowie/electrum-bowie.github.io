@@ -213,10 +213,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 			renderer.getCurrentViewport(viewport);
 			
                         const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-			material.uniforms.viewport.value[0] = viewport.z;Add commentMore actions
-			material.uniforms.viewport.value[1] = viewport.w;
-			material.uniforms.focal.value = focal;
-		});
+                        material.uniforms.viewport.value[0] = viewport.z;
+                        material.uniforms.viewport.value[1] = viewport.w;
+                        material.uniforms.focal.value = focal;
+                });
 		
 		mesh = new THREE.Mesh(geometry, material);
 		mesh.frustumCulled = false;
@@ -488,14 +488,21 @@ AFRAME.registerComponent("gaussian_splatting", {
         tick: function (time, timeDelta) {
                 if (this.sortReady) {
                         this.sortReady = false;
-                        let camera_mtx = this.getModelViewMatrix().elements;
+                        const viewMatrix = this.getModelViewMatrix();
+                        const projectionMatrix = this.getProjectionMatrix();
+                        let camera_mtx = viewMatrix.elements;
                         let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
+
+                        const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
+                        let mvp = new Float32Array(mvpMatrix.elements);
+
                         const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
                         this.worker.postMessage({
                                 method: "sort",
                                 view: view.buffer,
+                                mvp: mvp.buffer,
                                 scale: globalScale,
-                        }, [view.buffer]);
+                        }, [view.buffer, mvp.buffer]);
                 }
         },
         updateQuality: function () {
@@ -553,33 +560,44 @@ AFRAME.registerComponent("gaussian_splatting", {
 	createWorker: function (self) {
 		let matrices = undefined;
 
-                const sortSplats = function sortSplats(matrices, view, scaleFactor = 1.0) {
-			const vertexCount = matrices.length / 16;
-			let threshold = -0.001;
+                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0) {
+                        const vertexCount = matrices.length / 16;
+                        let threshold = -0.001;
 
-			let maxDepth = -Infinity;
-			let minDepth = Infinity;
+                        let maxDepth = -Infinity;
+                        let minDepth = Infinity;
 			let depthList = new Float32Array(vertexCount);
 			let sizeList = new Int32Array(depthList.buffer);
 			let validIndexList = new Int32Array(vertexCount);
 			let validCount = 0;
-			for (let i = 0; i < vertexCount; i++) {
-				// Sign of depth is reversed
-				let depth =
-					(view[0] * matrices[i * 16 + 12]
-						+ view[1] * matrices[i * 16 + 13]
-						+ view[2] * matrices[i * 16 + 14]
-						+ view[3]);
+                        for (let i = 0; i < vertexCount; i++) {
+                                const px = matrices[i * 16 + 12];
+                                const py = matrices[i * 16 + 13];
+                                const pz = matrices[i * 16 + 14];
+                                const radius = matrices[i * 16 + 15] * scaleFactor;
 
-				// Skip behind of camera and small, transparent splat
+                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+
+                                const bounds = 2.0 * clip_w;
+                                if (clip_z < -clip_w - radius ||
+                                        clip_x < -bounds - radius || clip_x > bounds + radius ||
+                                        clip_y < -bounds - radius || clip_y > bounds + radius) {
+                                        continue;
+                                }
+
+                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+
                                 if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
-					depthList[validCount] = depth;
-					validIndexList[validCount] = i;
-					validCount++;
-					if (depth > maxDepth) maxDepth = depth;
-					if (depth < minDepth) minDepth = depth;
-				};
-			}
+                                        depthList[validCount] = depth;
+                                        validIndexList[validCount] = i;
+                                        validCount++;
+                                        if (depth > maxDepth) maxDepth = depth;
+                                        if (depth < minDepth) minDepth = depth;
+                                }
+                        }
 
 			// This is a 16 bit single-pass counting sort
 			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
@@ -617,8 +635,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 } else {
                                         const view = new Float32Array(e.data.view);
+                                        const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, scaleFactor);
+                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor);
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
