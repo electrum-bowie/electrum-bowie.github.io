@@ -184,9 +184,16 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.el.object3D.scale.copy(newScale);
 
         const currentVector = this._tmpVec3.copy(rightPos).sub(leftPos).normalize();
-        const currentYaw = Math.atan2(currentVector.x, currentVector.z);
-        const yawDelta = currentYaw - this.startYaw;
-        const rotQuat = this._tmpQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawDelta);
+        let rotQuat;
+        const heightDiff = Math.abs(leftPos.y - rightPos.y);
+        const heightThresh = currentDistance * 0.1;
+        if (heightDiff < heightThresh) {
+            const currentYaw = Math.atan2(currentVector.x, currentVector.z);
+            const yawDelta = currentYaw - this.startYaw;
+            rotQuat = this._tmpQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawDelta);
+        } else {
+            rotQuat = this._tmpQuat.setFromUnitVectors(this.startVector, currentVector);
+        }
         const offset = this._tmpVec4.copy(this.startOffset).multiplyScalar(scaleFactor).applyQuaternion(rotQuat);
         const newWorldPos = midpoint.clone().add(offset);
         if (this.el.object3D.parent) this.el.object3D.parent.worldToLocal(newWorldPos);
