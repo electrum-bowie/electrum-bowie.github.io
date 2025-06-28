@@ -139,12 +139,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 						cov3D_M13_M22.x, cov3D_M23_M33.x, cov3D_M23_M33.y
 					);
 
-                                       float safeZ = min(camspace.z, -0.01);
-                                       mat3 J = mat3(
-                                               focal / safeZ, 0., -(focal * camspace.x) / (safeZ * safeZ),
-                                               0., -focal / safeZ, (focal * camspace.y) / (safeZ * safeZ),
-                                               0., 0., 0.
-                                       );
+					mat3 J = mat3(
+						focal / camspace.z, 0., -(focal * camspace.x) / (camspace.z * camspace.z), 
+						0., -focal / camspace.z, (focal * camspace.y) / (camspace.z * camspace.z), 
+						0., 0., 0.
+					);
 
 					mat3 W = transpose(mat3(gsModelViewMatrix));
 					mat3 T = W * J;
@@ -558,7 +557,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0) {
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
-                        const nearPlane = -0.01;
 
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
@@ -586,28 +584,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
-                                if (depth < nearPlane && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
-                                        const x = matrices[i * 16 + 12];
-                                        const y = matrices[i * 16 + 13];
-                                        const z = matrices[i * 16 + 14];
-
-                                        const cx = mvp[0] * x + mvp[4] * y + mvp[8] * z + mvp[12];
-                                        const cy = mvp[1] * x + mvp[5] * y + mvp[9] * z + mvp[13];
-                                        const cz = mvp[2] * x + mvp[6] * y + mvp[10] * z + mvp[14];
-                                        const cw = mvp[3] * x + mvp[7] * y + mvp[11] * z + mvp[15];
-
-                                        const bounds = 2.0 * cw;
-                                        if (!(cz < -cw || cx < -bounds || cx > bounds || cy < -bounds || cy > bounds)) {
-                                                const ndx = cx / cw;
-                                                const ndy = cy / cw;
-                                                if ((ndx * ndx + ndy * ndy) >= 0.05 * 0.05) {
-                                                        depthList[validCount] = depth;
-                                                        validIndexList[validCount] = i;
-                                                        validCount++;
-                                                        if (depth > maxDepth) maxDepth = depth;
-                                                        if (depth < minDepth) minDepth = depth;
-                                                }
-                                        }
+                                if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
+                                        depthList[validCount] = depth;
+                                        validIndexList[validCount] = i;
+                                        validCount++;
+                                        if (depth > maxDepth) maxDepth = depth;
+                                        if (depth < minDepth) minDepth = depth;
                                 }
                         }
 
