@@ -186,7 +186,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         const currentVector = this._tmpVec3.copy(rightPos).sub(leftPos).normalize();
         let rotQuat;
         const heightDiff = Math.abs(leftPos.y - rightPos.y);
-        const heightThresh = currentDistance * 0.1;
+        const heightThresh = currentDistance * 0.35;
         if (heightDiff < heightThresh) {
             const currentYaw = Math.atan2(currentVector.x, currentVector.z);
             const yawDelta = currentYaw - this.startYaw;
