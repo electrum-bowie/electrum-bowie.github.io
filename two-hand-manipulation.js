@@ -190,13 +190,11 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this._tmpVec1.normalize();
         const ax = Math.abs(this._tmpVec1.x);
         const ay = Math.abs(this._tmpVec1.y);
-        const az = Math.abs(this._tmpVec1.z);
-        if (ax >= ay && ax >= az) {
+        // Only allow rotation around the vertical (Y) and pitch (X) axes.
+        if (ax >= ay) {
             this._tmpVec1.set(Math.sign(this._tmpVec1.x), 0, 0);
-        } else if (ay >= ax && ay >= az) {
-            this._tmpVec1.set(0, Math.sign(this._tmpVec1.y), 0);
         } else {
-            this._tmpVec1.set(0, 0, Math.sign(this._tmpVec1.z));
+            this._tmpVec1.set(0, Math.sign(this._tmpVec1.y), 0);
         }
         const rotQuat = this._tmpQuat.setFromAxisAngle(this._tmpVec1, angle);
         const offset = this._tmpVec4.copy(this.startOffset).multiplyScalar(scaleFactor).applyQuaternion(rotQuat);
