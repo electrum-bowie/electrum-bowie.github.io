@@ -213,7 +213,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 			renderer.getCurrentViewport(viewport);
 			
                         const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-			material.uniforms.viewport.value[0] = viewport.z;Add commentMore actions
+			material.uniforms.viewport.value[0] = viewport.z;
 			material.uniforms.viewport.value[1] = viewport.w;
 			material.uniforms.focal.value = focal;
 		});
