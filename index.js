@@ -146,11 +146,17 @@ AFRAME.registerComponent("gaussian_splatting", {
 						cov3D_M13_M22.x, cov3D_M23_M33.x, cov3D_M23_M33.y
 					);
 
-					mat3 J = mat3(
-						focal / camspace.z, 0., -(focal * camspace.x) / (camspace.z * camspace.z), 
-						0., -focal / camspace.z, (focal * camspace.y) / (camspace.z * camspace.z), 
-						0., 0., 0.
-					);
+                                        if (camspace.z > -0.01) {
+                                                gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+                                                return;
+                                        }
+
+                                        float safeZ = min(camspace.z, -0.01);
+                                        mat3 J = mat3(
+                                                focal / safeZ, 0., -(focal * camspace.x) / (safeZ * safeZ),
+                                                0., -focal / safeZ, (focal * camspace.y) / (safeZ * safeZ),
+                                                0., 0., 0.
+                                        );
 
 					mat3 W = transpose(mat3(gsModelViewMatrix));
 					mat3 T = W * J;
