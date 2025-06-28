@@ -129,13 +129,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 					vec4 camspace = gsModelViewMatrix * center;
 					vec4 pos2d = gsProjectionMatrix * camspace;
 
-					float bounds = 2.0 * pos2d.w;
-					if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds
-						|| pos2d.y < -bounds || pos2d.y > bounds) {
-						gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
-						return;
-					}
-
 					uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
 					vec2 cov3D_M11_M12 = unpackInt16(covAndColorData.x) * centerAndScaleData.w;
 					vec2 cov3D_M13_M22 = unpackInt16(covAndColorData.y) * centerAndScaleData.w;
@@ -200,7 +193,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 			blending: THREE.CustomBlending,
 			blendSrcAlpha: THREE.OneFactor,
 			depthTest: true,
-			depthWrite: false,
+        		depthWrite: false,
                         transparent: true
                 });
                 material.dithering = false;
@@ -213,7 +206,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 			let viewport = new THREE.Vector4();
 			renderer.getCurrentViewport(viewport);
 			
-                        const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
+      const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
+
 			material.uniforms.viewport.value[0] = viewport.z;
 			material.uniforms.viewport.value[1] = viewport.w;
 			material.uniforms.focal.value = focal;
@@ -489,20 +483,21 @@ AFRAME.registerComponent("gaussian_splatting", {
         tick: function (time, timeDelta) {
                 if (this.sortReady) {
                         this.sortReady = false;
-                        let mv = this.getModelViewMatrix();
-                        let camera_mtx = mv.elements;
+                        const viewMatrix = this.getModelViewMatrix();
+                        const projectionMatrix = this.getProjectionMatrix();
+                        let camera_mtx = viewMatrix.elements;
                         let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
-                        let proj = this.getProjectionMatrix();
-                        let mvp = new THREE.Matrix4();
-                        mvp.multiplyMatrices(proj, mv);
-                        let mvpArr = new Float32Array(mvp.elements);
+
+                        const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
+                        let mvp = new Float32Array(mvpMatrix.elements);
+
                         const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
                         this.worker.postMessage({
                                 method: "sort",
                                 view: view.buffer,
-                                mvp: mvpArr.buffer,
+                                mvp: mvp.buffer,
                                 scale: globalScale,
-                        }, [view.buffer, mvpArr.buffer]);
+                        }, [view.buffer, mvp.buffer]);
                 }
         },
         updateQuality: function () {
@@ -572,12 +567,24 @@ AFRAME.registerComponent("gaussian_splatting", {
 			let validIndexList = new Int32Array(vertexCount);
 			let validCount = 0;
                         for (let i = 0; i < vertexCount; i++) {
-                                // Sign of depth is reversed
-                                let depth =
-                                        (view[0] * matrices[i * 16 + 12]
-                                                + view[1] * matrices[i * 16 + 13]
-                                                + view[2] * matrices[i * 16 + 14]
-                                                + view[3]);
+                                const px = matrices[i * 16 + 12];
+                                const py = matrices[i * 16 + 13];
+                                const pz = matrices[i * 16 + 14];
+                                const radius = matrices[i * 16 + 15] * scaleFactor;
+
+                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+
+                                const bounds = 2.0 * clip_w;
+                                if (clip_z < -clip_w - radius ||
+                                        clip_x < -bounds - radius || clip_x > bounds + radius ||
+                                        clip_y < -bounds - radius || clip_y > bounds + radius) {
+                                        continue;
+                                }
+
+                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
                                 if (depth < nearPlane && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         const x = matrices[i * 16 + 12];
