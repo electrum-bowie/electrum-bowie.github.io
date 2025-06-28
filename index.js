@@ -2,7 +2,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 0.5 },
-                xrPixelRatio: { type: 'number', default: 0.8 },
+                xrPixelRatio: { type: 'number', default: 0.7 },
                 foveation: { type: 'number', default: 3.0 },
         },
         init: function () {
@@ -191,7 +191,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				void main () {
 					float A = -dot(vPosition, vPosition);
-					if (A < -4.0) discard;
+					if (A < -2.0) discard;
 					float B = exp(A) * vColor.a;
 					gl_FragColor = vec4(vColor.rgb, B);
 				}
@@ -273,11 +273,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 							const mbps = (bytesDownloaded / 1024 / 1024) / ((Date.now() - start) / 1000);
 							const percent = bytesDownloaded / totalDownloadBytes * 100;
 							if (percent - lastReportedProgress > 1) {
-                                                        console.log("progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
+                                                        console.log("Progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
 								lastReportedProgress = percent;
 							}
 						} else {
-                                                console.log("progress:", bytesDownloaded, ", unknown total");
+                                                console.log("Progress:", bytesDownloaded, ", unknown total");
 						}
 						chunks.push(value);
 						if (!this.textureReady &&
@@ -633,7 +633,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 		if (header_end_index < 0)
 			throw new Error("Unable to read .ply file header");
 		const vertexCount = parseInt(/element vertex (\d+)\n/.exec(header)[1]);
-		console.log("Vertex Count", vertexCount);
 		let row_offset = 0,
 			offsets = {},
 			types = {};
