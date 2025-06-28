@@ -38,6 +38,11 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this._tmpQuat = new THREE.Quaternion();
         this._tmpQuat2 = new THREE.Quaternion();
         this.rotationMode = null; // Tracks current rotation mode
+        this._angleDiff = (a, b) => {
+            let d = a - b;
+            d = ((d + Math.PI) % (2 * Math.PI)) - Math.PI;
+            return d;
+        };
 
         const bindGripEvents = (controller, hand) => {
             if (!controller) return;
@@ -206,7 +211,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         let rotQuat;
         if (this.rotationMode === 'yaw') {
             const currentYaw = Math.atan2(currentVector.x, currentVector.z);
-            const yawDelta = currentYaw - this.startYaw;
+            const yawDelta = this._angleDiff(currentYaw, this.startYaw);
             rotQuat = this._tmpQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawDelta);
         } else {
             rotQuat = this._tmpQuat.setFromUnitVectors(this.startVector, currentVector);
