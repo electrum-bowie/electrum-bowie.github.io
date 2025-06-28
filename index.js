@@ -59,7 +59,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 		this.renderer = renderer;
 		
 		this.textureReady = false;
-		this.object.frustumCulled = false;
+		this.object.frustumCulled = true;
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
@@ -220,7 +220,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 		});
 		
 		mesh = new THREE.Mesh(geometry, material);
-		mesh.frustumCulled = false;
+		mesh.frustumCulled = true;
 		this.object.add(mesh);
 
 		this.worker = new Worker(
