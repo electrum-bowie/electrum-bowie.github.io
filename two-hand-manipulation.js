@@ -197,9 +197,15 @@ AFRAME.registerComponent('two-hand-manipulation', {
 
         if (this.rotationMode !== newMode) {
             // Update reference orientation and offset to avoid snapping
+            // Calculate the current scale factor so we can normalise the
+            // offset before storing it. This prevents jumps when switching
+            // between rotation modes.
             this.el.object3D.getWorldQuaternion(this.startQuaternion);
             this.el.object3D.getWorldPosition(this.startPosition);
-            this.startOffset.copy(this.startPosition).sub(midpoint);
+            this.startOffset
+                .copy(this.startPosition)
+                .sub(midpoint)
+                .divideScalar(scaleFactor);
             if (newMode === 'yaw') {
                 this.startYaw = Math.atan2(currentVector.x, currentVector.z);
             } else {
