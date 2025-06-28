@@ -192,8 +192,9 @@ AFRAME.registerComponent('two-hand-manipulation', {
         if (this._tmpVec1.lengthSq() < 1e-8) this._tmpVec1.set(0, 1, 0);
         this._tmpVec1.normalize();
 
-        // Determine pitch axis from the direction between the hands.
-        const pitchAxis = this._tmpVec3.copy(this.startVector).cross(this._upVec);
+        // Determine pitch axis using the line between the hands.
+        const pitchAxis = this._tmpVec3.copy(this.startVector);
+
         if (pitchAxis.lengthSq() < 1e-8) pitchAxis.set(1, 0, 0);
         pitchAxis.normalize();
 
