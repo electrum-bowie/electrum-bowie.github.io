@@ -129,6 +129,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 					vec4 camspace = gsModelViewMatrix * center;
 					vec4 pos2d = gsProjectionMatrix * camspace;
 
+					float bounds = 2.0 * pos2d.w;
+					if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds
+						|| pos2d.y < -bounds || pos2d.y > bounds) {
+						gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+						return;
+					}
+
 					uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
 					vec2 cov3D_M11_M12 = unpackInt16(covAndColorData.x) * centerAndScaleData.w;
 					vec2 cov3D_M13_M22 = unpackInt16(covAndColorData.y) * centerAndScaleData.w;
@@ -192,7 +199,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 			blending: THREE.CustomBlending,
 			blendSrcAlpha: THREE.OneFactor,
 			depthTest: true,
-        		depthWrite: false,
+			depthWrite: false,
                         transparent: true
                 });
                 material.dithering = false;
@@ -205,8 +212,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 			let viewport = new THREE.Vector4();
 			renderer.getCurrentViewport(viewport);
 			
-      const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-
+                        const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
 			material.uniforms.viewport.value[0] = viewport.z;
 			material.uniforms.viewport.value[1] = viewport.w;
 			material.uniforms.focal.value = focal;
@@ -267,11 +273,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 							const mbps = (bytesDownloaded / 1024 / 1024) / ((Date.now() - start) / 1000);
 							const percent = bytesDownloaded / totalDownloadBytes * 100;
 							if (percent - lastReportedProgress > 1) {
-                                                        console.log("Progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
+                                                        console.log("progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
 								lastReportedProgress = percent;
 							}
 						} else {
-                                                console.log("Progress:", bytesDownloaded, ", unknown total");
+                                                console.log("progress:", bytesDownloaded, ", unknown total");
 						}
 						chunks.push(value);
 						if (!this.textureReady &&
