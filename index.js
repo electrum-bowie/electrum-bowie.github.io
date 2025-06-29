@@ -687,7 +687,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
 
                                 const radius = matrices[i*16 + 15] * scaleFactor;
-                                const skipCull = (radius / scaleFactor) > 2.0;
+                                const skipCull = (radius / scaleFactor) > 1.5;
 
                                 const invW  = 1.0 / clip_w;
 
