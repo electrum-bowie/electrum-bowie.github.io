@@ -600,11 +600,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let mvp = new Float32Array(mvpMatrix.elements);
 
                 const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
+                let sliderValue = 1;
+                if (typeof window !== 'undefined' && typeof window.latestSliderValue === 'number') {
+                        sliderValue = window.latestSliderValue;
+                }
                 this.worker.postMessage({
                         method: "sort",
                         view: view.buffer,
                         mvp: mvp.buffer,
                         scale: globalScale,
+                        sliderValue: sliderValue,
                 }, [view.buffer, mvp.buffer]);
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
                 this.lastObjectMatrix.copy(this.object.matrixWorld);
@@ -656,7 +661,8 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
 
-                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0) {
+                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1) {
+                        const sizeThreshold = 0.002 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
 
@@ -696,6 +702,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
                                 const radius = matrices[i*16 + 15] * scaleFactor;
+                                if (radius < sizeThreshold) continue;
                                 if (depth + radius > -0.19) continue;
 
                                 if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
@@ -745,7 +752,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor);
+                                        const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
+                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, sliderValue);
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
