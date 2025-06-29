@@ -4,9 +4,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 pixelRatio: { type: 'number', default: 0.5 },
                 xrPixelRatio: { type: 'number', default: 0.75 },
                 foveation: { type: 'number', default: 3.0 },
-                minXrPixelRatio: { type: 'number', default: 0.5 },
-                maxXrPixelRatio: { type: 'number', default: 1.0 },
-                targetFramerate: { type: 'number', default: 72 },
+                minXrPixelRatio: { type: 'number', default: 0.4 },
+                maxXrPixelRatio: { type: 'number', default: 1.1 },
+                targetFramerate: { type: 'number', default: 60 },
         },
         init: function () {
                 // aframe-specific data
@@ -676,7 +676,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
                                 const radius = matrices[i*16 + 15] * scaleFactor;
-                                if (depth + radius > -0.22) continue;
+                                if (depth + radius > -0.19) continue;
 
                                 if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
