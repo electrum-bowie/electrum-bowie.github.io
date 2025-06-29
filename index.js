@@ -530,17 +530,17 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
 
                 // Dynamic XR resolution based on frame rate
-                if (this.el.sceneEl.is('vr-mode')) {
+                if (this.el.sceneEl.is('vr-mode') || this.el.sceneEl.renderer.xr.isPresenting) {
                         this._frameCount++;
                         this._frameTime += timeDelta;
                         if (this._frameTime >= 1000) {
                                 const fps = 1000 * this._frameCount / this._frameTime;
                                 if (fps < this.targetFramerate && this.currentXrPixelRatio > this.minXrPixelRatio) {
                                         this.currentXrPixelRatio = Math.max(this.minXrPixelRatio, this.currentXrPixelRatio - 0.05);
-                                        this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
+                                        this.updateXRScale();
                                 } else if (fps > this.targetFramerate && this.currentXrPixelRatio < this.maxXrPixelRatio) {
                                         this.currentXrPixelRatio = Math.min(this.maxXrPixelRatio, this.currentXrPixelRatio + 0.05);
-                                        this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
+                                        this.updateXRScale();
                                 }
                                 this._frameCount = 0;
                                 this._frameTime = 0;
@@ -566,6 +566,26 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
                 this.sortReady = true;
+        },
+        updateXRScale: function () {
+                const renderer = this.el.sceneEl.renderer;
+                const session = renderer.xr.getSession?.();
+                if (session && typeof XRWebGLLayer !== "undefined") {
+                        const gl = renderer.getContext();
+                        const newLayer = new XRWebGLLayer(session, gl, { framebufferScaleFactor: this.currentXrPixelRatio });
+                        session.updateRenderState({ baseLayer: newLayer });
+                        if (renderer.xr.setSession) renderer.xr.setSession(session);
+                        const camera = renderer.xr.getCamera?.();
+                        if (camera && camera.views) {
+                                for (const view of camera.views) {
+                                        if (view.requestViewportScale) {
+                                                view.requestViewportScale(this.currentXrPixelRatio);
+                                        }
+                                }
+                        }
+                } else {
+                        renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
+                }
         },
 
         sortSplatsNow: function () {
