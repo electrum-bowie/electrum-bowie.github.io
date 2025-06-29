@@ -579,11 +579,21 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         continue;
                                 }
 
-                                const bounds = 2.0 * clip_w;
-                                if (clip_z < -clip_w - radius ||
-                                        clip_x < -bounds - radius || clip_x > bounds + radius ||
-                                        clip_y < -bounds - radius || clip_y > bounds + radius) {
-                                        continue;
+                                const invW  = 1.0 / clip_w;
+                                
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+                                const ndcZ  = clip_z * invW;
+
+                                // Project sphere radius (approx): fx == mvp[0] or use focal length
+                                const projScale = mvp[0];                 // column-major
+                                const rNdc = radius * projScale * invW;   // now in NDC units
+
+                                if (ndcZ < -1.0 - rNdc || ndcZ > 1.0 + rNdc ||
+                                    ndcX < -1.0 - rNdc || ndcX > 1.0 + rNdc ||
+                                    ndcY < -1.0 - rNdc || ndcY > 1.0 + rNdc)
+                                {
+                                    continue;
                                 }
 
                                 let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
