@@ -37,6 +37,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 console.log("Multiview not supported");
                         }
                         const session = this.el.sceneEl.renderer.xr.getSession?.();
+                        if (session && session.updateTargetFrameRate) {
+                                try {
+                                        await session.updateTargetFrameRate(60);
+                                } catch (e) {
+                                        console.warn('Failed to set target FPS', e);
+                                }
+                        }
                         const level = this.data.foveation;
                         if (session && session.renderState && session.renderState.baseLayer) {
                                 const baseLayer = session.renderState.baseLayer;
