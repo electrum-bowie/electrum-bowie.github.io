@@ -10,3 +10,4 @@ When supported, the page requests the `multiview` feature to take advantage of s
 Rendering millions of splats can strain mobile GPUs. Adjust the render
 resolution using the `pixelRatio` and `xrPixelRatio` properties on the
 `gaussian_splatting` component.
+Depth sorting now triggers automatically when the splat or camera moves or rotates more than `0.001` units. An initial sort runs after the data finishes loading so the splat appears even before you move.

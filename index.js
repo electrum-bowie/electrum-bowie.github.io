@@ -63,8 +63,18 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.renderer.outputEncoding = THREE.sRGBEncoding;
                 }
 		
-		this.textureReady = false;
-		this.object.frustumCulled = false;
+                this.textureReady = false;
+                this.object.frustumCulled = false;
+
+                this.lastCameraMatrix = new THREE.Matrix4();
+                this.lastCameraMatrix.identity();
+                this.lastObjectMatrix = new THREE.Matrix4();
+                this.lastObjectMatrix.identity();
+                this.lastScale = new THREE.Vector3(Infinity, Infinity, Infinity);
+                this.lastCameraPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+                this.lastCameraQuat = new THREE.Quaternion(0, 0, 0, 0);
+                this.lastObjectPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+                this.lastObjectQuat = new THREE.Quaternion(0, 0, 0, 0);
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
@@ -485,7 +495,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 		}, [matrices.buffer]);
 	},
         tick: function (time, timeDelta) {
-                if (this.sortReady) {
+                const camPosChanged = this.camera.position.distanceToSquared(this.lastCameraPos) > 1e-6;
+                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.camera.quaternion.dot(this.lastCameraQuat)))) > 0.001;
+                const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 1e-6;
+                const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
+                const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
+
+                if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
                         this.sortReady = false;
                         const viewMatrix = this.getModelViewMatrix();
                         const projectionMatrix = this.getProjectionMatrix();
@@ -502,6 +518,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 mvp: mvp.buffer,
                                 scale: globalScale,
                         }, [view.buffer, mvp.buffer]);
+                        this.lastCameraMatrix.copy(this.camera.matrixWorld);
+                        this.lastObjectMatrix.copy(this.object.matrixWorld);
+                        this.lastScale.copy(this.object.scale);
+                        this.lastCameraPos.copy(this.camera.position);
+                        this.lastCameraQuat.copy(this.camera.quaternion);
+                        this.lastObjectPos.copy(this.object.position);
+                        this.lastObjectQuat.copy(this.object.quaternion);
                 }
         },
         updateQuality: function () {
@@ -552,12 +575,19 @@ AFRAME.registerComponent("gaussian_splatting", {
 		mtx.elements[6] *= -1.0;
 		mtx.elements[9] *= -1.0;
 		mtx.elements[13] *= -1.0;
-		mtx.multiply(viewMatrix);
-		mtx.invert();
-		return mtx;
-	},
-	createWorker: function (self) {
-		let matrices = undefined;
+                mtx.multiply(viewMatrix);
+                mtx.invert();
+                return mtx;
+        },
+
+        matricesEqual: function (a, b, epsilon = 1e-3) {
+                for (let i = 0; i < 16; i++) {
+                        if (Math.abs(a.elements[i] - b.elements[i]) > epsilon) return false;
+                }
+                return true;
+        },
+        createWorker: function (self) {
+                let matrices = undefined;
 
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0) {
                         const vertexCount = matrices.length / 16;
