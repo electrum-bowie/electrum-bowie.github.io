@@ -76,6 +76,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lastObjectPos = new THREE.Vector3(Infinity, Infinity, Infinity);
                 this.lastObjectQuat = new THREE.Quaternion(0, 0, 0, 0);
 
+                this.tmpCameraPos = new THREE.Vector3();
+                this.tmpCameraQuat = new THREE.Quaternion();
+
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
 		this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
@@ -495,8 +498,16 @@ AFRAME.registerComponent("gaussian_splatting", {
 		}, [matrices.buffer]);
 	},
         tick: function (time, timeDelta) {
-                const camPosChanged = this.camera.position.distanceToSquared(this.lastCameraPos) > 1e-6;
-                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.camera.quaternion.dot(this.lastCameraQuat)))) > 0.001;
+                this.camera.getWorldPosition(this.tmpCameraPos);
+                // Use a slightly larger position threshold to avoid constant
+                // re-sorting in VR environments where the camera jitters
+                // every frame.
+                const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 1e-4;
+
+                this.camera.getWorldQuaternion(this.tmpCameraQuat);
+                // Increase the rotation threshold as well to reduce
+                // sensitivity to small head movements.
+                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.01;
                 const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 1e-6;
                 const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
@@ -521,8 +532,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.lastCameraMatrix.copy(this.camera.matrixWorld);
                         this.lastObjectMatrix.copy(this.object.matrixWorld);
                         this.lastScale.copy(this.object.scale);
-                        this.lastCameraPos.copy(this.camera.position);
-                        this.lastCameraQuat.copy(this.camera.quaternion);
+                        this.camera.getWorldPosition(this.lastCameraPos);
+                        this.camera.getWorldQuaternion(this.lastCameraQuat);
                         this.lastObjectPos.copy(this.object.position);
                         this.lastObjectQuat.copy(this.object.quaternion);
                 }
