@@ -495,15 +495,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 	},
         tick: function (time, timeDelta) {
                 this.camera.getWorldPosition(this.tmpCameraPos);
-                // Use a slightly larger position threshold to avoid constant
-                // re-sorting in VR environments where the camera jitters
-                // every frame.
-                const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 1e-6;
+                
+                const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 0.001;
 
                 this.camera.getWorldQuaternion(this.tmpCameraQuat);
-                // Increase the rotation threshold as well to reduce
-                // sensitivity to small head movements.
-                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.001;
+                
+                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.01;
                 const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 1e-6;
                 const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
