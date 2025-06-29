@@ -135,10 +135,13 @@ AFRAME.registerComponent('gaussian_splatting', {
         out vec2 vPosition;
 
         vec2 unpackInt16(uint v) {
-          int hi = int(v >> 16);
-          int lo = int(v & 0xFFFF);
-          if ((v & 0x8000u) != 0u) lo |= 0xFFFF0000;
-          return vec2(float(lo), float(hi));
+             int hi = int(v >> 16);
+             int lo = int(v & 0xFFFFu);
+             // if the 16th bit is set, subtract 0x10000 to sign-extend
+             if ((v & 0x8000u) != 0u) {
+             lo -= 0x10000;
+             }
+             return vec2(float(lo), float(hi));
         }
 
         void main() {
