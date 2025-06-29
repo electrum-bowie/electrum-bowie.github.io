@@ -57,11 +57,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 		this.camera = camera;
 		this.object = object;
                 this.renderer = renderer;
-                if (this.renderer.outputColorSpace !== undefined) {
-                        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-                } else if (this.renderer.outputEncoding !== undefined) {
-                        this.renderer.outputEncoding = THREE.sRGBEncoding;
-                }
 		
                 this.textureReady = false;
                 this.object.frustumCulled = false;
