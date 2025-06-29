@@ -571,17 +571,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const renderer = this.el.sceneEl.renderer;
                 const session = renderer.xr.getSession?.();
                 if (session && typeof XRWebGLLayer !== "undefined") {
-                        const gl = renderer.getContext();
-                        const newLayer = new XRWebGLLayer(session, gl, { framebufferScaleFactor: this.currentXrPixelRatio });
-                        session.updateRenderState({ baseLayer: newLayer });
-                        if (renderer.xr.setSession) renderer.xr.setSession(session);
-                        const camera = renderer.xr.getCamera?.();
-                        if (camera && camera.views) {
-                                for (const view of camera.views) {
-                                        if (view.requestViewportScale) {
-                                                view.requestViewportScale(this.currentXrPixelRatio);
+                        try {
+                                const gl = renderer.getContext();
+                                const newLayer = new XRWebGLLayer(session, gl, { framebufferScaleFactor: this.currentXrPixelRatio });
+                                session.updateRenderState({ baseLayer: newLayer });
+                                if (renderer.xr.setSession) renderer.xr.setSession(session);
+                                const camera = renderer.xr.getCamera?.();
+                                if (camera && camera.views) {
+                                        for (const view of camera.views) {
+                                                if (view.requestViewportScale) {
+                                                        view.requestViewportScale(this.currentXrPixelRatio);
+                                                }
                                         }
                                 }
+                        } catch (e) {
+                                console.warn('Failed to execute updateXRScale()', e);
+                                renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
                         }
                 } else {
                         renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
