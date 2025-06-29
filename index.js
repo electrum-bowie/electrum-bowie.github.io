@@ -572,10 +572,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const session = renderer.xr.getSession?.();
                 if (session && typeof XRWebGLLayer !== "undefined") {
                         try {
-                                const gl = renderer.getContext();
-                                const newLayer = new XRWebGLLayer(session, gl, { framebufferScaleFactor: this.currentXrPixelRatio });
-                                session.updateRenderState({ baseLayer: newLayer });
-                                if (renderer.xr.setSession) renderer.xr.setSession(session);
                                 const camera = renderer.xr.getCamera?.();
                                 if (camera && camera.views) {
                                         for (const view of camera.views) {
@@ -586,7 +582,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                         } catch (e) {
                                 console.warn('Failed to execute updateXRScale()', e);
-                                renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
                         }
                 } else {
                         renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
