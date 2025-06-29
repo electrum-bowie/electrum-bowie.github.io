@@ -2,7 +2,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 0.5 },
-                xrPixelRatio: { type: 'number', default: 0.75 },
+                xrPixelRatio: { type: 'number', default: 0.9 },
                 foveation: { type: 'number', default: 3.0 },
                 minXrPixelRatio: { type: 'number', default: 0.4 },
                 maxXrPixelRatio: { type: 'number', default: 1.1 },
@@ -687,7 +687,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
 
                                 const radius = matrices[i*16 + 15] * scaleFactor;
-                                const skipCull = (radius / scaleFactor) > 3.75;
+                                const skipCull = (radius / scaleFactor) > 2.0;
 
                                 const invW  = 1.0 / clip_w;
 
