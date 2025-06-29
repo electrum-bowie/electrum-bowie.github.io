@@ -197,20 +197,39 @@ AFRAME.registerComponent("gaussian_splatting", {
                 });
                 material.dithering = false;
 
-		material.onBeforeRender = ((renderer, scene, camera, geometry, object, group) => {
-			let projectionMatrix = this.getProjectionMatrix(camera);
-			mesh.material.uniforms.gsProjectionMatrix.value = projectionMatrix;
-			mesh.material.uniforms.gsModelViewMatrix.value = this.getModelViewMatrix(camera);
+                material.onBeforeRender = ((renderer, scene, camera, geometry, object, group) => {
+                        let projectionMatrix = this.getProjectionMatrix(camera);
+                        mesh.material.uniforms.gsProjectionMatrix.value = projectionMatrix;
+                        mesh.material.uniforms.gsModelViewMatrix.value = this.getModelViewMatrix(camera);
 
-			let viewport = new THREE.Vector4();
-			renderer.getCurrentViewport(viewport);
-			
-      const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
+                        let viewport = new THREE.Vector4();
+                        renderer.getCurrentViewport(viewport);
 
-			material.uniforms.viewport.value[0] = viewport.z;
-			material.uniforms.viewport.value[1] = viewport.w;
-			material.uniforms.focal.value = focal;
-		});
+                        const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
+
+                        material.uniforms.viewport.value[0] = viewport.z;
+                        material.uniforms.viewport.value[1] = viewport.w;
+                        material.uniforms.focal.value = focal;
+
+                        if (this.sortReady && this.matrices !== undefined) {
+                                this.sortReady = false;
+
+                                const viewMatrix = this.getModelViewMatrix(camera);
+                                const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
+
+                                const camera_mtx = viewMatrix.elements;
+                                const view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
+                                const mvp = new Float32Array(mvpMatrix.elements);
+
+                                const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
+                                const indexes = this.sortSplats(this.matrices, view, mvp, globalScale);
+                                this.mesh.geometry.attributes.splatIndex.set(indexes);
+                                this.mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                                this.mesh.geometry.instanceCount = indexes.length;
+
+                                this.sortReady = true;
+                        }
+                });
 		
                 mesh = new THREE.Mesh(geometry, material);
                 mesh.frustumCulled = false;
@@ -472,25 +491,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
         },
         tick: function (time, timeDelta) {
-                if (this.sortReady) {
-                        this.sortReady = false;
-                        if (this.matrices !== undefined) {
-                                const viewMatrix = this.getModelViewMatrix();
-                                const projectionMatrix = this.getProjectionMatrix();
-                                let camera_mtx = viewMatrix.elements;
-                                let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
-
-                                const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
-                                let mvp = new Float32Array(mvpMatrix.elements);
-
-                                const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
-                                let indexes = this.sortSplats(this.matrices, view, mvp, globalScale);
-                                this.mesh.geometry.attributes.splatIndex.set(indexes);
-                                this.mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                                this.mesh.geometry.instanceCount = indexes.length;
-                        }
-                        this.sortReady = true;
-                }
+                // Sorting handled in onBeforeRender to avoid a frame delay.
         },
         updateQuality: function () {
                 if (this.isCaching) {
