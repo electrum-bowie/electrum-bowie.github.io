@@ -4,6 +4,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 pixelRatio: { type: 'number', default: 0.5 },
                 xrPixelRatio: { type: 'number', default: 0.75 },
                 foveation: { type: 'number', default: 3.0 },
+                minXrPixelRatio: { type: 'number', default: 0.5 },
+                maxXrPixelRatio: { type: 'number', default: 1.0 },
+                targetFramerate: { type: 'number', default: 72 },
         },
         init: function () {
                 // aframe-specific data
@@ -11,6 +14,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
+
+                this.currentXrPixelRatio = xrPixelRatio;
+                this.minXrPixelRatio = this.data.minXrPixelRatio;
+                this.maxXrPixelRatio = this.data.maxXrPixelRatio;
+                this.targetFramerate = this.data.targetFramerate;
+                this._frameCount = 0;
+                this._frameTime = 0;
                 const gl = this.el.sceneEl.renderer.getContext();
                 gl.disable(gl.DITHER);
                 this.originalBuffers = [];
@@ -517,6 +527,24 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
                         this.sortSplatsNow();
+                }
+
+                // Dynamic XR resolution based on frame rate
+                if (this.el.sceneEl.is('vr-mode')) {
+                        this._frameCount++;
+                        this._frameTime += timeDelta;
+                        if (this._frameTime >= 1000) {
+                                const fps = 1000 * this._frameCount / this._frameTime;
+                                if (fps < this.targetFramerate && this.currentXrPixelRatio > this.minXrPixelRatio) {
+                                        this.currentXrPixelRatio = Math.max(this.minXrPixelRatio, this.currentXrPixelRatio - 0.05);
+                                        this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
+                                } else if (fps > this.targetFramerate && this.currentXrPixelRatio < this.maxXrPixelRatio) {
+                                        this.currentXrPixelRatio = Math.min(this.maxXrPixelRatio, this.currentXrPixelRatio + 0.05);
+                                        this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
+                                }
+                                this._frameCount = 0;
+                                this._frameTime = 0;
+                        }
                 }
         },
         updateQuality: function () {
