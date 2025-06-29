@@ -212,31 +212,19 @@ AFRAME.registerComponent("gaussian_splatting", {
 			material.uniforms.focal.value = focal;
 		});
 		
-		mesh = new THREE.Mesh(geometry, material);
-		mesh.frustumCulled = false;
-		this.object.add(mesh);
+                mesh = new THREE.Mesh(geometry, material);
+                mesh.frustumCulled = false;
+                this.object.add(mesh);
+                this.mesh = mesh;
 
-		this.worker = new Worker(
-			URL.createObjectURL(
-				new Blob(["(", this.createWorker.toString(), ")(self)"], {
-					type: "application/javascript",
-				}),
-			),
-		);
-
-		this.worker.onmessage = (e) => {
-			let indexes = new Uint32Array(e.data.sortedIndexes);
-			mesh.geometry.attributes.splatIndex.set(indexes);
-			mesh.geometry.attributes.splatIndex.needsUpdate = true;
-			mesh.geometry.instanceCount = indexes.length;
-			this.sortReady = true;
-		};
-		this.sortReady = true;
+                this.matrices = undefined;
+                this.sortReady = true;
+                this.sortedIndexes = new Uint32Array(0);
 	},
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-                this.worker.postMessage({ method: "clear" });
+                this.matrices = undefined;
                 this.originalBuffers = [];
                 this.isCaching = true;
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -474,29 +462,34 @@ AFRAME.registerComponent("gaussian_splatting", {
 			vertexCount -= width * height;
 		}
 
-		this.worker.postMessage({
-			method: "push",
-			matrices: matrices.buffer
-		}, [matrices.buffer]);
-	},
+                if (this.matrices === undefined) {
+                        this.matrices = matrices;
+                } else {
+                        const resized = new Float32Array(this.matrices.length + matrices.length);
+                        resized.set(this.matrices);
+                        resized.set(matrices, this.matrices.length);
+                        this.matrices = resized;
+                }
+        },
         tick: function (time, timeDelta) {
                 if (this.sortReady) {
                         this.sortReady = false;
-                        const viewMatrix = this.getModelViewMatrix();
-                        const projectionMatrix = this.getProjectionMatrix();
-                        let camera_mtx = viewMatrix.elements;
-                        let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
+                        if (this.matrices !== undefined) {
+                                const viewMatrix = this.getModelViewMatrix();
+                                const projectionMatrix = this.getProjectionMatrix();
+                                let camera_mtx = viewMatrix.elements;
+                                let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
 
-                        const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
-                        let mvp = new Float32Array(mvpMatrix.elements);
+                                const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
+                                let mvp = new Float32Array(mvpMatrix.elements);
 
-                        const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
-                        this.worker.postMessage({
-                                method: "sort",
-                                view: view.buffer,
-                                mvp: mvp.buffer,
-                                scale: globalScale,
-                        }, [view.buffer, mvp.buffer]);
+                                const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
+                                let indexes = this.sortSplats(this.matrices, view, mvp, globalScale);
+                                this.mesh.geometry.attributes.splatIndex.set(indexes);
+                                this.mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                                this.mesh.geometry.instanceCount = indexes.length;
+                        }
+                        this.sortReady = true;
                 }
         },
         updateQuality: function () {
@@ -511,7 +504,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (this.mesh && this.mesh.geometry) {
                         this.mesh.geometry.instanceCount = 0;
                 }
-                this.worker.postMessage({ method: "clear" });
+                this.matrices = undefined;
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
@@ -551,103 +544,69 @@ AFRAME.registerComponent("gaussian_splatting", {
 		mtx.invert();
 		return mtx;
 	},
-	createWorker: function (self) {
-		let matrices = undefined;
+        sortSplats: function sortSplats(matrices, view, mvp, scaleFactor = 1.0) {
+                const vertexCount = matrices.length / 16;
+                let threshold = -0.001;
 
-                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0) {
-                        const vertexCount = matrices.length / 16;
-                        let threshold = -0.001;
+                let maxDepth = -Infinity;
+                let minDepth = Infinity;
+                let depthList = new Float32Array(vertexCount);
+                let sizeList = new Int32Array(depthList.buffer);
+                let validIndexList = new Int32Array(vertexCount);
+                let validCount = 0;
+                for (let i = 0; i < vertexCount; i++) {
+                        const px = matrices[i * 16 + 12];
+                        const py = matrices[i * 16 + 13];
+                        const pz = matrices[i * 16 + 14];
 
-                        let maxDepth = -Infinity;
-                        let minDepth = Infinity;
-			let depthList = new Float32Array(vertexCount);
-			let sizeList = new Int32Array(depthList.buffer);
-			let validIndexList = new Int32Array(vertexCount);
-			let validCount = 0;
-                        for (let i = 0; i < vertexCount; i++) {
-                                const px = matrices[i * 16 + 12];
-                                const py = matrices[i * 16 + 13];
-                                const pz = matrices[i * 16 + 14];
-                                
-                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
-                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
-                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
-                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+                        const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                        const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                        const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                        const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
-                                if (clip_w <= 0.0 || clip_z <= -clip_w) {
-                                        continue;
-                                }
-
-                                const invW  = 1.0 / clip_w;
-                                
-                                const ndcX  = clip_x * invW;
-                                const ndcY  = clip_y * invW;
-                                const ndcZ  = clip_z * invW;
-
-                                const margin = 0;
-                                if (ndcZ < -1.0 - margin || ndcZ > 1.0 + margin ||
-                                    ndcX < -1.0 - margin || ndcX > 1.0 + margin ||
-                                    ndcY < -1.0 - margin || ndcY > 1.0 + margin) {
-                                        continue;                       // centre is outside — skip splat
-                                }
-
-                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-
-                                if (depth > -0.5) continue;
-
-                                if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
-                                        depthList[validCount] = depth;
-                                        validIndexList[validCount] = i;
-                                        validCount++;
-                                        if (depth > maxDepth) maxDepth = depth;
-                                        if (depth < minDepth) minDepth = depth;
-                                }
+                        if (clip_w <= 0.0 || clip_z <= -clip_w) {
+                                continue;
                         }
 
-			// This is a 16 bit single-pass counting sort
-			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
-			let counts0 = new Uint32Array(256 * 256);
-			for (let i = 0; i < validCount; i++) {
-				sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
-				counts0[sizeList[i]]++;
-			}
-			let starts0 = new Uint32Array(256 * 256);
-			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-			let depthIndex = new Uint32Array(validCount);
-			for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
+                        const invW  = 1.0 / clip_w;
 
-			return depthIndex;
-		};
+                        const ndcX  = clip_x * invW;
+                        const ndcY  = clip_y * invW;
+                        const ndcZ  = clip_z * invW;
 
-		self.onmessage = (e) => {
-			if (e.data.method == "clear") {
-				matrices = undefined;
-			}
-			if (e.data.method == "push") {
-				new_matrices = new Float32Array(e.data.matrices);
-				if (matrices === undefined) {
-					matrices = new_matrices;
-				} else {
-					resized = new Float32Array(matrices.length + new_matrices.length);
-					resized.set(matrices);
-					resized.set(new_matrices, matrices.length);
-					matrices = resized;
-				}
-			}
-                        if (e.data.method == "sort") {
-                                if (matrices === undefined) {
-                                        const sortedIndexes = new Uint32Array(1);
-                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
-                                } else {
-                                        const view = new Float32Array(e.data.view);
-                                        const mvp = new Float32Array(e.data.mvp);
-                                        const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor);
-                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
-                                }
+                        const margin = 0;
+                        if (ndcZ < -1.0 - margin || ndcZ > 1.0 + margin ||
+                            ndcX < -1.0 - margin || ndcX > 1.0 + margin ||
+                            ndcY < -1.0 - margin || ndcY > 1.0 + margin) {
+                                continue;                       // centre is outside — skip splat
                         }
-		};
-	},
+
+                        let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+
+                        if (depth > -0.5) continue;
+
+                        if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
+                                depthList[validCount] = depth;
+                                validIndexList[validCount] = i;
+                                validCount++;
+                                if (depth > maxDepth) maxDepth = depth;
+                                if (depth < minDepth) minDepth = depth;
+                        }
+                }
+
+                let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
+                let counts0 = new Uint32Array(256 * 256);
+                for (let i = 0; i < validCount; i++) {
+                        sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+                        counts0[sizeList[i]]++;
+                }
+                let starts0 = new Uint32Array(256 * 256);
+                for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+                let depthIndex = new Uint32Array(validCount);
+                for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
+
+                return depthIndex;
+        },
 	processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
 		// 10KB ought to be enough for a header...
