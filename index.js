@@ -676,7 +676,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const px = matrices[i * 16 + 12];
                                 const py = matrices[i * 16 + 13];
                                 const pz = matrices[i * 16 + 14];
-                                
+
                                 const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
                                 const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
@@ -686,24 +686,26 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         continue;
                                 }
 
+                                const radius = matrices[i*16 + 15] * scaleFactor;
+                                const skipCull = radius > 4.0;
+
                                 const invW  = 1.0 / clip_w;
-                                
+
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
 
                                 const margin = 0;
-                                if (ndcZ < -1.0 - margin || ndcZ > 1.0 + margin ||
+                                if (!skipCull && (ndcZ < -1.0 - margin || ndcZ > 1.0 + margin ||
                                     ndcX < -1.0 - margin || ndcX > 1.0 + margin ||
-                                    ndcY < -1.0 - margin || ndcY > 1.0 + margin) {
+                                    ndcY < -1.0 - margin || ndcY > 1.0 + margin)) {
                                         continue;                       // centre is outside — skip splat
                                 }
 
                                 let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
-                                const radius = matrices[i*16 + 15] * scaleFactor;
                                 if (radius < sizeThreshold) continue;
-                                if (depth + radius > -0.19) continue;
+                                if (!skipCull && depth + radius > -0.19) continue;
 
                                 if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
