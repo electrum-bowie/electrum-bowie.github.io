@@ -40,7 +40,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (session && session.updateTargetFrameRate) {
                                 try {
                                         await session.updateTargetFrameRate(60);
-                                        console.log('Target FPS set to 60');
                                 } catch (e) {
                                         console.warn('Failed to set target FPS', e);
                                 }
