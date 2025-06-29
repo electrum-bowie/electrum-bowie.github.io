@@ -67,19 +67,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.object.frustumCulled = false;
 
                 this.lastCameraMatrix = new THREE.Matrix4();
-                this.lastCameraMatrix.copy(this.camera.matrixWorld);
+                this.lastCameraMatrix.identity();
                 this.lastObjectMatrix = new THREE.Matrix4();
-                this.lastObjectMatrix.copy(this.object.matrixWorld);
-                this.lastScale = new THREE.Vector3();
-                this.lastScale.copy(this.object.scale);
-                this.lastCameraPos = new THREE.Vector3();
-                this.lastCameraPos.copy(this.camera.position);
-                this.lastCameraQuat = new THREE.Quaternion();
-                this.lastCameraQuat.copy(this.camera.quaternion);
-                this.lastObjectPos = new THREE.Vector3();
-                this.lastObjectPos.copy(this.object.position);
-                this.lastObjectQuat = new THREE.Quaternion();
-                this.lastObjectQuat.copy(this.object.quaternion);
+                this.lastObjectMatrix.identity();
+                this.lastScale = new THREE.Vector3(Infinity, Infinity, Infinity);
+                this.lastCameraPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+                this.lastCameraQuat = new THREE.Quaternion(0, 0, 0, 0);
+                this.lastObjectPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+                this.lastObjectQuat = new THREE.Quaternion(0, 0, 0, 0);
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
