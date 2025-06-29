@@ -640,7 +640,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
-                                if (depth > -0.18) continue;
+                                if (depth > -0.22) continue;
 
                                 if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
