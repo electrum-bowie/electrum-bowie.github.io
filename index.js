@@ -341,6 +341,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         this.needsQualityUpdate = false;
                                         this.updateQuality();
                                 }
+                                this.sortSplatsNow();
                         });
         },
         pushDataBuffer: function (buffer, vertexCount) {
@@ -497,40 +498,18 @@ AFRAME.registerComponent("gaussian_splatting", {
                 // Use a slightly larger position threshold to avoid constant
                 // re-sorting in VR environments where the camera jitters
                 // every frame.
-                const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 1e-4;
+                const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 1e-6;
 
                 this.camera.getWorldQuaternion(this.tmpCameraQuat);
                 // Increase the rotation threshold as well to reduce
                 // sensitivity to small head movements.
-                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.01;
+                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.001;
                 const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 1e-6;
                 const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
 
                 if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
-                        this.sortReady = false;
-                        const viewMatrix = this.getModelViewMatrix();
-                        const projectionMatrix = this.getProjectionMatrix();
-                        let camera_mtx = viewMatrix.elements;
-                        let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
-
-                        const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
-                        let mvp = new Float32Array(mvpMatrix.elements);
-
-                        const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
-                        this.worker.postMessage({
-                                method: "sort",
-                                view: view.buffer,
-                                mvp: mvp.buffer,
-                                scale: globalScale,
-                        }, [view.buffer, mvp.buffer]);
-                        this.lastCameraMatrix.copy(this.camera.matrixWorld);
-                        this.lastObjectMatrix.copy(this.object.matrixWorld);
-                        this.lastScale.copy(this.object.scale);
-                        this.camera.getWorldPosition(this.lastCameraPos);
-                        this.camera.getWorldQuaternion(this.lastCameraQuat);
-                        this.lastObjectPos.copy(this.object.position);
-                        this.lastObjectQuat.copy(this.object.quaternion);
+                        this.sortSplatsNow();
                 }
         },
         updateQuality: function () {
@@ -552,6 +531,33 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
                 this.sortReady = true;
+        },
+
+        sortSplatsNow: function () {
+                if (!this.sortReady) return;
+                this.sortReady = false;
+                const viewMatrix = this.getModelViewMatrix();
+                const projectionMatrix = this.getProjectionMatrix();
+                let camera_mtx = viewMatrix.elements;
+                let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
+
+                const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
+                let mvp = new Float32Array(mvpMatrix.elements);
+
+                const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
+                this.worker.postMessage({
+                        method: "sort",
+                        view: view.buffer,
+                        mvp: mvp.buffer,
+                        scale: globalScale,
+                }, [view.buffer, mvp.buffer]);
+                this.lastCameraMatrix.copy(this.camera.matrixWorld);
+                this.lastObjectMatrix.copy(this.object.matrixWorld);
+                this.lastScale.copy(this.object.scale);
+                this.camera.getWorldPosition(this.lastCameraPos);
+                this.camera.getWorldQuaternion(this.lastCameraQuat);
+                this.lastObjectPos.copy(this.object.position);
+                this.lastObjectQuat.copy(this.object.quaternion);
         },
         getProjectionMatrix: function (camera) {
                 if (!camera) {
