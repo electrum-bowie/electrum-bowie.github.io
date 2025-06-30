@@ -67,6 +67,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         // console.log('Fixed foveated rendering not supported');
                                 // }
                         // }
+                        this.currentXrPixelRatio = this.data.xrPixelRatio;
+                        this.updateXRScale();
+                });
+                this.el.sceneEl.renderer.xr.addEventListener("sessionend", () => {
+                        this.currentXrPixelRatio = this.data.xrPixelRatio;
+                        this.updateXRScale();
+                });
+                this.el.sceneEl.addEventListener("enter-vr", () => {
+                        this.currentXrPixelRatio = this.data.xrPixelRatio;
+                        this.updateXRScale();
+                });
+                this.el.sceneEl.addEventListener("exit-vr", () => {
+                        this.currentXrPixelRatio = this.data.xrPixelRatio;
+                        this.updateXRScale();
                 });
         },
 	// also works from vanilla three.js
