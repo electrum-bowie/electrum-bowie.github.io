@@ -93,6 +93,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.tmpCameraPos = new THREE.Vector3();
                 this.tmpCameraQuat = new THREE.Quaternion();
+                this.viewRotationMatrix = new THREE.Matrix3();
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
@@ -123,14 +124,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 		geometry.instanceCount = 1;
 
                 const material = new THREE.ShaderMaterial({
-			uniforms: {
-				viewport: { value: new Float32Array([1980, 1080]) }, // Dummy. will be overwritten
-				focal: { value: 1000.0 }, // Dummy. will be overwritten
-				centerAndScaleTexture: { value: this.centerAndScaleTexture },
-				covAndColorTexture: { value: this.covAndColorTexture },
-				gsProjectionMatrix: { value: this.getProjectionMatrix() },
-				gsModelViewMatrix: { value: this.getModelViewMatrix() },
-			},
+                        uniforms: {
+                                viewport: { value: new Float32Array([1980, 1080]) }, // Dummy. will be overwritten
+                                focal: { value: 1000.0 }, // Dummy. will be overwritten
+                                centerAndScaleTexture: { value: this.centerAndScaleTexture },
+                                covAndColorTexture: { value: this.covAndColorTexture },
+                                gsProjectionMatrix: { value: this.getProjectionMatrix() },
+                                gsModelViewMatrix: { value: this.getModelViewMatrix() },
+                                viewRotationMatrix: { value: new THREE.Matrix3() },
+                        },
 			vertexShader: `
 				precision highp usampler2D;
 
@@ -139,7 +141,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 				uniform vec2 viewport;
 				uniform float focal;
 				uniform mat4 gsProjectionMatrix;
-				uniform mat4 gsModelViewMatrix;
+                                uniform mat4 gsModelViewMatrix;
+                                uniform mat3 viewRotationMatrix;
 
 				attribute uint splatIndex;
 				uniform sampler2D centerAndScaleTexture;
@@ -172,13 +175,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 						cov3D_M13_M22.x, cov3D_M23_M33.x, cov3D_M23_M33.y
 					);
 
-					mat3 J = mat3(
-						focal / camspace.z, 0., -(focal * camspace.x) / (camspace.z * camspace.z), 
-						0., -focal / camspace.z, (focal * camspace.y) / (camspace.z * camspace.z), 
-						0., 0., 0.
-					);
+                                        float invZ = 1.0 / camspace.z;
+                                        float invZ2 = invZ * invZ;
+                                        mat3 J = mat3(
+                                                focal * invZ, 0., -focal * camspace.x * invZ2,
+                                                0., -focal * invZ, focal * camspace.y * invZ2,
+                                                0., 0., 0.
+                                        );
 
-					mat3 W = transpose(mat3(gsModelViewMatrix));
+                                        mat3 W = viewRotationMatrix;
 					mat3 T = W * J;
 					mat3 cov = transpose(T) * Vrk * T;
 
@@ -215,12 +220,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 				in vec4 vColor;
 				in vec2 vPosition;
 
-				void main () {
-					float A = -dot(vPosition, vPosition);
-					if (A < -4.0) discard;
-					float B = exp(A) * vColor.a;
-					gl_FragColor = vec4(vColor.rgb, B);
-				}
+                                void main () {
+                                        float len2 = dot(vPosition, vPosition);
+                                        if (len2 > 4.0) discard;
+                                        float B = exp(-len2) * vColor.a;
+                                        gl_FragColor = vec4(vColor.rgb, B);
+                                }
 			`,
 			blending: THREE.CustomBlending,
 			blendSrcAlpha: THREE.OneFactor,
@@ -233,7 +238,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 		material.onBeforeRender = ((renderer, scene, camera, geometry, object, group) => {
 			let projectionMatrix = this.getProjectionMatrix(camera);
 			mesh.material.uniforms.gsProjectionMatrix.value = projectionMatrix;
-			mesh.material.uniforms.gsModelViewMatrix.value = this.getModelViewMatrix(camera);
+                        const viewMatrix = this.getModelViewMatrix(camera);
+                        mesh.material.uniforms.gsModelViewMatrix.value = viewMatrix;
+                        this.viewRotationMatrix.setFromMatrix4(viewMatrix).transpose();
+                        mesh.material.uniforms.viewRotationMatrix.value.copy(this.viewRotationMatrix);
 
 			let viewport = new THREE.Vector4();
 			renderer.getCurrentViewport(viewport);
@@ -245,9 +253,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 			material.uniforms.focal.value = focal;
 		});
 		
-		mesh = new THREE.Mesh(geometry, material);
-		mesh.frustumCulled = false;
-		this.object.add(mesh);
+                mesh = new THREE.Mesh(geometry, material);
+                mesh.frustumCulled = false;
+                this.object.add(mesh);
+                this.mesh = mesh;
 
 		this.worker = new Worker(
 			URL.createObjectURL(
