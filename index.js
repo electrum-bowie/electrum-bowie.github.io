@@ -713,9 +713,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
       const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
       if (!skipCull && (depth + radius > nearPlaneZ || depth >= 0)) continue;
-      if (depth + radius > nearPlaneThreshold && !(ndcZ < -1.0 - margin || ndcZ > 1.0 + margin || ndcX < -1.0 - margin || ndcX > 1.0 + margin || ndcY < -1.0 - margin || ndcY > 1.0 + margin)) {
+      if (depth + radius > nearPlaneZ && !(ndcZ < -1.0 - margin || ndcZ > 1.0 + margin || ndcX < -1.0 - margin || ndcX > 1.0 + margin || ndcY < -1.0 - margin || ndcY > 1.0 + margin)) {
                 continue; // centre is inside and close to the near plane
-      
+      }
+
       depthList[validCount] = depth;
       validIndexList[validCount] = i;
       if (depth > maxDepth) maxDepth = depth;
