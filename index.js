@@ -95,12 +95,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.tmpCameraQuat = new THREE.Quaternion();
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
-		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
-		this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
-		this.centerAndScaleTexture.needsUpdate = true;
-		this.covAndColorTexture = new THREE.DataTexture(this.covAndColorData, 4096, 4096, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
-		this.covAndColorTexture.internalFormat = "RGBA32UI";
-		this.covAndColorTexture.needsUpdate = true;
+                this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
+                this.colorData = new Float32Array(4096 * 4096 * 4);
+                this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
+                this.centerAndScaleTexture.needsUpdate = true;
+                this.covAndColorTexture = new THREE.DataTexture(this.covAndColorData, 4096, 4096, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
+                this.covAndColorTexture.internalFormat = "RGBA32UI";
+                this.covAndColorTexture.needsUpdate = true;
+                this.colorTexture = new THREE.DataTexture(this.colorData, 4096, 4096, THREE.RGBA, THREE.FloatType);
+                this.colorTexture.needsUpdate = true;
 
 		let splatIndexArray = new Uint32Array(4096 * 4096);
 		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
@@ -126,13 +129,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 			uniforms: {
 				viewport: { value: new Float32Array([1980, 1080]) }, // Dummy. will be overwritten
 				focal: { value: 1000.0 }, // Dummy. will be overwritten
-				centerAndScaleTexture: { value: this.centerAndScaleTexture },
-				covAndColorTexture: { value: this.covAndColorTexture },
+                                centerAndScaleTexture: { value: this.centerAndScaleTexture },
+                                covAndColorTexture: { value: this.covAndColorTexture },
+                                colorTexture: { value: this.colorTexture },
 				gsProjectionMatrix: { value: this.getProjectionMatrix() },
 				gsModelViewMatrix: { value: this.getModelViewMatrix() },
 			},
 			vertexShader: `
-				precision highp usampler2D;
+                                precision highp usampler2D;
+                                precision highp sampler2D;
 
 				out vec4 vColor;
 				out vec2 vPosition;
@@ -142,8 +147,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 				uniform mat4 gsModelViewMatrix;
 
 				attribute uint splatIndex;
-				uniform sampler2D centerAndScaleTexture;
-				uniform usampler2D covAndColorTexture;
+                                uniform sampler2D centerAndScaleTexture;
+                                uniform usampler2D covAndColorTexture;
+                                uniform sampler2D colorTexture;
 
 				vec2 unpackInt16(in uint value) {
 					int v = int(value);
@@ -196,14 +202,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 					vec2 v1 = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector;
 					vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
 
-					uint colorUint = covAndColorData.w;
-					vColor = vec4(
-						float(colorUint & uint(0xFF)) / 255.0,
-						float((colorUint >> uint(8)) & uint(0xFF)) / 255.0,
-						float((colorUint >> uint(16)) & uint(0xFF)) / 255.0,
-						float(colorUint >> uint(24)) / 255.0
-					);
-					vPosition = position.xy;
+                                        vec4 colorSample = texelFetch(colorTexture, texPos, 0);
+                                        vColor = colorSample;
+                                        vPosition = position.xy;
 
 					gl_Position = vec4(
 						vCenter 
@@ -307,11 +308,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 console.log("Progress:", bytesDownloaded, ", unknown total");
 						}
 						chunks.push(value);
-						if (!this.textureReady &&
-							this.renderer.properties.get(this.centerAndScaleTexture) &&
-							this.renderer.properties.get(this.covAndColorTexture)) {
-							this.textureReady = true;
-						}
+                                                if (!this.textureReady &&
+                                                        this.renderer.properties.get(this.centerAndScaleTexture) &&
+                                                        this.renderer.properties.get(this.covAndColorTexture) &&
+                                                        this.renderer.properties.get(this.colorTexture)) {
+                                                        this.textureReady = true;
+                                                }
 
 						const bytesRemains = bytesDownloaded - bytesProcesses;
 						if (!isPly && this.textureReady && bytesRemains > this.rowLength) {
@@ -411,8 +413,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 		let f_buffer = new Float32Array(buffer);
 		let matrices = new Float32Array(vertexCount * 16);
 
-		const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
-		const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
+                const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
+                const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
+                const colorData_float = new Float32Array(this.colorData.buffer);
 		for (let i = 0; i < vertexCount; i++) {
 			let quat = new THREE.Quaternion(
 				(u_buffer[32 * i + 28 + 1] - 128) / 128.0,
@@ -464,12 +467,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 				covAndColorData_int16[destOffset + j] = parseInt(mtx.elements[cov_indexes[j]] * 32767.0 / max_value);
 			}
 
-			// RGBA
-			destOffset = this.loadedVertexCount * 16 + (i * 4 + 3) * 4;
-			covAndColorData_uint8[destOffset + 0] = u_buffer[32 * i + 24 + 0];
-			covAndColorData_uint8[destOffset + 1] = u_buffer[32 * i + 24 + 1];
-			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
-			covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
+                        // RGBA stored as floats
+                        destOffset = this.loadedVertexCount * 4 + i * 4;
+                        colorData_float[destOffset + 0] = u_buffer[32 * i + 24 + 0] / 255.0;
+                        colorData_float[destOffset + 1] = u_buffer[32 * i + 24 + 1] / 255.0;
+                        colorData_float[destOffset + 2] = u_buffer[32 * i + 24 + 2] / 255.0;
+                        colorData_float[destOffset + 3] = u_buffer[32 * i + 24 + 3] / 255.0;
 
 			// Store scale and transparent to remove splat in sorting process
 			mtx.elements[15] = Math.max(scale.x, scale.y, scale.z) * u_buffer[32 * i + 24 + 3] / 255.0;
@@ -500,9 +503,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 			gl.bindTexture(gl.TEXTURE_2D, centerAndScaleTextureProperties.__webglTexture);
 			gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA, gl.FLOAT, this.centerAndScaleData, this.loadedVertexCount * 4);
 
-			const covAndColorTextureProperties = this.renderer.properties.get(this.covAndColorTexture);
-			gl.bindTexture(gl.TEXTURE_2D, covAndColorTextureProperties.__webglTexture);
-			gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, this.covAndColorData, this.loadedVertexCount * 4);
+                        const covAndColorTextureProperties = this.renderer.properties.get(this.covAndColorTexture);
+                        gl.bindTexture(gl.TEXTURE_2D, covAndColorTextureProperties.__webglTexture);
+                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, this.covAndColorData, this.loadedVertexCount * 4);
+
+                        const colorTextureProperties = this.renderer.properties.get(this.colorTexture);
+                        gl.bindTexture(gl.TEXTURE_2D, colorTextureProperties.__webglTexture);
+                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA, gl.FLOAT, this.colorData, this.loadedVertexCount * 4);
 
 			this.loadedVertexCount += width * height;
 			vertexCount -= width * height;
@@ -562,6 +569,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
+                this.colorTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
