@@ -762,7 +762,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                                 const index = y * screenW + x;
                                                 const accum = alphaBuffer[index];
-                                                if (accum < 0.99) occluded = false;
+                                                if (accum < 0.95) occluded = false;
 
                                                 alphaBuffer[index] = Math.min(1.0, accum + alpha);
                                         }
