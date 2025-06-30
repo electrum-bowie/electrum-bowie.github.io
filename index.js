@@ -440,7 +440,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 f_buffer[8 * i + 3 + 2]
                         );
                         const maxScale = 10.0;
-                        const minScale = 0.001;
+                        const minScale = 0.0001;
                         if (Math.max(scale.x, scale.y, scale.z) > maxScale ||
                                 Math.max(scale.x, scale.y, scale.z) < minScale) {
                                 continue;
@@ -529,7 +529,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.camera.getWorldQuaternion(this.tmpCameraQuat);
                 
-                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.015;
+                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.008;
                 const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 1e-6;
                 const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
