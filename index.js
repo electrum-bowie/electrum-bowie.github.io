@@ -760,7 +760,7 @@ AFRAME.registerComponent("gaussian_splatting", {
       
       const sx = ((ndcX * 0.5) + 0.5) * screenW | 0;
       const sy = ((ndcY * 0.5) + 0.5) * screenH | 0;
-      const alpha = opacity;
+      const alpha = opacity / ((2 * R + 1) * (2 * R + 1));
 
       let fullyCovered = true, visited = 0;
       for (let dy = -R; dy <= R; ++dy)
@@ -769,7 +769,7 @@ AFRAME.registerComponent("gaussian_splatting", {
           if (x < 0 || y < 0 || x >= screenW || y >= screenH) continue;
           visited++;
           const idx = y * screenW + x;
-          if (alphaBuffer[idx] < 0.96) fullyCovered = false;
+          if (alphaBuffer[idx] < 0.98) fullyCovered = false;
         }
 
       if (visited && fullyCovered) continue;
