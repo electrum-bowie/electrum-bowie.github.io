@@ -102,8 +102,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 		this.covAndColorTexture.internalFormat = "RGBA32UI";
 		this.covAndColorTexture.needsUpdate = true;
 
-                const splatIndexes = new THREE.InstancedBufferAttribute(new Uint32Array(1), 1, false);
-                splatIndexes.setUsage(THREE.DynamicDrawUsage);
+		let splatIndexArray = new Uint32Array(4096 * 4096);
+		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
+		splatIndexes.setUsage(THREE.DynamicDrawUsage);
 
 		const baseGeometry = new THREE.BufferGeometry();
 		const positionsArray = new Float32Array(6 * 3);
@@ -119,7 +120,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 		const geometry = new THREE.InstancedBufferGeometry().copy(baseGeometry);
 		geometry.setAttribute('splatIndex', splatIndexes);
-                geometry.instanceCount = 0;
+		geometry.instanceCount = 1;
 
                 const material = new THREE.ShaderMaterial({
 			uniforms: {
@@ -256,14 +257,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 			),
 		);
 
-                this.worker.onmessage = (e) => {
-                        const indexes = new Uint32Array(e.data.sortedIndexes);
-                        const attr = new THREE.InstancedBufferAttribute(indexes, 1, false);
-                        attr.setUsage(THREE.DynamicDrawUsage);
-                        mesh.geometry.setAttribute('splatIndex', attr);
-                        mesh.geometry.instanceCount = indexes.length;
-                        this.sortReady = true;
-                };
+		this.worker.onmessage = (e) => {
+			let indexes = new Uint32Array(e.data.sortedIndexes);
+			mesh.geometry.attributes.splatIndex.set(indexes);
+			mesh.geometry.attributes.splatIndex.needsUpdate = true;
+			mesh.geometry.instanceCount = indexes.length;
+			this.sortReady = true;
+		};
 		this.sortReady = true;
 	},
         loadData: function (src) {
