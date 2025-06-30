@@ -705,15 +705,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
-                                if (clip_w <= 0.0 || clip_z <= -clip_w) {
-                                        continue;
-                                }
-
                                 const radius = matrices[i * 16 + 15] * scaleFactor;
                                 const opacity = matrices[i * 16 + 10];
                                 
                                 const skipCull = (radius / scaleFactor) > 1.0;
 
+                                if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
+                                        continue;
+                                }
+                                
                                 const invW  = 1.0 / clip_w;
 
                                 const ndcX  = clip_x * invW;
@@ -730,7 +730,17 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
                                 if (radius < sizeThreshold) continue;
-                                if (depth + radius > -0.19) continue;
+                                
+                                 const nearPlaneThreshold = -0.19;
+                                
+                                if (!skipCull && (depth + radius > nearPlaneThreshold)) continue;
+                                
+                                if (depth + radius > nearPlaneThreshold && !(ndcZ < -1.0 - margin || ndcZ > 1.0 + margin ||
+                                    ndcX < -1.0 - margin || ndcX > 1.0 + margin ||
+                                    ndcY < -1.0 - margin || ndcY > 1.0 + margin)) {
+                                        continue; // centre is inside and close to the near plane
+                                }
+                                
                                 if (depth >= 0) continue;
 
                                 const pixelRadius = focal * radius / (-depth);
