@@ -748,11 +748,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const screenX = Math.floor((ndcX * 0.5 + 0.5) * screenW);
                                 const screenY = Math.floor((ndcY * 0.5 + 0.5) * screenH);
         
-                                let occluded = true;
+                                let occluded = false;
                                 
                                 const alpha = opacity / (2 * splatSize + 1) ** 2
-                                
-                                alphaBuffer.fill(0);
                                 
                                 for (let dy = -splatSize; dy <= splatSize; dy++) {
                                         for (let dx = -splatSize; dx <= splatSize; dx++) {
@@ -762,13 +760,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                                 const index = y * screenW + x;
                                                 const accum = alphaBuffer[index];
-                                                if (accum < 0.98) occluded = false;
+                                                if (accum >= 0.99) occluded = true;
 
                                                 alphaBuffer[index] = Math.min(1.0, accum + alpha);
                                         }
                                 }
 
-                                if (occluded) continue; // skip splat due to full occlusion
+                                if (occluded) continue; // skip splat due to occlusion
 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
@@ -778,6 +776,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         if (depth < minDepth) minDepth = depth;
                                 }
                         }
+                        
+                        alphaBuffer.fill(0);
 
 			// This is a 16 bit single-pass counting sort
 			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
