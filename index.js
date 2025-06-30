@@ -3,7 +3,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 0.6 },
                 xrPixelRatio: { type: 'number', default: 0.8 },
-                foveation: { type: 'number', default: 3.0 },
+                // Fixed foveation level. Set to 0 to disable foveated rendering
+                // completely when a WebXR session starts.
+                foveation: { type: 'number', default: 0.0 },
                 minXrPixelRatio: { type: 'number', default: 0.4 },
                 maxXrPixelRatio: { type: 'number', default: 1.1 },
                 targetFramerate: { type: 'number', default: 60 },
@@ -54,31 +56,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         console.warn('Failed to set target FPS', e);
                                 }
                         }
-                        // const level = this.data.foveation;
-                        // if (session && session.renderState && session.renderState.baseLayer) {
-                                // const baseLayer = session.renderState.baseLayer;
-                                // if (baseLayer && 'fixedFoveation' in baseLayer) {
-                                        // baseLayer.fixedFoveation = level;
-                                        // console.log('Fixed foveated rendering set to', level);
-                                // } else if (this.el.sceneEl.renderer.xr.setFoveation) {
-                                        // this.el.sceneEl.renderer.xr.setFoveation(level);
-                                        // console.log('Fixed foveated rendering set to', level);
-                                // } else {
-                                        // console.log('Fixed foveated rendering not supported');
-                                // }
-                        // }
+                        this.applyFoveationLevel();
                         this.currentXrPixelRatio = this.data.xrPixelRatio;
                         this.updateXRScale();
                 });
                 this.el.sceneEl.renderer.xr.addEventListener("sessionend", () => {
+                        this.applyFoveationLevel();
                         this.currentXrPixelRatio = this.data.xrPixelRatio;
                         this.updateXRScale();
                 });
                 this.el.sceneEl.addEventListener("enter-vr", () => {
+                        this.applyFoveationLevel();
                         this.currentXrPixelRatio = this.data.xrPixelRatio;
                         this.updateXRScale();
                 });
                 this.el.sceneEl.addEventListener("exit-vr", () => {
+                        this.applyFoveationLevel();
                         this.currentXrPixelRatio = this.data.xrPixelRatio;
                         this.updateXRScale();
                 });
@@ -589,6 +582,32 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
                 this.sortReady = true;
+        },
+
+        // Apply the configured foveation level to the current XR session.
+        // A level of 0 disables foveated rendering when supported.
+        applyFoveationLevel: function () {
+                const renderer = this.el.sceneEl.renderer;
+                const session = renderer.xr.getSession?.();
+                const level = this.data.foveation;
+                if (session && session.renderState && session.renderState.baseLayer) {
+                        const baseLayer = session.renderState.baseLayer;
+                        if (baseLayer && 'fixedFoveation' in baseLayer) {
+                                try {
+                                        baseLayer.fixedFoveation = level;
+                                } catch (e) {
+                                        console.warn('Failed to set fixed foveation', e);
+                                }
+                                return;
+                        }
+                }
+                if (renderer.xr.setFoveation) {
+                        try {
+                                renderer.xr.setFoveation(level);
+                        } catch (e) {
+                                console.warn('Failed to set fixed foveation', e);
+                        }
+                }
         },
         updateXRScale: function () {
                 const renderer = this.el.sceneEl.renderer;
