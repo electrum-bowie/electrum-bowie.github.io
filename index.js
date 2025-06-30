@@ -480,12 +480,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
 			covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
 
-			// Store scale and transparent to remove splat in sorting process
-			mtx.elements[15] = Math.max(scale.x, scale.y, scale.z) * u_buffer[32 * i + 24 + 3] / 255.0;
+			const radius = Math.max(scale.x, scale.y, scale.z);
+                        const opacity = u_buffer[32 * i + 24 + 3] / 255.0;
 
-			for (let j = 0; j < 16; j++) {
-				matrices[i * 16 + j] = mtx.elements[j];
-			}
+                        mtx.elements[15] = Math.max(scale.x, scale.y, scale.z) * u_buffer[32 * i + 24 + 3] / 255.0;
+                        mtx.elements[10] = opacity;
+                        
+                        for (let j = 0; j < 16; j++) {
+                        	matrices[i * 16 + j] = mtx.elements[j];
+                        }
 		}
 
 		const gl = this.renderer.getContext();
@@ -674,6 +677,10 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
 
+                const screenW = 256;
+                const screenH = 256;
+                const alphaBuffer = new Float32Array(screenW * screenH);
+                        
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
                         const sizeThreshold = 0.00016 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
@@ -685,6 +692,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 			let sizeList = new Int32Array(depthList.buffer);
 			let validIndexList = new Int32Array(vertexCount);
 			let validCount = 0;
+                                		// ⬇️ Clear accumulated alpha before new sort
+        		alphaBuffer.fill(0);
+                        
                         for (let i = 0; i < vertexCount; i++) {
                                 const px = matrices[i * 16 + 12];
                                 const py = matrices[i * 16 + 13];
@@ -699,7 +709,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         continue;
                                 }
 
-                                const radius = matrices[i*16 + 15] * scaleFactor;
+                                const radius = matrices[i * 16 + 15] * scaleFactor;
+                                const opacity = matrices[i * 16 + 10];
+                                
                                 const skipCull = (radius / scaleFactor) > 1.0;
 
                                 const invW  = 1.0 / clip_w;
@@ -723,6 +735,30 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const pixelRadius = focal * radius / (-depth);
                                 if (pixelRadius < 1.3) continue;
+                                
+                                const splatSize = Math.ceil(pixelRadius);
+                                const screenX = Math.floor((ndcX * 0.5 + 0.5) * screenW);
+                                const screenY = Math.floor((ndcY * 0.5 + 0.5) * screenH);
+        
+                                let occluded = true;
+                                
+                                const alpha = opacity / (2 * splatSize + 1) ** 2
+                                
+                                for (let dy = -splatSize; dy <= splatSize; dy++) {
+                                        for (let dx = -splatSize; dx <= splatSize; dx++) {
+                                                const x = screenX + dx;
+                                                const y = screenY + dy;
+                                                if (x < 0 || y < 0 || x >= screenW || y >= screenH) continue;
+
+                                                const index = y * screenW + x;
+                                                const accum = alphaBuffer[index];
+                                                if (accum < 0.99) occluded = false;
+
+                                                alphaBuffer[index] = Math.min(1.0, accum + alpha);
+                                        }
+                                }
+
+                                if (occluded) continue; // skip splat due to full occlusion
 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
@@ -753,7 +789,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				matrices = undefined;
 			}
 			if (e.data.method == "push") {
-				new_matrices = new Float32Array(e.data.matrices);
+				const new_matrices = new Float32Array(e.data.matrices);
 				if (matrices === undefined) {
 					matrices = new_matrices;
 				} else {
