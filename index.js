@@ -480,15 +480,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
 			covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
 
-			const radius = Math.max(scale.x, scale.y, scale.z);
-                        const opacity = u_buffer[32 * i + 24 + 3] / 255.0;
+			// Store scale and transparent to remove splat in sorting process
+			mtx.elements[15] = Math.max(scale.x, scale.y, scale.z) * u_buffer[32 * i + 24 + 3] / 255.0;
 
-                        mtx.elements[15] = Math.max(scale.x, scale.y, scale.z) * u_buffer[32 * i + 24 + 3] / 255.0;
-                        mtx.elements[11] = opacity;
-                        
-                        for (let j = 0; j < 16; j++) {
-                        	matrices[i * 16 + j] = mtx.elements[j];
-                        }
+			for (let j = 0; j < 16; j++) {
+				matrices[i * 16 + j] = mtx.elements[j];
+			}
 		}
 
 		const gl = this.renderer.getContext();
@@ -677,128 +674,86 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
 
-                const screenW = 256;
-                const screenH = 256;
-                const alphaBuffer = new Float32Array(screenW * screenH);
-                        
-                  const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
-    const sizeThreshold = 0.0001 * (isNaN(sliderValue) ? 1 : sliderValue);
-    const vertexCount = matrices.length / 16;
-    const nearPlaneZ = -0.19;
-    let maxDepth = -Infinity, minDepth = Infinity;
-    let depthList = new Float32Array(vertexCount);
-    let bucketKeyList = new Int32Array(depthList.buffer);
-    let validIndexList = new Int32Array(vertexCount);
-    let validCount = 0;
+                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                        const sizeThreshold = 0.00016 * (isNaN(sliderValue) ? 1 : sliderValue);
+                        const vertexCount = matrices.length / 16;
+                        let threshold = -0.001;
 
-    for (let i = 0; i < vertexCount; ++i) {
-      const px = matrices[i * 16 + 12];
-      const py = matrices[i * 16 + 13];
-      const pz = matrices[i * 16 + 14];
-      const radius = matrices[i * 16 + 15] * scaleFactor;
-      if (radius < sizeThreshold) continue;
+                        let maxDepth = -Infinity;
+                        let minDepth = Infinity;
+			let depthList = new Float32Array(vertexCount);
+			let sizeList = new Int32Array(depthList.buffer);
+			let validIndexList = new Int32Array(vertexCount);
+			let validCount = 0;
+                        for (let i = 0; i < vertexCount; i++) {
+                                const px = matrices[i * 16 + 12];
+                                const py = matrices[i * 16 + 13];
+                                const pz = matrices[i * 16 + 14];
 
-      const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
-      const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
-      const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
-      const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
-      
-      const invW = 1.0 / clip_w;
-      const ndcX = clip_x * invW;
-      const ndcY = clip_y * invW;
-      const ndcZ = clip_z * invW;
-      const skipCull = (radius / scaleFactor) > 1.0;
-      
-      if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) continue;
+                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
-      if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) continue;
+                                if (clip_w <= 0.0 || clip_z <= -clip_w) {
+                                        continue;
+                                }
 
-      const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-      if (!skipCull && (depth + radius > nearPlaneZ || depth >= 0)) continue;
-      if (depth + radius > nearPlaneZ && !(ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0  || ndcY > 1.0)) {
-                continue; // centre is inside and close to the near plane
-      }
+                                const radius = matrices[i*16 + 15] * scaleFactor;
+                                const skipCull = (radius / scaleFactor) > 1.0;
 
-      depthList[validCount] = depth;
-      validIndexList[validCount] = i;
-      if (depth > maxDepth) maxDepth = depth;
-      if (depth < minDepth) minDepth = depth;
-      ++validCount;
-    }
+                                const invW  = 1.0 / clip_w;
 
-    if (validCount === 0) return new Uint32Array(0);
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+                                const ndcZ  = clip_z * invW;
 
-    const depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
-    const counts = new Uint32Array(256 * 256);
-    for (let k = 0; k < validCount; ++k) {
-      bucketKeyList[k] = ((depthList[k] - minDepth) * depthInv) | 0;
-      counts[bucketKeyList[k]]++;
-    }
-    const starts = new Uint32Array(256 * 256);
-    for (let k = 1; k < counts.length; ++k) starts[k] = starts[k - 1] + counts[k - 1];
+                                const margin = 0;
+                                if (!skipCull && (ndcZ < -1.0 - margin || ndcZ > 1.0 + margin ||
+                                    ndcX < -1.0 - margin || ndcX > 1.0 + margin ||
+                                    ndcY < -1.0 - margin || ndcY > 1.0 + margin)) {
+                                        continue;                       // centre is outside — skip splat
+                                }
 
-    const depthIndex = new Uint32Array(validCount);
-    for (let k = 0; k < validCount; ++k) depthIndex[starts[bucketKeyList[k]]++] = validIndexList[k];
+                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
-    alphaBuffer.fill(0);
-    let kept = 0;
+                                if (radius < sizeThreshold) continue;
+                                if (!skipCull && depth + radius > -0.19) continue;
+                                if (depth >= 0) continue;
 
-    for (let p = validCount - 1; p >= 0; --p) {
-      const i = depthIndex[p];
-      const px = matrices[i * 16 + 12];
-      const py = matrices[i * 16 + 13];
-      const pz = matrices[i * 16 + 14];
-      const radius = matrices[i * 16 + 15] * scaleFactor;
-      const opacity = matrices[i * 16 + 11];
+                                const pixelRadius = focal * radius / (-depth);
+                                if (pixelRadius < 1.0) continue;
 
-      const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
-      const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
-      const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
-      const invW = 1.0 / clip_w;
-      const ndcX = clip_x * invW;
-      const ndcY = clip_y * invW;
-      const depth = depthList[p];
+                                if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
+                                        depthList[validCount] = depth;
+                                        validIndexList[validCount] = i;
+                                        validCount++;
+                                        if (depth > maxDepth) maxDepth = depth;
+                                        if (depth < minDepth) minDepth = depth;
+                                }
+                        }
 
-      const pixelRadius = focal * radius / (-depth);
-      const R = Math.ceil(pixelRadius);
-      if (R > 4) { depthIndex[kept++] = i; continue; } 
-      
-      const sx = ((ndcX * 0.5) + 0.5) * screenW | 0;
-      const sy = ((ndcY * 0.5) + 0.5) * screenH | 0;
-      const alpha = opacity / ((2 * R + 1) * (2 * R + 1));
+			// This is a 16 bit single-pass counting sort
+			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
+			let counts0 = new Uint32Array(256 * 256);
+			for (let i = 0; i < validCount; i++) {
+				sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+				counts0[sizeList[i]]++;
+			}
+			let starts0 = new Uint32Array(256 * 256);
+			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+			let depthIndex = new Uint32Array(validCount);
+			for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-      let fullyCovered = true, visited = 0;
-      for (let dy = -R; dy <= R; ++dy)
-        for (let dx = -R; dx <= R; ++dx) {
-          const x = sx + dx, y = sy + dy;
-          if (x < 0 || y < 0 || x >= screenW || y >= screenH) continue;
-          visited++;
-          const idx = y * screenW + x;
-          if (alphaBuffer[idx] < 0.98) fullyCovered = false;
-        }
-
-      if (visited && fullyCovered) continue;
-
-      for (let dy = -R; dy <= R; ++dy)
-        for (let dx = -R; dx <= R; ++dx) {
-          const x = sx + dx, y = sy + dy;
-          if (x < 0 || y < 0 || x >= screenW || y >= screenH) continue;
-          const idx = y * screenW + x;
-          alphaBuffer[idx] = Math.min(1.0, alphaBuffer[idx] + alpha);
-        }
-
-      depthIndex[kept++] = i;
-    }
-
-    return depthIndex.subarray(0, kept);
-  };
+			return depthIndex;
+		};
 
 		self.onmessage = (e) => {
 			if (e.data.method == "clear") {
 				matrices = undefined;
 			}
 			if (e.data.method == "push") {
-				const new_matrices = new Float32Array(e.data.matrices);
+				new_matrices = new Float32Array(e.data.matrices);
 				if (matrices === undefined) {
 					matrices = new_matrices;
 				} else {
