@@ -439,7 +439,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 f_buffer[8 * i + 3 + 1],
                                 f_buffer[8 * i + 3 + 2]
                         );
-                        const maxScale = 10.0;
+                        const maxScale = 100.0;
                         const minScale = 0.0;
                         if (Math.max(scale.x, scale.y, scale.z) > maxScale ||
                                 Math.max(scale.x, scale.y, scale.z) < minScale) {
