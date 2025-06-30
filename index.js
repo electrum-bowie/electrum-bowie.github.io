@@ -3,7 +3,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 0.6 },
                 xrPixelRatio: { type: 'number', default: 0.8 },
-                foveation: { type: 'number', default: -1.0 },
+                foveation: { type: 'number', default: 3.0 },
                 minXrPixelRatio: { type: 'number', default: 0.4 },
                 maxXrPixelRatio: { type: 'number', default: 1.1 },
                 targetFramerate: { type: 'number', default: 60 },
@@ -58,13 +58,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (session && session.renderState && session.renderState.baseLayer) {
                                 const baseLayer = session.renderState.baseLayer;
                                 if (baseLayer && 'fixedFoveation' in baseLayer) {
-                                        baseLayer.fixedFoveation = level;
-                                        console.log('Fixed foveated rendering set to', level);
+                                        // baseLayer.fixedFoveation = level;
+                                        // console.log('Fixed foveated rendering set to', level);
                                 } else if (this.el.sceneEl.renderer.xr.setFoveation) {
-                                        this.el.sceneEl.renderer.xr.setFoveation(level);
-                                        console.log('Fixed foveated rendering set to', level);
+                                        // this.el.sceneEl.renderer.xr.setFoveation(level);
+                                        // console.log('Fixed foveated rendering set to', level);
                                 } else {
-                                        console.log('Fixed foveated rendering not supported');
+                                        // console.log('Fixed foveated rendering not supported');
                                 }
                         }
                 });
