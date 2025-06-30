@@ -1,7 +1,7 @@
 AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
-                pixelRatio: { type: 'number', default: 0.6 },
+                pixelRatio: { type: 'number', default: 0.5 },
                 xrPixelRatio: { type: 'number', default: 0.8 },
                 foveation: { type: 'number', default: 3.0 },
                 minXrPixelRatio: { type: 'number', default: 0.4 },
@@ -54,19 +54,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         console.warn('Failed to set target FPS', e);
                                 }
                         }
-                        const level = this.data.foveation;
-                        if (session && session.renderState && session.renderState.baseLayer) {
-                                const baseLayer = session.renderState.baseLayer;
-                                if (baseLayer && 'fixedFoveation' in baseLayer) {
+                        // const level = this.data.foveation;
+                        // if (session && session.renderState && session.renderState.baseLayer) {
+                                // const baseLayer = session.renderState.baseLayer;
+                                // if (baseLayer && 'fixedFoveation' in baseLayer) {
                                         // baseLayer.fixedFoveation = level;
                                         // console.log('Fixed foveated rendering set to', level);
-                                } else if (this.el.sceneEl.renderer.xr.setFoveation) {
+                                // } else if (this.el.sceneEl.renderer.xr.setFoveation) {
                                         // this.el.sceneEl.renderer.xr.setFoveation(level);
                                         // console.log('Fixed foveated rendering set to', level);
-                                } else {
+                                // } else {
                                         // console.log('Fixed foveated rendering not supported');
-                                }
-                        }
+                                // }
+                        // }
                 });
         },
 	// also works from vanilla three.js
@@ -440,7 +440,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 f_buffer[8 * i + 3 + 2]
                         );
                         const maxScale = 10.0;
-                        const minScale = 0.0001;
+                        const minScale = 0.001;
                         if (Math.max(scale.x, scale.y, scale.z) > maxScale ||
                                 Math.max(scale.x, scale.y, scale.z) < minScale) {
                                 continue;
@@ -529,7 +529,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.camera.getWorldQuaternion(this.tmpCameraQuat);
                 
-                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.008;
+                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.015;
                 const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 1e-6;
                 const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
@@ -719,11 +719,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 if (radius < sizeThreshold) continue;
                                 if (!skipCull && depth + radius > -0.19) continue;
-                                
                                 if (depth >= 0) continue;
 
-                                const pixelRadius =  focal * radius / (-depth);
-                                
+                                const pixelRadius = focal * radius / (-depth);
                                 if (pixelRadius < 1.0) continue;
 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
