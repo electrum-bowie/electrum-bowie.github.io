@@ -756,6 +756,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 
       const pixelRadius = focal * radius / (-depth);
       const R = Math.ceil(pixelRadius);
+      if (R > 4) { depthIndex[kept++] = i; continue; } 
+      
       const sx = ((ndcX * 0.5) + 0.5) * screenW | 0;
       const sy = ((ndcY * 0.5) + 0.5) * screenH | 0;
       const alpha = opacity;
