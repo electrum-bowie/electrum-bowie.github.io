@@ -682,7 +682,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const alphaBuffer = new Float32Array(screenW * screenH);
                         
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
-                        const sizeThreshold = 0.00016 * (isNaN(sliderValue) ? 1 : sliderValue);
+                        const sizeThreshold = 0.0001 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
 
@@ -692,7 +692,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 			let sizeList = new Int32Array(depthList.buffer);
 			let validIndexList = new Int32Array(vertexCount);
 			let validCount = 0;
-                                		// ⬇️ Clear accumulated alpha before new sort
+                       // ⬇️ Clear accumulated alpha before new sort
         		alphaBuffer.fill(0);
                         
                         for (let i = 0; i < vertexCount; i++) {
@@ -734,7 +734,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth >= 0) continue;
 
                                 const pixelRadius = focal * radius / (-depth);
-                                if (pixelRadius < 1.3) continue;
+                                if (pixelRadius < 1.0) continue;
                                 
                                 const splatSize = Math.ceil(pixelRadius);
                                 const screenX = Math.floor((ndcX * 0.5 + 0.5) * screenW);
