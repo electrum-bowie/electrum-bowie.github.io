@@ -752,6 +752,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const alpha = opacity / (2 * splatSize + 1) ** 2
                                 
+                                alphaBuffer.fill(0);
+                                
                                 for (let dy = -splatSize; dy <= splatSize; dy++) {
                                         for (let dx = -splatSize; dx <= splatSize; dx++) {
                                                 const x = screenX + dx;
