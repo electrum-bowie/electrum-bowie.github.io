@@ -102,9 +102,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 		this.covAndColorTexture.internalFormat = "RGBA32UI";
 		this.covAndColorTexture.needsUpdate = true;
 
-		let splatIndexArray = new Uint32Array(4096 * 4096);
-		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
-		splatIndexes.setUsage(THREE.DynamicDrawUsage);
+                this.splatIndexArray = new Uint32Array(4096 * 4096);
+                const splatIndexes = new THREE.InstancedBufferAttribute(this.splatIndexArray, 1, false);
+                splatIndexes.setUsage(THREE.DynamicDrawUsage);
 
 		const baseGeometry = new THREE.BufferGeometry();
 		const positionsArray = new Float32Array(6 * 3);
@@ -245,9 +245,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 			material.uniforms.focal.value = focal;
 		});
 		
-		mesh = new THREE.Mesh(geometry, material);
-		mesh.frustumCulled = false;
-		this.object.add(mesh);
+                mesh = new THREE.Mesh(geometry, material);
+                mesh.frustumCulled = false;
+                this.object.add(mesh);
+                this.mesh = mesh;
 
 		this.worker = new Worker(
 			URL.createObjectURL(
@@ -257,13 +258,16 @@ AFRAME.registerComponent("gaussian_splatting", {
 			),
 		);
 
-		this.worker.onmessage = (e) => {
-			let indexes = new Uint32Array(e.data.sortedIndexes);
-			mesh.geometry.attributes.splatIndex.set(indexes);
-			mesh.geometry.attributes.splatIndex.needsUpdate = true;
-			mesh.geometry.instanceCount = indexes.length;
-			this.sortReady = true;
-		};
+                this.worker.onmessage = (e) => {
+                        const indexes = new Uint32Array(e.data.sortedIndexes);
+                        const attr = mesh.geometry.attributes.splatIndex;
+                        attr.set(indexes);
+                        attr.updateRange.offset = 0;
+                        attr.updateRange.count = indexes.length;
+                        attr.needsUpdate = true;
+                        mesh.geometry.instanceCount = indexes.length;
+                        this.sortReady = true;
+                };
 		this.sortReady = true;
 	},
         loadData: function (src) {
@@ -361,6 +365,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         this.needsQualityUpdate = false;
                                         this.updateQuality();
                                 }
+                                this.resizeIndexBuffer();
                                 this.sortSplatsNow();
                         });
         },
@@ -586,6 +591,18 @@ AFRAME.registerComponent("gaussian_splatting", {
                 } else {
                         renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
                 }
+        },
+
+        resizeIndexBuffer: function () {
+                if (!this.mesh || !this.mesh.geometry) return;
+                const geometry = this.mesh.geometry;
+                const count = this.loadedVertexCount;
+                const attr = geometry.getAttribute('splatIndex');
+                if (!attr || attr.array.length === count) return;
+                const newArray = new Uint32Array(count);
+                const newAttr = new THREE.InstancedBufferAttribute(newArray, 1, false);
+                newAttr.setUsage(THREE.DynamicDrawUsage);
+                geometry.setAttribute('splatIndex', newAttr);
         },
 
         sortSplatsNow: function () {
