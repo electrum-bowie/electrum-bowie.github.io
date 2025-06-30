@@ -708,19 +708,26 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
 
-                                const margin = 0;
-                                if (!skipCull && (ndcZ < -1.0 - margin || ndcZ > 1.0 + margin ||
-                                    ndcX < -1.0 - margin || ndcX > 1.0 + margin ||
-                                    ndcY < -1.0 - margin || ndcY > 1.0 + margin)) {
+                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                  ndcX < -1.0 || ndcX > 1.0 ||
+                                                  ndcY < -1.0 || ndcY > 1.0)) {
                                         continue;                       // centre is outside — skip splat
                                 }
 
                                 let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
                                 if (radius < sizeThreshold) continue;
-                                if (!skipCull && depth + radius > -0.19) continue;
-                                if (depth >= 0) continue;
-
+                                
+                                const nearPlaneClip = -0.19;
+                                
+                                if (!skipCull && (depth + radius > nearPlaneClip)) continue;
+                                
+                                if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                                        ndcX < -1.0 || ndcX > 1.0 ||
+                                                                        ndcY < -1.0 || ndcY > 1.0)) {
+                                        continue; // centre is inside the view and too close to the head
+                                }
+                                
                                 const pixelRadius = focal * radius / (-depth);
                                 if (pixelRadius < 1.0) continue;
 
