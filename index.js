@@ -257,13 +257,20 @@ AFRAME.registerComponent("gaussian_splatting", {
 			),
 		);
 
-		this.worker.onmessage = (e) => {
-			let indexes = new Uint32Array(e.data.sortedIndexes);
-			mesh.geometry.attributes.splatIndex.set(indexes);
-			mesh.geometry.attributes.splatIndex.needsUpdate = true;
-			mesh.geometry.instanceCount = indexes.length;
-			this.sortReady = true;
-		};
+                this.worker.onmessage = (e) => {
+                        let indexes = new Uint32Array(e.data.sortedIndexes);
+                        if (indexes.length === 0) {
+                                mesh.visible = false;
+                                mesh.geometry.instanceCount = 0;
+                                this.sortReady = true;
+                                return;
+                        }
+                        mesh.visible = true;
+                        mesh.geometry.attributes.splatIndex.set(indexes);
+                        mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                        mesh.geometry.instanceCount = indexes.length;
+                        this.sortReady = true;
+                };
 		this.sortReady = true;
 	},
         loadData: function (src) {
