@@ -692,8 +692,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 			let sizeList = new Int32Array(depthList.buffer);
 			let validIndexList = new Int32Array(vertexCount);
 			let validCount = 0;
-                       // ⬇️ Clear accumulated alpha before new sort
-        		alphaBuffer.fill(0);
                         
                         for (let i = 0; i < vertexCount; i++) {
                                 const px = matrices[i * 16 + 12];
