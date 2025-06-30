@@ -613,12 +613,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (typeof window !== 'undefined' && typeof window.latestSliderValue === 'number') {
                         sliderValue = window.latestSliderValue;
                 }
+                let viewport = new THREE.Vector4();
+                this.renderer.getCurrentViewport(viewport);
+                const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
                 this.worker.postMessage({
                         method: "sort",
                         view: view.buffer,
                         mvp: mvp.buffer,
                         scale: globalScale,
                         sliderValue: sliderValue,
+                        focal: focal,
                 }, [view.buffer, mvp.buffer]);
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
                 this.lastObjectMatrix.copy(this.object.matrixWorld);
@@ -670,7 +674,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
 
-                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1) {
+                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
                         const sizeThreshold = 0.00016 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
@@ -715,8 +719,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 if (radius < sizeThreshold) continue;
                                 if (!skipCull && depth + radius > -0.19) continue;
+                                if (depth >= 0) continue;
 
-                                if (depth < 0 && matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
+                                const pixelRadius = focal * radius / (-depth);
+                                if (pixelRadius < 1.0) continue;
+
+                                if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
                                         validIndexList[validCount] = i;
                                         validCount++;
@@ -764,7 +772,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
-                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, sliderValue);
+                                        const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
+                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, sliderValue, focal);
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
