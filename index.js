@@ -1,4 +1,4 @@
-AFRAME.registerComponent("gaussian_splatting", {
+.AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 0.6 },
@@ -722,9 +722,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 if (depth >= 0) continue;
 
-                                const pixelRadius = 2.0 * (focal * radius / (-depth));
+                                const pixelRadius =  focal * radius / (-depth);
                                 
-                                if (pixelRadius < 1.2) continue;
+                                if (pixelRadius < 1.0) continue;
 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
