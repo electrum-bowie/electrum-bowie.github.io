@@ -856,7 +856,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         }
                                 }
 
-                                const isBig = baseRadius > 0.05;
+                                const isBig = baseRadius > 0.1;
                                 if (isBig || totalWeight === 0.0 || occludedWeight / totalWeight < 0.9999) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
