@@ -748,7 +748,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
 
                                 const radius = matrices[i*16 + 15] * scaleFactor;
-                                const opacity = matrices[i*16 + 11];
                                 
                                 const skipCull = (radius / scaleFactor) > 1.0;
 
@@ -819,6 +818,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+
+                                const opacity = matrices[idx * 16 + 11];
 
                                 if (clip_w <= 0.0) continue;
 
