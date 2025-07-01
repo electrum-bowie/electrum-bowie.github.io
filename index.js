@@ -789,17 +789,36 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                         }
 
-			// This is a 16 bit single-pass counting sort
-			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
-			let counts0 = new Uint32Array(256 * 256);
-			for (let i = 0; i < validCount; i++) {
-				sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
-				counts0[sizeList[i]]++;
-			}
-			let starts0 = new Uint32Array(256 * 256);
-			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-			let depthIndex = new Uint32Array(validCount);
-			for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
+                        // Increase to a 32 bit two-pass counting sort
+                        const RADIX = 256 * 256;
+                        let depthInv = (4294967295) / (maxDepth - minDepth);
+
+                        for (let i = 0; i < validCount; i++) {
+                                sizeList[i] = ((depthList[i] - minDepth) * depthInv) >>> 0;
+                        }
+
+                        // First pass - lower 16 bits
+                        let counts0 = new Uint32Array(RADIX);
+                        for (let i = 0; i < validCount; i++) {
+                                counts0[sizeList[i] & 0xFFFF]++;
+                        }
+                        let starts0 = new Uint32Array(RADIX);
+                        for (let i = 1; i < RADIX; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+                        let tmpIndex = new Uint32Array(validCount);
+                        for (let i = 0; i < validCount; i++) tmpIndex[starts0[sizeList[i] & 0xFFFF]++] = i;
+
+                        // Second pass - upper 16 bits
+                        let counts1 = new Uint32Array(RADIX);
+                        for (let i = 0; i < validCount; i++) {
+                                counts1[(sizeList[i] >>> 16) & 0xFFFF]++;
+                        }
+                        let starts1 = new Uint32Array(RADIX);
+                        for (let i = 1; i < RADIX; i++) starts1[i] = starts1[i - 1] + counts1[i - 1];
+                        let depthIndex = new Uint32Array(validCount);
+                        for (let i = 0; i < validCount; i++) {
+                                const idx = tmpIndex[i];
+                                depthIndex[starts1[(sizeList[idx] >>> 16) & 0xFFFF]++] = validIndexList[idx];
+                        }
 
 			return depthIndex;
 		};
