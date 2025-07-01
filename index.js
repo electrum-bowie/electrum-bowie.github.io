@@ -764,9 +764,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                                         ndcY < -1.0 || ndcY > 1.0)) {
                                         continue; // centre is inside the view and too close to the head
                                 }
-                                
-                                const pixelRadius = focal * radius / (-depth);
-                                if (pixelRadius < 1.15) continue;
+
+                                const invF2 = 1.0/(focal*focal);
+                                const ndcR2 = ndcX*ndcX + ndcY*ndcY;
+                                const trueDist = clip_w * Math.sqrt(1 + ndcR2 * invF2);
+                                const pixelRadius = focal * radius / trueDist;
+                                if (pixelRadius < 1.5) continue;
 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
