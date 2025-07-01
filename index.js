@@ -391,7 +391,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         this.needsQualityUpdate = false;
                                         this.updateQuality();
                                 }
-                                this.splatsNow();
+                                this.sortSplatsNow();
                         });
         },
         pushDataBuffer: function (buffer, vertexCount) {
@@ -557,7 +557,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
 
                 if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
-                        this.splatsNow();
+                        this.sortSplatsNow();
                 }
 
                 // Dynamic XR resolution based on frame rate
@@ -645,7 +645,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
         },
 
-        splatsNow: function () {
+        sortSplatsNow: function () {
                 if (!this.sortReady) return;
                 this.sortReady = false;
                 const viewMatrix = this.getModelViewMatrix();
@@ -720,232 +720,196 @@ AFRAME.registerComponent("gaussian_splatting", {
                 return true;
         },
         createWorker: function (self) {
-                const createCullingWorker = function (self) {
-                    let matrices = undefined;
-                    const splats = function splats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                let matrices = undefined;
+
+                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
                         const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
+
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
-                        let depthList = new Float32Array(vertexCount);
-                        let sizeList = new Int32Array(depthList.buffer);
-                        let validIndexList = new Int32Array(vertexCount);
-                        let validCount = 0;
+			let depthList = new Float32Array(vertexCount);
+			let sizeList = new Int32Array(depthList.buffer);
+			let validIndexList = new Int32Array(vertexCount);
+			let validCount = 0;
                         for (let i = 0; i < vertexCount; i++) {
-                            const px = matrices[i * 16 + 12];
-                            const py = matrices[i * 16 + 13];
-                            const pz = matrices[i * 16 + 14];
-                            const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
-                            const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
-                            const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
-                            const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
-                            if (clip_w <= 0.0 || clip_z <= -clip_w) {
-                                continue;
-                            }
-                            const radius = matrices[i * 16 + 15] * scaleFactor;
-                            const skipCull = (radius / scaleFactor) > 1.0;
-                            const invW  = 1.0 / clip_w;
-                            const ndcX  = clip_x * invW;
-                            const ndcY  = clip_y * invW;
-                            const ndcZ  = clip_z * invW;
-                            if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) {
-                                continue;
-                            }
-                            let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-                            if (radius < sizeThreshold) continue;
-                            const nearPlaneClip = -0.19;
-                            if (!skipCull && (depth + radius > nearPlaneClip)) continue;
-                            if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) {
-                                continue;
-                            }
-                            const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                            const edgeMultiplier = 1.0 + (edgeDist * 0.75);
-                            const pixelRadius = focal * radius / (-depth);
-                            if (pixelRadius < 1.0 * edgeMultiplier) continue;
-                            if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
-                                depthList[validCount] = depth;
-                                validIndexList[validCount] = i;
-                                validCount++;
-                                if (depth > maxDepth) maxDepth = depth;
-                                if (depth < minDepth) minDepth = depth;
-                            }
+                                const px = matrices[i * 16 + 12];
+                                const py = matrices[i * 16 + 13];
+                                const pz = matrices[i * 16 + 14];
+
+                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+
+                                if (clip_w <= 0.0 || clip_z <= -clip_w) {
+                                        continue;
+                                }
+
+                                const radius = matrices[i * 16 + 15] * scaleFactor;
+                                
+                                const skipCull = (radius / scaleFactor) > 1.0;
+
+                                const invW  = 1.0 / clip_w;
+
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+                                const ndcZ  = clip_z * invW;
+
+                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                  ndcX < -1.0 || ndcX > 1.0 ||
+                                                  ndcY < -1.0 || ndcY > 1.0)) {
+                                        continue;                       // centre is outside — skip splat
+                                }
+
+                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+
+                                if (radius < sizeThreshold) continue;
+                                
+                                const nearPlaneClip = -0.19;
+                                
+                                if (!skipCull && (depth + radius > nearPlaneClip)) continue;
+                                
+                                if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                                        ndcX < -1.0 || ndcX > 1.0 ||
+                                                                        ndcY < -1.0 || ndcY > 1.0)) {
+                                        continue; // centre is inside the view and too close to the head
+                                }
+                                
+                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.75);
+                                const pixelRadius = focal * radius / (-depth);
+                                if (pixelRadius < 1.0 * edgeMultiplier) continue;
+                                
+                                if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
+                                        depthList[validCount] = depth;
+                                        validIndexList[validCount] = i;
+                                        validCount++;
+                                        if (depth > maxDepth) maxDepth = depth;
+                                        if (depth < minDepth) minDepth = depth;
+                                }
                         }
-                        let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
-                        let counts0 = new Uint32Array(256 * 256);
-                        for (let i = 0; i < validCount; i++) {
-                            sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
-                            counts0[sizeList[i]]++;
-                        }
-                        let starts0 = new Uint32Array(256 * 256);
-                        for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+
+                        // This is a 16 bit single-pass counting sort
+			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
+			let counts0 = new Uint32Array(256 * 256);
+			for (let i = 0; i < validCount; i++) {
+				sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+				counts0[sizeList[i]]++;
+			}
+			let starts0 = new Uint32Array(256 * 256);
+			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
                         let depthIndex = new Uint32Array(validCount);
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
-                        return depthIndex;
-                    };
-                    self.onmessage = (e) => {
-                        if (e.data.method == "clear") {
-                            matrices = undefined;
-                        }
-                        if (e.data.method == "push") {
-                            let new_matrices = new Float32Array(e.data.matrices);
-                            if (matrices === undefined) {
-                                matrices = new_matrices;
-                            } else {
-                                let resized = new Float32Array(matrices.length + new_matrices.length);
-                                resized.set(matrices);
-                                resized.set(new_matrices, matrices.length);
-                                matrices = resized;
-                            }
-                        }
-                        if (e.data.method == "cull") {
-                            if (matrices === undefined) {
-                                const depthIndex = new Uint32Array(1);
-                                self.postMessage({ depthIndex, view: e.data.view, mvp: e.data.mvp, scale: e.data.scale }, [depthIndex.buffer, e.data.view, e.data.mvp]);
-                            } else {
-                                const view = new Float32Array(e.data.view);
-                                const mvp = new Float32Array(e.data.mvp);
-                                const depthIndex = splats(matrices, view, mvp, e.data.scale, e.data.sliderValue, e.data.focal);
-                                self.postMessage({ depthIndex, view: e.data.view, mvp: e.data.mvp, scale: e.data.scale }, [depthIndex.buffer, e.data.view, e.data.mvp]);
-                            }
-                        }
-                    };
-                };
-                
-                const createOcclusionWorker = function (self) {
-                    let matrices = undefined;
-                    const splats = function splats(matrices, depthIndex, view, mvp, scaleFactor = 1.0) {
+
+                        // Occlusion-based discarding
                         const gridSize = 256;
                         const coverage = new Float32Array(gridSize * gridSize);
-                        let tmpVisible = new Uint32Array(depthIndex.length);
+                        let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
                         for (let j = depthIndex.length - 1; j >= 0; j--) {
-                            const idx = depthIndex[j];
-                            const baseRadius = matrices[idx * 16 + 15];
-                            const px = matrices[idx * 16 + 12];
-                            const py = matrices[idx * 16 + 13];
-                            const pz = matrices[idx * 16 + 14];
-                            const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
-                            const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
-                            const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
-                            const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
-                            const opacity = matrices[idx * 16 + 11];
-                            if (clip_w <= 0.0) continue;
-                            const invW  = 1.0 / clip_w;
-                            const ndcX  = clip_x * invW;
-                            const ndcY  = clip_y * invW;
-                            const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-                            const radius = matrices[idx * 16 + 15] * scaleFactor;
-                            const ndcRadius = Math.abs(radius / depth);
-                            const cx = (ndcX * 0.5 + 0.5) * gridSize;
-                            const cy = (ndcY * 0.5 + 0.5) * gridSize;
-                            const r = ndcRadius * gridSize * 0.5;
-                            let totalWeight = 0.0, occludedWeight = 0.0;
-                            const minX = Math.max(0, Math.floor(cx - r));
-                            const maxX = Math.min(gridSize - 1, Math.ceil(cx + r));
-                            const minY = Math.max(0, Math.floor(cy - r));
-                            const maxY = Math.min(gridSize - 1, Math.ceil(cy + r));
-                            const r2 = r * r;
-                            for (let y = minY; y <= maxY; y++) {
-                                for (let x = minX; x <= maxX; x++) {
-                                    const dx = x + 0.5 - cx;
-                                    const dy = y + 0.5 - cy;
-                                    const norm = (dx * dx + dy * dy) / r2;
-                                    if (norm > 1.0) continue;
-                                    const weight = Math.exp(-norm);
-                                    const w = weight * opacity
-                                    totalWeight += w;
-                                    occludedWeight += coverage[y * gridSize + x] * w;
-                                }
-                            }
-                            const isBig = baseRadius > 0.05;
-                            if (isBig || totalWeight === 0.0 || occludedWeight / totalWeight < 1.0) {
-                                tmpVisible[visibleCount++] = idx;
+                                const idx = depthIndex[j];
+                                const baseRadius = matrices[idx * 16 + 15];
+                                const px = matrices[idx * 16 + 12];
+                                const py = matrices[idx * 16 + 13];
+                                const pz = matrices[idx * 16 + 14];
+
+                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+
+                                const opacity = matrices[idx * 16 + 11];
+
+                                if (clip_w <= 0.0) continue;
+
+                                const invW  = 1.0 / clip_w;
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+
+                                const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+                                const radius = matrices[idx * 16 + 15] * scaleFactor;
+                                const ndcRadius = Math.abs(radius / depth);
+
+                                const cx = (ndcX * 0.5 + 0.5) * gridSize;
+                                const cy = (ndcY * 0.5 + 0.5) * gridSize;
+                                const r = ndcRadius * gridSize * 0.5;
+
+                                let totalWeight = 0.0, occludedWeight = 0.0;
+                                const minX = Math.max(0, Math.floor(cx - r));
+                                const maxX = Math.min(gridSize - 1, Math.ceil(cx + r));
+                                const minY = Math.max(0, Math.floor(cy - r));
+                                const maxY = Math.min(gridSize - 1, Math.ceil(cy + r));
+
+                                const r2 = r * r;
                                 for (let y = minY; y <= maxY; y++) {
-                                    for (let x = minX; x <= maxX; x++) {
-                                        const dx = x + 0.5 - cx;
-                                        const dy = y + 0.5 - cy;
-                                        const norm = (dx * dx + dy * dy) / r2;
-                                        if (norm > 1.0) continue;
-                                        const weight = Math.exp(-norm);
-                                        const idx2 = y * gridSize + x;
-                                        const w = weight * opacity
-                                        coverage[idx2] = Math.min(1.0, coverage[idx2] + w);
-                                    }
+                                        for (let x = minX; x <= maxX; x++) {
+                                                const dx = x + 0.5 - cx;
+                                                const dy = y + 0.5 - cy;
+                                                const norm = (dx * dx + dy * dy) / r2;
+                                                if (norm > 1.0) continue;
+                                                const weight = Math.exp(-norm);
+                                                const w = weight * opacity
+                                                totalWeight += w;
+                                                occludedWeight += coverage[y * gridSize + x] * w;
+                                        }
                                 }
-                            }
+
+                                const isBig = baseRadius > 0.05;
+                                if (isBig || totalWeight === 0.0 || occludedWeight / totalWeight < 1.0) {
+                                        tmpVisible[visibleCount++] = idx;
+                                        for (let y = minY; y <= maxY; y++) {
+                                                for (let x = minX; x <= maxX; x++) {
+                                                        const dx = x + 0.5 - cx;
+                                                        const dy = y + 0.5 - cy;
+                                                        const norm = (dx * dx + dy * dy) / r2;
+                                                        if (norm > 1.0) continue;
+                                                        const weight = Math.exp(-norm);
+                                                        const idx2 = y * gridSize + x;
+                                                        const w = weight * opacity
+                                                        coverage[idx2] = Math.min(1.0, coverage[idx2] + w);
+                                                }
+                                        }
+                                }
                         }
+
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0; i < visibleCount; i++) result[i] = tmpVisible[visibleCount - 1 - i];
                         return result;
-                    };
-                    self.onmessage = (e) => {
-                        if (e.data.method == "clear") {
-                            matrices = undefined;
-                        }
-                        if (e.data.method == "push") {
-                            let new_matrices = new Float32Array(e.data.matrices);
-                            if (matrices === undefined) {
-                                matrices = new_matrices;
-                            } else {
-                                let resized = new Float32Array(matrices.length + new_matrices.length);
-                                resized.set(matrices);
-                                resized.set(new_matrices, matrices.length);
-                                matrices = resized;
-                            }
-                        }
-                        if (e.data.method == "occlude") {
-                            if (matrices === undefined) {
-                                const sortedIndexes = new Uint32Array(1);
-                                self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
-                            } else {
-                                const depthIndex = new Uint32Array(e.data.depthIndex);
-                                const view = new Float32Array(e.data.view);
-                                const mvp = new Float32Array(e.data.mvp);
-                                const sortedIndexes = splats(matrices, depthIndex, view, mvp, e.data.scale);
-                                self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
-                            }
-                        }
-                    };
                 };
-                                const cullingWorker = new Worker(
-                                        URL.createObjectURL(
-                                                new Blob(["(", createCullingWorker.toString(), ")(self)"], {
-                                                        type: "application/javascript",
-                                                }),
-                                        ),
-                                );
-                
-                                const occlusionWorker = new Worker(
-                                        URL.createObjectURL(
-                                                new Blob(["(", createOcclusionWorker.toString(), ")(self)"], {
-                                                        type: "application/javascript",
-                                                }),
-                                        ),
-                                );
-                
-                                cullingWorker.onmessage = (e) => {
-                                        occlusionWorker.postMessage({ method: "occlude", depthIndex: e.data.depthIndex, view: e.data.view, mvp: e.data.mvp, scale: e.data.scale }, [e.data.depthIndex, e.data.view, e.data.mvp]);
-                                };
-                
-                                occlusionWorker.onmessage = (e) => {
-                                        self.postMessage({ sortedIndexes: e.data.sortedIndexes }, [e.data.sortedIndexes]);
-                                };
-                
-                                self.onmessage = (e) => {
-                                        if (e.data.method == "clear") {
-                                                cullingWorker.postMessage({ method: "clear" });
-                                                occlusionWorker.postMessage({ method: "clear" });
-                                        }
-                                        if (e.data.method == "push") {
-                                                cullingWorker.postMessage({ method: "push", matrices: e.data.matrices }, [e.data.matrices]);
-                                                occlusionWorker.postMessage({ method: "push", matrices: e.data.matrices }, [e.data.matrices]);
-                                        }
-                                        if (e.data.method == "sort") {
-                                                cullingWorker.postMessage({ method: "cull", view: e.data.view, mvp: e.data.mvp, scale: e.data.scale, sliderValue: e.data.sliderValue, focal: e.data.focal }, [e.data.view, e.data.mvp]);
-                                        }
-                                };
-                        },
+
+		self.onmessage = (e) => {
+			if (e.data.method == "clear") {
+				matrices = undefined;
+			}
+			if (e.data.method == "push") {
+				new_matrices = new Float32Array(e.data.matrices);
+				if (matrices === undefined) {
+					matrices = new_matrices;
+				} else {
+					resized = new Float32Array(matrices.length + new_matrices.length);
+					resized.set(matrices);
+					resized.set(new_matrices, matrices.length);
+					matrices = resized;
+				}
+			}
+                        if (e.data.method == "sort") {
+                                if (matrices === undefined) {
+                                        const sortedIndexes = new Uint32Array(1);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                } else {
+                                        const view = new Float32Array(e.data.view);
+                                        const mvp = new Float32Array(e.data.mvp);
+                                        const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
+                                        const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
+                                        const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
+                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, sliderValue, focal);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                }
+                        }
+		};
+	},
 	processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
 		// 10KB ought to be enough for a header...
