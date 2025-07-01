@@ -670,8 +670,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         scale: globalScale,
                         sliderValue: sliderValue,
                         focal: focal,
-                        width: viewport.z,
-                        height: viewport.w,
                 }, [view.buffer, mvp.buffer]);
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
                 this.lastObjectMatrix.copy(this.object.matrixWorld);
@@ -723,19 +721,16 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
 
-                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0, viewportWidth = 1.0, viewportHeight = 1.0) {
+                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
                         const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
 
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
-                        let depthList = new Float32Array(vertexCount);
-                        let sizeList = new Int32Array(depthList.buffer);
-                        let validIndexList = new Int32Array(vertexCount);
-                        let ndcXList = new Float32Array(vertexCount);
-                        let ndcYList = new Float32Array(vertexCount);
-                        let pixelRadiusList = new Float32Array(vertexCount);
+			let depthList = new Float32Array(vertexCount);
+			let sizeList = new Int32Array(depthList.buffer);
+			let validIndexList = new Int32Array(vertexCount);
 			let validCount = 0;
                         for (let i = 0; i < vertexCount; i++) {
                                 const px = matrices[i * 16 + 12];
@@ -784,10 +779,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.75);
                                 const pixelRadius = focal * radius / (-depth);
                                 if (pixelRadius < 1.0 * edgeMultiplier) continue;
-
-                                ndcXList[i] = ndcX;
-                                ndcYList[i] = ndcY;
-                                pixelRadiusList[i] = pixelRadius;
                                 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
@@ -799,60 +790,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
 
                         // This is a 16 bit single-pass counting sort
-                        let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
-                        let counts0 = new Uint32Array(256 * 256);
-                        for (let i = 0; i < validCount; i++) {
-                                sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
-                                counts0[sizeList[i]]++;
-                        }
-                        let starts0 = new Uint32Array(256 * 256);
-                        for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-                        let depthIndex = new Uint32Array(validCount);
-                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
+			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
+			let counts0 = new Uint32Array(256 * 256);
+			for (let i = 0; i < validCount; i++) {
+				sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+				counts0[sizeList[i]]++;
+			}
+			let starts0 = new Uint32Array(256 * 256);
+			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+			let depthIndex = new Uint32Array(validCount);
+			for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        // Occlusion-based discarding
-                        const gridSize = 64;
-                        const occlusion = new Float32Array(gridSize * gridSize);
-                        const scaleX = gridSize / viewportWidth;
-                        const scaleY = gridSize / viewportHeight;
-                        const output = new Uint32Array(validCount);
-                        let outCount = 0;
-                        const thresholdAlpha = 0.98;
-                        for (let di = validCount - 1; di >= 0; di--) {
-                                const idx = depthIndex[di];
-                                const cx = (ndcXList[idx] * 0.5 + 0.5) * gridSize;
-                                const cy = (ndcYList[idx] * 0.5 + 0.5) * gridSize;
-                                const rad = Math.ceil(Math.max(pixelRadiusList[idx] * scaleX, pixelRadiusList[idx] * scaleY));
-
-                                let occluded = true;
-                                for (let gx = cx - rad; gx <= cx + rad && occluded; gx++) {
-                                        if (gx < 0 || gx >= gridSize) continue;
-                                        for (let gy = cy - rad; gy <= cy + rad; gy++) {
-                                                if (gy < 0 || gy >= gridSize) continue;
-                                                if (occlusion[gx + gy * gridSize] < thresholdAlpha) {
-                                                        occluded = false;
-                                                        break;
-                                                }
-                                        }
-                                }
-
-                                if (occluded) continue;
-
-                                output[outCount++] = idx;
-
-                                for (let gx = cx - rad; gx <= cx + rad; gx++) {
-                                        if (gx < 0 || gx >= gridSize) continue;
-                                        for (let gy = cy - rad; gy <= cy + rad; gy++) {
-                                                if (gy < 0 || gy >= gridSize) continue;
-                                                const oidx = gx + gy * gridSize;
-                                                occlusion[oidx] += (1 - occlusion[oidx]) * 0.3;
-                                                if (occlusion[oidx] > 1.0) occlusion[oidx] = 1.0;
-                                        }
-                                }
-                        }
-
-                        return output.subarray(0, outCount);
-                };
+			return depthIndex;
+		};
 
 		self.onmessage = (e) => {
 			if (e.data.method == "clear") {
@@ -879,13 +829,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const width = typeof e.data.width === 'number' ? e.data.width : 1.0;
-                                        const height = typeof e.data.height === 'number' ? e.data.height : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, sliderValue, focal, width, height);
+                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, sliderValue, focal);
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
-                };
+		};
 	},
 	processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
