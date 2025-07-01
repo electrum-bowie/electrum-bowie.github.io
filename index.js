@@ -802,7 +802,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSize = 64;
+                        const gridSize = 128;
                         const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
@@ -831,7 +831,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const cy = (ndcY * 0.5 + 0.5) * gridSize;
                                 const r = ndcRadius * gridSize * 0.5;
 
-                                let total = 0, occluded = 0;
+                                let totalWeight = 0.0, occludedWeight = 0.0;
                                 const minX = Math.max(0, Math.floor(cx - r));
                                 const maxX = Math.min(gridSize - 1, Math.ceil(cx + r));
                                 const minY = Math.max(0, Math.floor(cy - r));
@@ -842,20 +842,25 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         for (let x = minX; x <= maxX; x++) {
                                                 const dx = x + 0.5 - cx;
                                                 const dy = y + 0.5 - cy;
-                                                if (dx * dx + dy * dy > r2) continue;
-                                                total++;
-                                                if (coverage[y * gridSize + x] >= 0.98) occluded++;
+                                                const norm = (dx * dx + dy * dy) / r2;
+                                                if (norm > 1.0) continue;
+                                                const weight = Math.exp(-norm);
+                                                totalWeight += weight;
+                                                occludedWeight += coverage[y * gridSize + x] * weight;
                                         }
                                 }
 
-                                if (total === 0 || occluded / total < 0.98) {
+                                if (totalWeight === 0.0 || occludedWeight / totalWeight < 0.98) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
                                                 for (let x = minX; x <= maxX; x++) {
                                                         const dx = x + 0.5 - cx;
                                                         const dy = y + 0.5 - cy;
-                                                        if (dx * dx + dy * dy > r2) continue;
-                                                        coverage[y * gridSize + x] = 1.0;
+                                                        const norm = (dx * dx + dy * dy) / r2;
+                                                        if (norm > 1.0) continue;
+                                                        const weight = Math.exp(-norm);
+                                                        const idx2 = y * gridSize + x;
+                                                        coverage[idx2] = Math.min(1.0, coverage[idx2] + weight);
                                                 }
                                         }
                                 }
