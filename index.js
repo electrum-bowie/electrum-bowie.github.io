@@ -4,8 +4,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 pixelRatio: { type: 'number', default: 0.6 },
                 xrPixelRatio: { type: 'number', default: 0.8 },
                 // Fixed foveation level. Set to 0 to disable foveated rendering
-                // completely when a WebXR session starts.
-                foveation: { type: 'number', default: 0.0 },
+                foveation: { type: 'number', default: 2.0 },
                 minXrPixelRatio: { type: 'number', default: 0.4 },
                 maxXrPixelRatio: { type: 'number', default: 1.1 },
                 targetFramerate: { type: 'number', default: 60 },
