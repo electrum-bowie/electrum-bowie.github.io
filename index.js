@@ -743,14 +743,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
-                                if (clip_w <= 0.0 || clip_z <= -clip_w) {
-                                        continue;
-                                }
-
                                 const radius = matrices[i * 16 + 15] * scaleFactor;
                                 
                                 const skipCull = (radius / scaleFactor) > 1.0;
 
+                                if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
+                                        continue;
+                                }
+                                
                                 const invW  = 1.0 / clip_w;
 
                                 const ndcX  = clip_x * invW;
@@ -778,7 +778,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                                const edgeMultiplier = 1.0 + (edgeDist * 0.75);
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.5);
                                 const pixelRadius = focal * radius / (-depth);
                                 if (pixelRadius < 1.0 * edgeMultiplier) continue;
                                 
@@ -804,7 +804,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSize = 512;
+                        const gridSize = 750;
                         const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
