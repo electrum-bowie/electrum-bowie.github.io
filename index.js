@@ -722,17 +722,33 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
 
+                const GRID_SIZE = 90;
+                const COUNT_SIZE = 256 * 256;
+                let coverage = new Float32Array(GRID_SIZE * GRID_SIZE);
+                let counts0 = new Uint32Array(COUNT_SIZE);
+                let starts0 = new Uint32Array(COUNT_SIZE);
+                let depthList = new Float32Array(0);
+                let sizeList = new Int32Array(depthList.buffer);
+                let validIndexList = new Int32Array(0);
+                let depthIndex = new Uint32Array(0);
+                let tmpVisible = new Uint32Array(0);
+
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
                         const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
 
+                        if (depthList.length < vertexCount) {
+                                depthList = new Float32Array(vertexCount);
+                                sizeList = new Int32Array(depthList.buffer);
+                                validIndexList = new Int32Array(vertexCount);
+                                depthIndex = new Uint32Array(vertexCount);
+                                tmpVisible = new Uint32Array(vertexCount);
+                        }
+
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
-			let depthList = new Float32Array(vertexCount);
-			let sizeList = new Int32Array(depthList.buffer);
-			let validIndexList = new Int32Array(vertexCount);
-			let validCount = 0;
+                        let validCount = 0;
                         for (let i = 0; i < vertexCount; i++) {
                                 const px = matrices[i * 16 + 12];
                                 const py = matrices[i * 16 + 13];
@@ -792,21 +808,25 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
 
                         // This is a 16 bit single-pass counting sort
-			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
-			let counts0 = new Uint32Array(256 * 256);
-			for (let i = 0; i < validCount; i++) {
-				sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
-				counts0[sizeList[i]]++;
-			}
-			let starts0 = new Uint32Array(256 * 256);
-			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-                        let depthIndex = new Uint32Array(validCount);
+                        const depthInv = (COUNT_SIZE - 1) / (maxDepth - minDepth);
+                        counts0.fill(0);
+                        starts0.fill(0);
+                        for (let i = 0; i < validCount; i++) {
+                                const s = ((depthList[i] - minDepth) * depthInv) | 0;
+                                sizeList[i] = s;
+                                counts0[s]++;
+                        }
+                        for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSize = 90;
-                        const coverage = new Float32Array(gridSize * gridSize);
-                        let tmpVisible = new Uint32Array(validCount);
+                        const gridSize = GRID_SIZE;
+                        if (coverage.length !== gridSize * gridSize) {
+                                coverage = new Float32Array(gridSize * gridSize);
+                        } else {
+                                coverage.fill(0);
+                        }
+                        if (tmpVisible.length < validCount) tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
                         for (let j = depthIndex.length - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
@@ -844,15 +864,16 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const r2 = r * r;
                                 for (let y = minY; y <= maxY; y++) {
+                                        const yOffset = y * gridSize;
+                                        const dy = y + 0.5 - cy;
                                         for (let x = minX; x <= maxX; x++) {
                                                 const dx = x + 0.5 - cx;
-                                                const dy = y + 0.5 - cy;
                                                 const norm = (dx * dx + dy * dy) / r2;
                                                 if (norm > 1.0) continue;
                                                 const weight = Math.exp(-norm);
-                                                const w = weight * opacity
+                                                const w = weight * opacity;
                                                 totalWeight += w;
-                                                occludedWeight += coverage[y * gridSize + x] * w;
+                                                occludedWeight += coverage[yOffset + x] * w;
                                         }
                                 }
 
@@ -860,14 +881,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (isBig || totalWeight === 0.0 || occludedWeight / totalWeight < 0.99999) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
+                                                const yOffset = y * gridSize;
+                                                const dy = y + 0.5 - cy;
                                                 for (let x = minX; x <= maxX; x++) {
                                                         const dx = x + 0.5 - cx;
-                                                        const dy = y + 0.5 - cy;
                                                         const norm = (dx * dx + dy * dy) / r2;
                                                         if (norm > 1.0) continue;
                                                         const weight = Math.exp(-norm);
-                                                        const idx2 = y * gridSize + x;
-                                                        const w = weight * opacity
+                                                        const idx2 = yOffset + x;
+                                                        const w = weight * opacity;
                                                         coverage[idx2] = Math.min(1.0, coverage[idx2] + w);
                                                 }
                                         }
