@@ -798,11 +798,73 @@ AFRAME.registerComponent("gaussian_splatting", {
 			}
 			let starts0 = new Uint32Array(256 * 256);
 			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-			let depthIndex = new Uint32Array(validCount);
-			for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
+                        let depthIndex = new Uint32Array(validCount);
+                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-			return depthIndex;
-		};
+                        // Occlusion-based discarding
+                        const gridSize = 64;
+                        const coverage = new Float32Array(gridSize * gridSize);
+                        let tmpVisible = new Uint32Array(validCount);
+                        let visibleCount = 0;
+                        for (let j = depthIndex.length - 1; j >= 0; j--) {
+                                const idx = depthIndex[j];
+                                const px = matrices[idx * 16 + 12];
+                                const py = matrices[idx * 16 + 13];
+                                const pz = matrices[idx * 16 + 14];
+
+                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+
+                                if (clip_w <= 0.0) continue;
+
+                                const invW  = 1.0 / clip_w;
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+
+                                const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+                                const radius = matrices[idx * 16 + 15] * scaleFactor;
+                                const ndcRadius = Math.abs(radius / depth);
+
+                                const cx = (ndcX * 0.5 + 0.5) * gridSize;
+                                const cy = (ndcY * 0.5 + 0.5) * gridSize;
+                                const r = ndcRadius * gridSize * 0.5;
+
+                                let total = 0, occluded = 0;
+                                const minX = Math.max(0, Math.floor(cx - r));
+                                const maxX = Math.min(gridSize - 1, Math.ceil(cx + r));
+                                const minY = Math.max(0, Math.floor(cy - r));
+                                const maxY = Math.min(gridSize - 1, Math.ceil(cy + r));
+
+                                const r2 = r * r;
+                                for (let y = minY; y <= maxY; y++) {
+                                        for (let x = minX; x <= maxX; x++) {
+                                                const dx = x + 0.5 - cx;
+                                                const dy = y + 0.5 - cy;
+                                                if (dx * dx + dy * dy > r2) continue;
+                                                total++;
+                                                if (coverage[y * gridSize + x] >= 0.98) occluded++;
+                                        }
+                                }
+
+                                if (total === 0 || occluded / total < 0.98) {
+                                        tmpVisible[visibleCount++] = idx;
+                                        for (let y = minY; y <= maxY; y++) {
+                                                for (let x = minX; x <= maxX; x++) {
+                                                        const dx = x + 0.5 - cx;
+                                                        const dy = y + 0.5 - cy;
+                                                        if (dx * dx + dy * dy > r2) continue;
+                                                        coverage[y * gridSize + x] = 1.0;
+                                                }
+                                        }
+                                }
+                        }
+
+                        let result = new Uint32Array(visibleCount);
+                        for (let i = 0; i < visibleCount; i++) result[i] = tmpVisible[visibleCount - 1 - i];
+                        return result;
+                };
 
 		self.onmessage = (e) => {
 			if (e.data.method == "clear") {
