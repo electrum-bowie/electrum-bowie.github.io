@@ -133,6 +133,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const material = new THREE.ShaderMaterial({
                         uniforms: {
                                 viewport: { value: new Float32Array([1980, 1080]) }, // Dummy. will be overwritten
+                                viewportInv: { value: new Float32Array([1.0, 1.0]) },
                                 focal: { value: 1000.0 }, // Dummy. will be overwritten
                                 centerAndScaleTexture: { value: this.centerAndScaleTexture },
                                 covAndColorTexture: { value: this.covAndColorTexture },
@@ -141,11 +142,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 viewRotationMatrix: { value: new THREE.Matrix3() },
                         },
 			vertexShader: `
-				precision highp usampler2D;
+                                precision highp usampler2D;
 
-				out vec4 vColor;
-				out vec2 vPosition;
-				uniform vec2 viewport;
+                                out vec4 vColor;
+                                out vec2 vPosition;
+                                uniform vec2 viewport;
+                                uniform vec2 viewportInv;
 				uniform float focal;
 				uniform mat4 gsProjectionMatrix;
                                 uniform mat4 gsModelViewMatrix;
@@ -164,8 +166,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 					return vec2(float(v1), float(v0));
 				}
 
-				void main () {
-					ivec2 texPos = ivec2(splatIndex%uint(4096),splatIndex/uint(4096));
+                                void main () {
+                                        ivec2 texPos = ivec2(int(splatIndex & 4095u), int(splatIndex >> 12));
 					vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
 
 					vec4 center = vec4(centerAndScaleData.xyz, 1);
@@ -194,7 +196,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 					mat3 T = W * J;
 					mat3 cov = transpose(T) * Vrk * T;
 
-					vec2 vCenter = vec2(pos2d) / pos2d.w;
+                                        float invPosW = 1.0 / pos2d.w;
+                                        vec2 vCenter = pos2d.xy * invPosW;
 
 					float diagonal1 = cov[0][0] + 0.3;
 					float offDiagonal = cov[0][1];
@@ -208,19 +211,19 @@ AFRAME.registerComponent("gaussian_splatting", {
 					vec2 v1 = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector;
 					vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
 
-					uint colorUint = covAndColorData.w;
-					vColor = vec4(
-						float(colorUint & uint(0xFF)) / 255.0,
-						float((colorUint >> uint(8)) & uint(0xFF)) / 255.0,
-						float((colorUint >> uint(16)) & uint(0xFF)) / 255.0,
-						float(colorUint >> uint(24)) / 255.0
-					);
+                                        uint colorUint = covAndColorData.w;
+                                        const vec4 inv255 = vec4(0.003921569);
+                                        vColor = vec4(
+                                                float(colorUint & 0xFFu),
+                                                float((colorUint >> 8) & 0xFFu),
+                                                float((colorUint >> 16) & 0xFFu),
+                                                float(colorUint >> 24)
+                                        ) * inv255;
 					vPosition = position.xy;
 
-					gl_Position = vec4(
-						vCenter 
-							+ position.x * v2 / viewport * 2.0 
-							+ position.y * v1 / viewport * 2.0, pos2d.z / pos2d.w, 1.0);
+                                        gl_Position = vec4(
+                                                vCenter + (position.x * v2 + position.y * v1) * viewportInv,
+                                                pos2d.z * invPosW, 1.0);
 				}
 				`,
 			fragmentShader: `
@@ -250,14 +253,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.viewRotationMatrix.setFromMatrix4(viewMatrix).transpose();
                         mesh.material.uniforms.viewRotationMatrix.value.copy(this.viewRotationMatrix);
 
-			let viewport = new THREE.Vector4();
-			renderer.getCurrentViewport(viewport);
-			
-      const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
+                        let viewport = new THREE.Vector4();
+                        renderer.getCurrentViewport(viewport);
 
-			material.uniforms.viewport.value[0] = viewport.z;
-			material.uniforms.viewport.value[1] = viewport.w;
-			material.uniforms.focal.value = focal;
+                        const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
+
+                        material.uniforms.viewport.value[0] = viewport.z;
+                        material.uniforms.viewport.value[1] = viewport.w;
+                        material.uniforms.viewportInv.value[0] = 2.0 / viewport.z;
+                        material.uniforms.viewportInv.value[1] = 2.0 / viewport.w;
+                        material.uniforms.focal.value = focal;
 		});
 		
                 mesh = new THREE.Mesh(geometry, material);
