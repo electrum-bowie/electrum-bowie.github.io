@@ -850,7 +850,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         }
                                 }
 
-                                if (totalWeight === 0.0 || occludedWeight / totalWeight < 0.98) {
+                                if (totalWeight === 0.0 || occludedWeight / totalWeight < 0.99) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
                                                 for (let x = minX; x <= maxX; x++) {
