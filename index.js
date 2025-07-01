@@ -279,27 +279,67 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.object.add(mesh);
                 this.mesh = mesh;
 
-		this.worker = new Worker(
-			URL.createObjectURL(
-				new Blob(["(", this.createWorker.toString(), ")(self)"], {
-					type: "application/javascript",
-				}),
-			),
-		);
+                this.cullWorker = new Worker(
+                        URL.createObjectURL(
+                                new Blob(["(", this.createCullWorker.toString(), ")(self)"], {
+                                        type: "application/javascript",
+                                }),
+                        ),
+                );
+                this.occlusionWorker = new Worker(
+                        URL.createObjectURL(
+                                new Blob(["(", this.createOcclusionWorker.toString(), ")(self)"], {
+                                        type: "application/javascript",
+                                }),
+                        ),
+                );
 
-		this.worker.onmessage = (e) => {
-			let indexes = new Uint32Array(e.data.sortedIndexes);
-			mesh.geometry.attributes.splatIndex.set(indexes);
-			mesh.geometry.attributes.splatIndex.needsUpdate = true;
-			mesh.geometry.instanceCount = indexes.length;
-			this.sortReady = true;
-		};
-		this.sortReady = true;
+                this.cullWorker.onmessage = (e) => {
+                        this.cullReady = true;
+                        let validIndexList = new Uint32Array(e.data.validIndexList);
+                        let depthList = new Float32Array(e.data.depthList);
+                        const msg = {
+                                method: "splats",
+                                validIndexList: validIndexList.buffer,
+                                depthList: depthList.buffer,
+                                minDepth: e.data.minDepth,
+                                maxDepth: e.data.maxDepth,
+                                view: e.data.view,
+                                mvp: e.data.mvp,
+                                scale: e.data.scale,
+                                focal: e.data.focal,
+                        };
+                        const transfers = [validIndexList.buffer, depthList.buffer, e.data.view, e.data.mvp];
+                        if (this.occlusionReady) {
+                                this.occlusionReady = false;
+                                this.occlusionWorker.postMessage(msg, transfers);
+                        } else {
+                                this.pendingCullData = { msg, transfers };
+                        }
+                };
+
+                this.occlusionWorker.onmessage = (e) => {
+                        let indexes = new Uint32Array(e.data.sortedIndexes);
+                        mesh.geometry.attributes.splatIndex.set(indexes);
+                        mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                        mesh.geometry.instanceCount = indexes.length;
+                        this.occlusionReady = true;
+                        if (this.pendingCullData) {
+                                const { msg, transfers } = this.pendingCullData;
+                                this.pendingCullData = null;
+                                this.occlusionReady = false;
+                                this.occlusionWorker.postMessage(msg, transfers);
+                        }
+                };
+                this.cullReady = true;
+                this.occlusionReady = true;
+                this.pendingCullData = null;
 	},
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-                this.worker.postMessage({ method: "clear" });
+                this.cullWorker.postMessage({ method: "clear" });
+                this.occlusionWorker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
                 this.isCaching = true;
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -539,10 +579,14 @@ AFRAME.registerComponent("gaussian_splatting", {
 			vertexCount -= width * height;
 		}
 
-		this.worker.postMessage({
-			method: "push",
-			matrices: matrices.buffer
-		}, [matrices.buffer]);
+                this.cullWorker.postMessage({
+                        method: "push",
+                        matrices: matrices.buffer
+                }, [matrices.buffer]);
+                this.occlusionWorker.postMessage({
+                        method: "push",
+                        matrices: matrices.buffer
+                }, [matrices.buffer]);
 	},
         tick: function (time, timeDelta) {
                 this.camera.getWorldPosition(this.tmpCameraPos);
@@ -556,7 +600,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
 
-                if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
+                if (this.cullReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
                         this.sortSplatsNow();
                 }
 
@@ -590,13 +634,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (this.mesh && this.mesh.geometry) {
                         this.mesh.geometry.instanceCount = 0;
                 }
-                this.worker.postMessage({ method: "clear" });
+                this.cullWorker.postMessage({ method: "clear" });
+                this.occlusionWorker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
-                this.sortReady = true;
+                this.cullReady = true;
         },
 
         // Apply the configured foveation level to the current XR session.
@@ -646,8 +691,8 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
 
         sortSplatsNow: function () {
-                if (!this.sortReady) return;
-                this.sortReady = false;
+                if (!this.cullReady) return;
+                this.cullReady = false;
                 const viewMatrix = this.getModelViewMatrix();
                 const projectionMatrix = this.getProjectionMatrix();
                 let camera_mtx = viewMatrix.elements;
@@ -664,8 +709,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                this.worker.postMessage({
-                        method: "sort",
+                this.cullWorker.postMessage({
+                        method: "splats",
                         view: view.buffer,
                         mvp: mvp.buffer,
                         scale: globalScale,
@@ -719,87 +764,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
                 return true;
         },
-        createWorker: function (self) {
+        createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
-                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
-                        const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
-                        const vertexCount = matrices.length / 16;
-                        let threshold = -0.001;
-
-                        let maxDepth = -Infinity;
-                        let minDepth = Infinity;
-			let depthList = new Float32Array(vertexCount);
-			let sizeList = new Int32Array(depthList.buffer);
-			let validIndexList = new Int32Array(vertexCount);
-			let validCount = 0;
-                        for (let i = 0; i < vertexCount; i++) {
-                                const px = matrices[i * 16 + 12];
-                                const py = matrices[i * 16 + 13];
-                                const pz = matrices[i * 16 + 14];
-
-                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
-                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
-                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
-                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
-
-                                if (clip_w <= 0.0 || clip_z <= -clip_w) {
-                                        continue;
-                                }
-
-                                const radius = matrices[i * 16 + 15] * scaleFactor;
-                                
-                                const skipCull = (radius / scaleFactor) > 1.0;
-
-                                const invW  = 1.0 / clip_w;
-
-                                const ndcX  = clip_x * invW;
-                                const ndcY  = clip_y * invW;
-                                const ndcZ  = clip_z * invW;
-
-                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
-                                                  ndcX < -1.0 || ndcX > 1.0 ||
-                                                  ndcY < -1.0 || ndcY > 1.0)) {
-                                        continue;                       // centre is outside — skip splat
-                                }
-
-                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-
-                                if (radius < sizeThreshold) continue;
-                                
-                                const nearPlaneClip = -0.19;
-                                
-                                if (!skipCull && (depth + radius > nearPlaneClip)) continue;
-                                
-                                if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 ||
-                                                                        ndcX < -1.0 || ndcX > 1.0 ||
-                                                                        ndcY < -1.0 || ndcY > 1.0)) {
-                                        continue; // centre is inside the view and too close to the head
-                                }
-                                
-                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                                const edgeMultiplier = 1.0 + (edgeDist * 0.75);
-                                const pixelRadius = focal * radius / (-depth);
-                                if (pixelRadius < 1.0 * edgeMultiplier) continue;
-                                
-                                if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
-                                        depthList[validCount] = depth;
-                                        validIndexList[validCount] = i;
-                                        validCount++;
-                                        if (depth > maxDepth) maxDepth = depth;
-                                        if (depth < minDepth) minDepth = depth;
-                                }
+                const splats = function splats(matrices, view, mvp, validIndexList, depthList, minDepth, maxDepth, scaleFactor = 1.0, focal = 1.0) {
+                        const validCount = validIndexList.length;
+                        let sizeList = new Int32Array(validCount);
+                        let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
+                        let counts0 = new Uint32Array(256 * 256);
+                        for (let i = 0; i < validCount; i++) {
+                                sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+                                counts0[sizeList[i]]++;
                         }
-
-                        // This is a 16 bit single-pass counting sort
-			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
-			let counts0 = new Uint32Array(256 * 256);
-			for (let i = 0; i < validCount; i++) {
-				sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
-				counts0[sizeList[i]]++;
-			}
-			let starts0 = new Uint32Array(256 * 256);
-			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+                        let starts0 = new Uint32Array(256 * 256);
+                        for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
                         let depthIndex = new Uint32Array(validCount);
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
@@ -894,22 +872,137 @@ AFRAME.registerComponent("gaussian_splatting", {
 					matrices = resized;
 				}
 			}
-                        if (e.data.method == "sort") {
+                        if (e.data.method == "splats") {
                                 if (matrices === undefined) {
                                         const sortedIndexes = new Uint32Array(1);
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 } else {
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
+                                        const validIndexList = new Uint32Array(e.data.validIndexList);
+                                        const depthList = new Float32Array(e.data.depthList);
+                                        const minDepth = e.data.minDepth;
+                                        const maxDepth = e.data.maxDepth;
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
-                                        const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, sliderValue, focal);
+                                        const sortedIndexes = splats(matrices, view, mvp, validIndexList, depthList, minDepth, maxDepth, scaleFactor, focal);
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
-		};
-	},
+                };
+        },
+
+        createCullWorker: function (self) {
+                let matrices = undefined;
+
+                const splats = function splats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                        const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
+                        const vertexCount = matrices.length / 16;
+                        let threshold = -0.001;
+
+                        let maxDepth = -Infinity;
+                        let minDepth = Infinity;
+                        let depthList = new Float32Array(vertexCount);
+                        let validIndexList = new Uint32Array(vertexCount);
+                        let validCount = 0;
+                        for (let i = 0; i < vertexCount; i++) {
+                                const px = matrices[i * 16 + 12];
+                                const py = matrices[i * 16 + 13];
+                                const pz = matrices[i * 16 + 14];
+
+                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+
+                                if (clip_w <= 0.0 || clip_z <= -clip_w) {
+                                        continue;
+                                }
+
+                                const radius = matrices[i * 16 + 15] * scaleFactor;
+
+                                const skipCull = (radius / scaleFactor) > 1.0;
+
+                                const invW  = 1.0 / clip_w;
+
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+                                const ndcZ  = clip_z * invW;
+
+                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                  ndcX < -1.0 || ndcX > 1.0 ||
+                                                  ndcY < -1.0 || ndcY > 1.0)) {
+                                        continue;
+                                }
+
+                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+
+                                if (radius < sizeThreshold) continue;
+
+                                const nearPlaneClip = -0.19;
+
+                                if (!skipCull && (depth + radius > nearPlaneClip)) continue;
+
+                                if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                                        ndcX < -1.0 || ndcX > 1.0 ||
+                                                                        ndcY < -1.0 || ndcY > 1.0)) {
+                                        continue;
+                                }
+
+                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.75);
+                                const pixelRadius = focal * radius / (-depth);
+                                if (pixelRadius < 1.0 * edgeMultiplier) continue;
+
+                                if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
+                                        depthList[validCount] = depth;
+                                        validIndexList[validCount] = i;
+                                        validCount++;
+                                        if (depth > maxDepth) maxDepth = depth;
+                                        if (depth < minDepth) minDepth = depth;
+                                }
+                        }
+
+                        return {
+                                validIndexList: validIndexList.slice(0, validCount),
+                                depthList: depthList.slice(0, validCount),
+                                minDepth,
+                                maxDepth
+                        };
+                };
+
+                self.onmessage = (e) => {
+                        if (e.data.method == "clear") {
+                                matrices = undefined;
+                        }
+                        if (e.data.method == "push") {
+                                const new_matrices = new Float32Array(e.data.matrices);
+                                if (matrices === undefined) {
+                                        matrices = new_matrices;
+                                } else {
+                                        const resized = new Float32Array(matrices.length + new_matrices.length);
+                                        resized.set(matrices);
+                                        resized.set(new_matrices, matrices.length);
+                                        matrices = resized;
+                                }
+                        }
+                        if (e.data.method == "splats") {
+                                if (matrices === undefined) {
+                                        const validIndexList = new Uint32Array(0);
+                                        const depthList = new Float32Array(0);
+                                        self.postMessage({ validIndexList, depthList, minDepth:0, maxDepth:0, view:e.data.view, mvp:e.data.mvp, scale:e.data.scale, focal:e.data.focal }, [validIndexList.buffer, depthList.buffer, e.data.view, e.data.mvp]);
+                                } else {
+                                        const view = new Float32Array(e.data.view);
+                                        const mvp = new Float32Array(e.data.mvp);
+                                        const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
+                                        const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
+                                        const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
+                                        const result = splats(matrices, view, mvp, scaleFactor, sliderValue, focal);
+                                        self.postMessage({ validIndexList: result.validIndexList.buffer, depthList: result.depthList.buffer, minDepth: result.minDepth, maxDepth: result.maxDepth, view: e.data.view, mvp: e.data.mvp, scale: scaleFactor, focal: focal }, [result.validIndexList.buffer, result.depthList.buffer, e.data.view, e.data.mvp]);
+                                }
+                        }
+                };
+        },
 	processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
 		// 10KB ought to be enough for a header...
