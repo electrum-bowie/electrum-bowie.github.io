@@ -810,6 +810,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let visibleCount = 0;
                         for (let j = depthIndex.length - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
+                                const baseRadius = matrices[idx * 16 + 15];
                                 const px = matrices[idx * 16 + 12];
                                 const py = matrices[idx * 16 + 13];
                                 const pz = matrices[idx * 16 + 14];
@@ -855,7 +856,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         }
                                 }
 
-                                if (totalWeight === 0.0 || occludedWeight / totalWeight < 0.9999) {
+                                const isBig = baseRadius > 0.2;
+                                if (isBig || totalWeight === 0.0 || occludedWeight / totalWeight < 0.9999) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
                                                 for (let x = minX; x <= maxX; x++) {
