@@ -104,9 +104,19 @@ AFRAME.registerComponent("gaussian_splatting", {
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
 		this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
-		this.centerAndScaleTexture.needsUpdate = true;
+                
+                this.centerAndScaleTexture.generateMipmaps = false;
+		this.centerAndScaleTexture.minFilter = THREE.NearestFilter;
+                this.centerAndScaleTexture.magFilter = THREE.NearestFilter;
+                
+                this.centerAndScaleTexture.needsUpdate = true;
 		this.covAndColorTexture = new THREE.DataTexture(this.covAndColorData, 4096, 4096, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
-		this.covAndColorTexture.internalFormat = "RGBA32UI";
+		
+                this.covAndColorTexture.generateMipmaps = false;
+                this.covAndColorTexture.minFilter = THREE.NearestFilter;
+                this.covAndColorTexture.magFilter = THREE.NearestFilter;
+                
+                this.covAndColorTexture.internalFormat = "RGBA32UI";
 		this.covAndColorTexture.needsUpdate = true;
 
 		let splatIndexArray = new Uint32Array(4096 * 4096);
