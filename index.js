@@ -743,14 +743,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
-                                if (clip_w <= 0.0 || clip_z <= -clip_w) {
-                                        continue;
-                                }
-
                                 const radius = matrices[i*16 + 15] * scaleFactor;
                                 
                                 const skipCull = (radius / scaleFactor) > 1.0;
 
+                                if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
+                                        continue;
+                                }
+                                
                                 const invW  = 1.0 / clip_w;
 
                                 const ndcX  = clip_x * invW;
@@ -774,7 +774,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 ||
                                                                         ndcX < -1.0 || ndcX > 1.0 ||
                                                                         ndcY < -1.0 || ndcY > 1.0)) {
-                                        continue; // centre is inside the view and too close to the head
+                                        continue; // centre is inside the view and too close to the camera
                                 }
                                 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
