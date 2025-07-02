@@ -810,7 +810,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
-                        for (let j = 0; j < depthIndex.length; j++) {
+                        for (let j = depthIndex.length - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
                                 const baseRadius = matrices[idx * 16 + 15];
                                 const px = matrices[idx * 16 + 12];
