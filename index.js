@@ -745,7 +745,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const radius = matrices[i * 16 + 15] * scaleFactor;
                                 const transparency = matrices[i * 16 + 11]; // 0-1
-                                const radiusTransparencyProduct = radius * transparency;
+                                // const radiusTransparencyProduct = radius * transparency;
                                 
                                 const skipCull = (radius / scaleFactor) > 1.0;
 
@@ -767,7 +767,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
-                                if (radiusTransparencyProduct < sizeThreshold) continue;
+                                if (radius < sizeThreshold) continue;
                                 
                                 const nearPlaneClip = -0.19;
                                 
@@ -781,7 +781,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.75);
-                                const pixelRadius = focal * radiusTransparencyProduct / (-depth);
+                                const pixelRadius = focal * radius / (-depth);
                                 if ((pixelRadius < 1.0 * edgeMultiplier) && !skipCull) continue;
                                 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
