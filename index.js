@@ -745,9 +745,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const radius = matrices[i * 16 + 15] * scaleFactor;
                                 const transparency = matrices[i * 16 + 11]; // 0-1
-                                // const radiusTransparencyProduct = radius * transparency;
+                                const radiusTransparencyProduct = radius * transparency;
                                 
-                                const skipCull = (radius / scaleFactor) > 1.0;
+                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 1.0;
 
                                 if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
                                         continue;
@@ -767,7 +767,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
-                                if (radius < sizeThreshold) continue;
+                                if (radiusTransparencyProduct < sizeThreshold) continue;
                                 
                                 const nearPlaneClip = -0.19;
                                 
@@ -781,7 +781,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.75);
-                                const pixelRadius = focal * radius / (-depth);
+                                const pixelRadius = focal * radiusTransparencyProduct / (-depth);
                                 if ((pixelRadius < 1.0 * edgeMultiplier) && !skipCull) continue;
                                 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
@@ -806,7 +806,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSize = 512;
+                        const gridSize = 256;
                         const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
@@ -827,11 +827,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         continue;                           // but do NOT touch coverage[]
                                 }
 
-                                const opacity = matrices[idx * 16 + 11];
-
                                 const invW  = 1.0 / clip_w;
+                                
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
+                                const ndcZ  = clip_z * invW;
+
+                                if (ndcZ < -1.0 || ndcZ > 1.0 ||
+                                    ndcX < -1.0 || ndcX > 1.0 ||
+                                    ndcY < -1.0 || ndcY > 1.0)) {
+                                    tmpVisible[visibleCount++] = idx; // keep it in the draw list
+                                    continue; // centre is outside — skip splat
+                                }
+                                
+                                const opacity = matrices[idx * 16 + 11];
 
                                 const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
                                 const radius = matrices[idx * 16 + 15] * scaleFactor;
