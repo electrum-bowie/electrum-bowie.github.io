@@ -780,7 +780,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.75);
                                 const pixelRadius = focal * radius / (-depth);
-                                if ((pixelRadius < 1.0 * edgeMultiplier) && !skipCull) continue;
+                                if ((pixelRadius < 0.9 * edgeMultiplier) && !skipCull) continue;
                                 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
@@ -855,7 +855,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
 
                                 const isBig = baseRadius > 0.05;
-                                if (isBig || totalWeight === 0.0 || occludedWeight / totalWeight < 1.0) {
+                                if (isBig || totalWeight === 0.0 || occludedWeight / totalWeight < 0.99) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
                                                 for (let x = minX; x <= maxX; x++) {
