@@ -827,7 +827,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcY  = clip_y * invW;
 
                                 const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-                                const radius = baseRadius * scaleFactor;
+                                const radius = matrices[idx * 16 + 15] * scaleFactor;
                                 const ndcRadius = Math.abs(radius / depth);
 
                                 const cx = (ndcX * 0.5 + 0.5) * gridSize;
