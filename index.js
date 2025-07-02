@@ -810,7 +810,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let visibleCount = 0;
                         for (let j = depthIndex.length - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-                                const baseRadius = matrices[idx * 16 + 15];
+                                const opacity = matrices[idx * 16 + 11];
+                                const baseRadius = matrices[idx * 16 + 15] * opacity;
                                 const px = matrices[idx * 16 + 12];
                                 const py = matrices[idx * 16 + 13];
                                 const pz = matrices[idx * 16 + 14];
@@ -820,14 +821,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
-                                const opacity = matrices[idx * 16 + 11];
-
                                 const invW  = 1.0 / clip_w;
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
 
                                 const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-                                const radius = matrices[idx * 16 + 15] * scaleFactor;
+                                const radius = matrices[idx * 16 + 15] * opacity * scaleFactor;
                                 const ndcRadius = Math.abs(radius / depth);
 
                                 const cx = (ndcX * 0.5 + 0.5) * gridSize;
