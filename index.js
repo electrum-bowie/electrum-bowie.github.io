@@ -835,7 +835,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 if (ndcZ < -1.0 || ndcZ > 1.0 ||
                                     ndcX < -1.0 || ndcX > 1.0 ||
-                                    ndcY < -1.0 || ndcY > 1.0)) {
+                                    ndcY < -1.0 || ndcY > 1.0) {
                                     tmpVisible[visibleCount++] = idx; // keep it in the draw list
                                     continue; // centre is outside — skip splat
                                 }
