@@ -743,9 +743,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
-                                const radius = (matrices[i * 16 + 15] * matrices[i * 16 + 11]) * scaleFactor;
+                                const radius = matrices[i * 16 + 15] * scaleFactor;
+                                const transparency = matrices[i * 16 + 11]; // 0-1
+                                const radiusTransparencyProduct = radius * transparency;
                                 
-                                const skipCull = (radius / scaleFactor) > 1.0;
+                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 1.0;
 
                                 if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
                                         continue;
@@ -765,7 +767,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
 
-                                if (radius < sizeThreshold) continue;
+                                if (radiusTransparencyProduct < sizeThreshold) continue;
                                 
                                 const nearPlaneClip = -0.19;
                                 
@@ -779,7 +781,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.75);
-                                const pixelRadius = focal * radius / (-depth);
+                                const pixelRadius = focal * radiusTransparencyProduct / (-depth);
                                 if ((pixelRadius < 1.0 * edgeMultiplier) && !skipCull) continue;
                                 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
