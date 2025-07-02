@@ -743,7 +743,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
-                                const radius = matrices[i*16 + 15] * scaleFactor;
+                                const radius = matrices[i * 16 + 15] * scaleFactor;
                                 
                                 const skipCull = (radius / scaleFactor) > 1.0;
 
@@ -782,7 +782,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const pixelRadius = focal * radius / (-depth);
                                 if (pixelRadius < 1.0 * edgeMultiplier) continue;
                                 
-                                if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
+                                if (radius > threshold * depth) {
                                         depthList[validCount] = depth;
                                         validIndexList[validCount] = i;
                                         validCount++;
