@@ -822,7 +822,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
-                                if (clip_w <= 0.0 || clip_z <= -clip_w) {
+                                if (clip_w <= 0.0) {
                                         tmpVisible[visibleCount++] = idx;   // keep it in the draw list
                                         continue;                           // but do NOT touch coverage[]
                                 }
