@@ -279,27 +279,46 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.object.add(mesh);
                 this.mesh = mesh;
 
-		this.worker = new Worker(
-			URL.createObjectURL(
-				new Blob(["(", this.createWorker.toString(), ")(self)"], {
-					type: "application/javascript",
-				}),
-			),
-		);
+                this.cullWorker = new Worker(
+                        URL.createObjectURL(
+                                new Blob(["(", this.createCullWorker.toString(), ")(self)"], {
+                                        type: "application/javascript",
+                                }),
+                        ),
+                );
 
-		this.worker.onmessage = (e) => {
-			let indexes = new Uint32Array(e.data.sortedIndexes);
-			mesh.geometry.attributes.splatIndex.set(indexes);
-			mesh.geometry.attributes.splatIndex.needsUpdate = true;
-			mesh.geometry.instanceCount = indexes.length;
-			this.sortReady = true;
-		};
-		this.sortReady = true;
-	},
+                this.sortWorker = new Worker(
+                        URL.createObjectURL(
+                                new Blob(["(", this.createSortWorker.toString(), ")(self)"], {
+                                        type: "application/javascript",
+                                }),
+                        ),
+                );
+
+                this.cullWorker.onmessage = (e) => {
+                        let indexes = new Uint32Array(e.data.sortedIndexes);
+                        mesh.geometry.attributes.splatIndex.set(indexes);
+                        mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                        mesh.geometry.instanceCount = indexes.length;
+                        this.cullReady = true;
+                };
+
+                this.sortWorker.onmessage = (e) => {
+                        let indexes = new Uint32Array(e.data.sortedIndexes);
+                        mesh.geometry.attributes.splatIndex.set(indexes);
+                        mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                        mesh.geometry.instanceCount = indexes.length;
+                        this.sortReady = true;
+                };
+
+                this.sortReady = true;
+                this.cullReady = true;
+        },
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-                this.worker.postMessage({ method: "clear" });
+                this.cullWorker.postMessage({ method: "clear" });
+                this.sortWorker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
                 this.isCaching = true;
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -539,11 +558,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 			vertexCount -= width * height;
 		}
 
-		this.worker.postMessage({
-			method: "push",
-			matrices: matrices.buffer
-		}, [matrices.buffer]);
-	},
+                this.cullWorker.postMessage({
+                        method: "push",
+                        matrices: matrices.buffer
+                });
+                this.sortWorker.postMessage({
+                        method: "push",
+                        matrices: matrices.buffer
+                });
+        },
         tick: function (time, timeDelta) {
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 
@@ -556,7 +579,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
 
-                if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
+                if ((this.sortReady || this.cullReady) && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
                         this.sortSplatsNow();
                 }
 
@@ -590,13 +613,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (this.mesh && this.mesh.geometry) {
                         this.mesh.geometry.instanceCount = 0;
                 }
-                this.worker.postMessage({ method: "clear" });
+                this.cullWorker.postMessage({ method: "clear" });
+                this.sortWorker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
                 this.sortReady = true;
+                this.cullReady = true;
         },
 
         // Apply the configured foveation level to the current XR session.
@@ -646,8 +671,9 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
 
         sortSplatsNow: function () {
-                if (!this.sortReady) return;
-                this.sortReady = false;
+                if (!this.sortReady && !this.cullReady) return;
+                if (this.sortReady) this.sortReady = false;
+                if (this.cullReady) this.cullReady = false;
                 const viewMatrix = this.getModelViewMatrix();
                 const projectionMatrix = this.getProjectionMatrix();
                 let camera_mtx = viewMatrix.elements;
@@ -664,14 +690,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                this.worker.postMessage({
+                const message = {
                         method: "sort",
                         view: view.buffer,
                         mvp: mvp.buffer,
                         scale: globalScale,
                         sliderValue: sliderValue,
                         focal: focal,
-                }, [view.buffer, mvp.buffer]);
+                };
+                this.cullWorker.postMessage(message);
+                this.sortWorker.postMessage(message);
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
                 this.lastObjectMatrix.copy(this.object.matrixWorld);
                 this.lastScale.copy(this.object.scale);
@@ -719,7 +747,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
                 return true;
         },
-        createWorker: function (self) {
+        createSortWorker: function (self) {
                 let matrices = undefined;
 
                 const basicCull = function basicCull(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
@@ -904,7 +932,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         return result;
                 };
 
-		self.onmessage = (e) => {
+                self.onmessage = (e) => {
 			if (e.data.method == "clear") {
 				matrices = undefined;
 			}
@@ -934,8 +962,129 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         });
                                 }
                         }
-		};
-	},
+                };
+        },
+
+        createCullWorker: function (self) {
+                let matrices = undefined;
+
+                const basicCull = function basicCull(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                        const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
+                        const vertexCount = matrices.length / 16;
+                        let threshold = -0.001;
+
+                        let maxDepth = -Infinity;
+                        let minDepth = Infinity;
+                        let depthList = new Float32Array(vertexCount);
+                        let sizeList = new Int32Array(depthList.buffer);
+                        let validIndexList = new Int32Array(vertexCount);
+                        let validCount = 0;
+                        for (let i = 0; i < vertexCount; i++) {
+                                const px = matrices[i * 16 + 12];
+                                const py = matrices[i * 16 + 13];
+                                const pz = matrices[i * 16 + 14];
+
+                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+
+                                const radius = matrices[i * 16 + 15] * scaleFactor;
+                                const transparency = matrices[i * 16 + 11];
+                                const radiusTransparencyProduct = radius * transparency;
+
+                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 1.0;
+
+                                if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
+                                        continue;
+                                }
+
+                                const invW  = 1.0 / clip_w;
+
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+                                const ndcZ  = clip_z * invW;
+
+                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                  ndcX < -1.0 || ndcX > 1.0 ||
+                                                  ndcY < -1.0 || ndcY > 1.0)) {
+                                        continue;
+                                }
+
+                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+
+                                if (radiusTransparencyProduct < sizeThreshold) continue;
+
+                                const nearPlaneClip = -0.19;
+
+                                if (!skipCull && (depth + radius > nearPlaneClip)) continue;
+
+                                if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                                        ndcX < -1.0 || ndcX > 1.0 ||
+                                                                        ndcY < -1.0 || ndcY > 1.0)) {
+                                        continue;
+                                }
+
+                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.5);
+                                const pixelRadius = focal * radiusTransparencyProduct / (-depth);
+                                if ((pixelRadius < 0.9 * edgeMultiplier) && !skipCull) continue;
+
+                                if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
+                                        depthList[validCount] = depth;
+                                        validIndexList[validCount] = i;
+                                        validCount++;
+                                        if (depth > maxDepth) maxDepth = depth;
+                                        if (depth < minDepth) minDepth = depth;
+                                }
+                        }
+
+                        let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
+                        let counts0 = new Uint32Array(256 * 256);
+                        for (let i = 0; i < validCount; i++) {
+                                sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+                                counts0[sizeList[i]]++;
+                        }
+                        let starts0 = new Uint32Array(256 * 256);
+                        for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+                        let depthIndex = new Uint32Array(validCount);
+                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
+
+                        return { depthIndex };
+                };
+
+                self.onmessage = (e) => {
+                        if (e.data.method == "clear") {
+                                matrices = undefined;
+                        }
+                        if (e.data.method == "push") {
+                                const new_matrices = new Float32Array(e.data.matrices);
+                                if (matrices === undefined) {
+                                        matrices = new_matrices;
+                                } else {
+                                        const resized = new Float32Array(matrices.length + new_matrices.length);
+                                        resized.set(matrices);
+                                        resized.set(new_matrices, matrices.length);
+                                        matrices = resized;
+                                }
+                        }
+                        if (e.data.method == "sort") {
+                                if (matrices === undefined) {
+                                        const sortedIndexes = new Uint32Array(1);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                } else {
+                                        const view = new Float32Array(e.data.view);
+                                        const mvp = new Float32Array(e.data.mvp);
+                                        const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
+                                        const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
+                                        const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
+                                        const { depthIndex } = basicCull(matrices, view, mvp, scaleFactor, sliderValue, focal);
+                                        const sortedIndexes = depthIndex;
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                }
+                        }
+                };
+        },
 	processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
 		// 10KB ought to be enough for a header...
