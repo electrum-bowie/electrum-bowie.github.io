@@ -279,70 +279,27 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.object.add(mesh);
                 this.mesh = mesh;
 
-                this.cullWorker = new Worker(
-                        URL.createObjectURL(
-                                new Blob(["(", this.createCullWorker.toString(), ")(self)"], {
-                                        type: "application/javascript",
-                                }),
-                        ),
-                );
+		this.worker = new Worker(
+			URL.createObjectURL(
+				new Blob(["(", this.createWorker.toString(), ")(self)"], {
+					type: "application/javascript",
+				}),
+			),
+		);
 
-                this.occlusionWorker = new Worker(
-                        URL.createObjectURL(
-                                new Blob(["(", this.createOcclusionWorker.toString(), ")(self)"], {
-                                        type: "application/javascript",
-                                }),
-                        ),
-                );
-
-                this.cullWorker.onmessage = (e) => {
-                        this.cullIndices = new Set(new Uint32Array(e.data.validIndexList));
-                        this.lastCullResult = e.data;
-                        if (!this.occlusionWorkerBusy) {
-                                this.occlusionWorkerBusy = true;
-                                this.occlusionWorker.postMessage(Object.assign({ method: "occlusion" }, e.data), [
-                                        e.data.validIndexList,
-                                        e.data.depthList,
-                                        e.data.view,
-                                        e.data.mvp
-                                ]);
-                        } else {
-                                this.pendingCullResult = e.data;
-                        }
-                        this.cullWorkerBusy = false;
-                        this.updateFinalIndices();
-                };
-
-                this.occlusionWorker.onmessage = (e) => {
-                        this.occlusionIndices = new Uint32Array(e.data.sortedIndexes);
-                        this.occlusionWorkerBusy = false;
-                        if (this.pendingCullResult) {
-                                const data = this.pendingCullResult;
-                                this.pendingCullResult = null;
-                                this.occlusionWorkerBusy = true;
-                                this.occlusionWorker.postMessage(Object.assign({ method: "occlusion" }, data), [
-                                        data.validIndexList,
-                                        data.depthList,
-                                        data.view,
-                                        data.mvp
-                                ]);
-                        } else {
-                                this.sortReady = true;
-                        }
-                        this.updateFinalIndices();
-                };
-                this.sortReady = true;
-                this.cullWorkerBusy = false;
-                this.occlusionWorkerBusy = false;
-                this.pendingCullResult = null;
-                this.cullIndices = null;
-                this.occlusionIndices = null;
-        },
+		this.worker.onmessage = (e) => {
+			let indexes = new Uint32Array(e.data.sortedIndexes);
+			mesh.geometry.attributes.splatIndex.set(indexes);
+			mesh.geometry.attributes.splatIndex.needsUpdate = true;
+			mesh.geometry.instanceCount = indexes.length;
+			this.sortReady = true;
+		};
+		this.sortReady = true;
+	},
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-                this.cullWorker.postMessage({ method: "clear" });
-                this.occlusionWorker.postMessage({ method: "clear" });
+                this.worker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
                 this.isCaching = true;
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -582,15 +539,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 			vertexCount -= width * height;
 		}
 
-                this.cullWorker.postMessage({
-                        method: "push",
-                        matrices: matrices.buffer
-                }, [matrices.buffer]);
-                this.occlusionWorker.postMessage({
-                        method: "push",
-                        matrices: matrices.buffer
-                }, [matrices.buffer]);
-        },
+		this.worker.postMessage({
+			method: "push",
+			matrices: matrices.buffer
+		}, [matrices.buffer]);
+	},
         tick: function (time, timeDelta) {
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 
@@ -603,7 +556,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
 
-                if (!this.cullWorkerBusy && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
+                if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
                         this.sortSplatsNow();
                 }
 
@@ -637,8 +590,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (this.mesh && this.mesh.geometry) {
                         this.mesh.geometry.instanceCount = 0;
                 }
-                this.cullWorker.postMessage({ method: "clear" });
-                this.occlusionWorker.postMessage({ method: "clear" });
+                this.worker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
@@ -694,7 +646,8 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
 
         sortSplatsNow: function () {
-                if (this.cullWorkerBusy) return;
+                if (!this.sortReady) return;
+                this.sortReady = false;
                 const viewMatrix = this.getModelViewMatrix();
                 const projectionMatrix = this.getProjectionMatrix();
                 let camera_mtx = viewMatrix.elements;
@@ -711,9 +664,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                this.cullWorkerBusy = true;
-                this.cullWorker.postMessage({
-                        method: "cull",
+                this.worker.postMessage({
+                        method: "sort",
                         view: view.buffer,
                         mvp: mvp.buffer,
                         scale: globalScale,
@@ -767,19 +719,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
                 return true;
         },
-        createCullWorker: function (self) {
+        createWorker: function (self) {
                 let matrices = undefined;
 
-                const basicCull = function (matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
                         const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
 
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
-                        let depthList = new Float32Array(vertexCount);
-                        let validIndexList = new Int32Array(vertexCount);
-                        let validCount = 0;
+			let depthList = new Float32Array(vertexCount);
+			let sizeList = new Int32Array(depthList.buffer);
+			let validIndexList = new Int32Array(vertexCount);
+			let validCount = 0;
                         for (let i = 0; i < vertexCount; i++) {
                                 const px = matrices[i * 16 + 12];
                                 const py = matrices[i * 16 + 13];
@@ -830,7 +783,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.5);
                                 const pixelRadius = focal * radiusTransparencyProduct / (-depth);
                                 if ((pixelRadius < 0.9 * edgeMultiplier) && !skipCull) continue;
-
+                                
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
                                         validIndexList[validCount] = i;
@@ -839,70 +792,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         if (depth < minDepth) minDepth = depth;
                                 }
                         }
-                        let result = new Uint32Array(validCount);
-                        for (let i = 0; i < validCount; i++) result[i] = validIndexList[i];
-                        return {
-                                validIndexList: result,
-                                depthList: depthList.slice(0, validCount),
-                                maxDepth,
-                                minDepth,
-                                view: view.slice(0),
-                                mvp: mvp.slice(0),
-                                scaleFactor,
-                                focal
-                        };
-                };
-
-                self.onmessage = (e) => {
-                        if (e.data.method == "clear") {
-                                matrices = undefined;
-                        }
-                        if (e.data.method == "push") {
-                                new_matrices = new Float32Array(e.data.matrices);
-                                if (matrices === undefined) {
-                                        matrices = new_matrices;
-                                } else {
-                                        resized = new Float32Array(matrices.length + new_matrices.length);
-                                        resized.set(matrices);
-                                        resized.set(new_matrices, matrices.length);
-                                        matrices = resized;
-                                }
-                        }
-                        if (e.data.method == "cull") {
-                                if (matrices === undefined) {
-                                        const validIndexList = new Uint32Array(1);
-                                        self.postMessage({ validIndexList }, [validIndexList.buffer]);
-                                } else {
-                                        const view = new Float32Array(e.data.view);
-                                        const mvp = new Float32Array(e.data.mvp);
-                                        const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
-                                        const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
-                                        const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const result = basicCull(matrices, view, mvp, scaleFactor, sliderValue, focal);
-                                        self.postMessage(result, [result.validIndexList.buffer, result.depthList.buffer, result.view.buffer, result.mvp.buffer]);
-                                }
-                        }
-                };
-        },
-
-        createOcclusionWorker: function (self) {
-                let matrices = undefined;
-
-                const occlusionSort = function (matrices, input) {
-                        let { validIndexList, depthList, maxDepth, minDepth, view, mvp, scaleFactor, focal } = input;
-
-                        let sizeList = new Int32Array(depthList.buffer);
-                        let validCount = validIndexList.length;
 
                         // This is a 16 bit single-pass counting sort
-                        let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
-                        let counts0 = new Uint32Array(256 * 256);
-                        for (let i = 0; i < validCount; i++) {
-                                sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
-                                counts0[sizeList[i]]++;
-                        }
-                        let starts0 = new Uint32Array(256 * 256);
-                        for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
+			let counts0 = new Uint32Array(256 * 256);
+			for (let i = 0; i < validCount; i++) {
+				sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+				counts0[sizeList[i]]++;
+			}
+			let starts0 = new Uint32Array(256 * 256);
+			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
                         let depthIndex = new Uint32Array(validCount);
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
@@ -995,48 +894,39 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < visibleCount; i++) result[i] = tmpVisible[visibleCount - 1 - i];
                         return result;
                 };
-                self.onmessage = (e) => {
-                        if (e.data.method == "clear") {
-                                matrices = undefined;
-                        }
-                        if (e.data.method == "push") {
-                                new_matrices = new Float32Array(e.data.matrices);
-                                if (matrices === undefined) {
-                                        matrices = new_matrices;
-                                } else {
-                                        resized = new Float32Array(matrices.length + new_matrices.length);
-                                        resized.set(matrices);
-                                        resized.set(new_matrices, matrices.length);
-                                        matrices = resized;
-                                }
-                        }
-                        if (e.data.method == "occlusion") {
+
+		self.onmessage = (e) => {
+			if (e.data.method == "clear") {
+				matrices = undefined;
+			}
+			if (e.data.method == "push") {
+				new_matrices = new Float32Array(e.data.matrices);
+				if (matrices === undefined) {
+					matrices = new_matrices;
+				} else {
+					resized = new Float32Array(matrices.length + new_matrices.length);
+					resized.set(matrices);
+					resized.set(new_matrices, matrices.length);
+					matrices = resized;
+				}
+			}
+                        if (e.data.method == "sort") {
                                 if (matrices === undefined) {
                                         const sortedIndexes = new Uint32Array(1);
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 } else {
-                                        const result = occlusionSort(matrices, e.data);
-                                        self.postMessage({ sortedIndexes: result }, [result.buffer]);
+                                        const view = new Float32Array(e.data.view);
+                                        const mvp = new Float32Array(e.data.mvp);
+                                        const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
+                                        const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
+                                        const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
+                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, sliderValue, focal);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
-                };
-        },
-        updateFinalIndices: function () {
-                if (!this.occlusionIndices || !this.cullIndices) return;
-                const final = new Uint32Array(this.occlusionIndices.length);
-                let count = 0;
-                for (let i = 0; i < this.occlusionIndices.length; i++) {
-                        const idx = this.occlusionIndices[i];
-                        if (this.cullIndices.has(idx)) {
-                                final[count++] = idx;
-                        }
-                }
-                const result = final.subarray(0, count);
-                this.mesh.geometry.attributes.splatIndex.set(result);
-                this.mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                this.mesh.geometry.instanceCount = result.length;
-        },
-        processPlyBuffer: function (inputBuffer) {
+		};
+	},
+	processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
 		// 10KB ought to be enough for a header...
 		const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 10));
