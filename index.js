@@ -722,17 +722,17 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
 
-                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                const basicCull = async function basicCull(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
                         const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
 
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
-			let depthList = new Float32Array(vertexCount);
-			let sizeList = new Int32Array(depthList.buffer);
-			let validIndexList = new Int32Array(vertexCount);
-			let validCount = 0;
+                        let depthList = new Float32Array(vertexCount);
+                        let sizeList = new Int32Array(depthList.buffer);
+                        let validIndexList = new Int32Array(vertexCount);
+                        let validCount = 0;
                         for (let i = 0; i < vertexCount; i++) {
                                 const px = matrices[i * 16 + 12];
                                 const py = matrices[i * 16 + 13];
@@ -805,10 +805,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = new Uint32Array(validCount);
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        // Occlusion-based discarding
+                        return { depthIndex };
+                };
+
+                const occlusionSort = async function occlusionSort(matrices, depthIndex, view, mvp, scaleFactor = 1.0) {
                         const gridSize = 256;
                         const coverage = new Float32Array(gridSize * gridSize);
-                        let tmpVisible = new Uint32Array(validCount);
+                        let tmpVisible = new Uint32Array(depthIndex.length);
                         let visibleCount = 0;
                         for (let j = depthIndex.length - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
@@ -828,7 +831,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
 
                                 const invW  = 1.0 / clip_w;
-                                
+
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
@@ -839,7 +842,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                     tmpVisible[visibleCount++] = idx; // keep it in the draw list
                                     continue; // centre is outside — skip splat
                                 }
-                                
+
                                 const opacity = matrices[idx * 16 + 11];
 
                                 const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
@@ -881,7 +884,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         if (norm > 1.0) continue;
                                                         const weight = Math.exp(-norm);
                                                         const idx2 = y * gridSize + x;
-                                                        
+
                                                         // αlpha contribution at this pixel:
                                                         const alphaContrib = weight * (opacity * opacity * opacity * opacity);
                                                         coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
@@ -892,6 +895,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0; i < visibleCount; i++) result[i] = tmpVisible[visibleCount - 1 - i];
+                        return result;
+                };
+
+                const sortSplats = async function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                        const { depthIndex } = await basicCull(matrices, view, mvp, scaleFactor, sliderValue, focal);
+                        const result = await occlusionSort(matrices, depthIndex, view, mvp, scaleFactor);
                         return result;
                 };
 
@@ -920,8 +929,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, sliderValue, focal);
-                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                        sortSplats(matrices, view, mvp, scaleFactor, sliderValue, focal).then(sortedIndexes => {
+                                                self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                        });
                                 }
                         }
 		};
