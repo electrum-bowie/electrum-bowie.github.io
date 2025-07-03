@@ -559,13 +559,14 @@ AFRAME.registerComponent("gaussian_splatting", {
 			vertexCount -= width * height;
 		}
 
-                this.basicWorker.postMessage({
-                        method: "push",
-                        matrices: matrices.buffer
-                }, [matrices.buffer]);
+
                 this.occlusionWorker.postMessage({
-                        method: "push",
-                        matrices: matrices.buffer
+                method: "push",
+                matrices: matrices.buffer
+                });
+                this.basicWorker.postMessage({
+                method: "push",
+                matrices: matrices.buffer
                 }, [matrices.buffer]);
 	},
         tick: function (time, timeDelta) {
