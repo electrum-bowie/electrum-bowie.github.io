@@ -722,7 +722,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
 
-                const basicCull = async function basicCull(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                const basicCull = function basicCull(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
                         const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
@@ -808,7 +808,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         return { depthIndex };
                 };
 
-                const occlusionSort = async function occlusionSort(matrices, depthIndex, view, mvp, scaleFactor = 1.0) {
+                const occlusionSort = function occlusionSort(matrices, depthIndex, view, mvp, scaleFactor = 1.0) {
                         const gridSize = 256;
                         const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(depthIndex.length);
