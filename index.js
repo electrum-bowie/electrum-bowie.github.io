@@ -295,19 +295,46 @@ AFRAME.registerComponent("gaussian_splatting", {
                         ),
                 );
 
-                this.cullWorker.onmessage = (e) => {
-                        let indexes = new Uint32Array(e.data.sortedIndexes);
-                        mesh.geometry.attributes.splatIndex.set(indexes);
+                this.lastSortIndexes = new Uint32Array();
+                this.sortAdds = [];
+                this.sortRemoves = [];
+                this.cullIndexes = new Uint32Array();
+
+                this.updateFromWorkers = () => {
+                        let finalArray = Array.from(this.cullIndexes);
+                        const set = new Set(finalArray);
+                        for (const idx of this.sortAdds) {
+                                if (!set.has(idx)) {
+                                        set.add(idx);
+                                        finalArray.push(idx);
+                                }
+                        }
+                        if (this.sortRemoves.length > 0) {
+                                const rset = new Set(this.sortRemoves);
+                                finalArray = finalArray.filter(i => !rset.has(i));
+                        }
+                        const arr = Uint32Array.from(finalArray);
+                        mesh.geometry.attributes.splatIndex.set(arr);
                         mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                        mesh.geometry.instanceCount = indexes.length;
+                        mesh.geometry.instanceCount = arr.length;
+                };
+
+                this.cullWorker.onmessage = (e) => {
+                        this.cullIndexes = new Uint32Array(e.data.sortedIndexes);
+                        this.updateFromWorkers();
                         this.cullReady = true;
                 };
 
                 this.sortWorker.onmessage = (e) => {
-                        let indexes = new Uint32Array(e.data.sortedIndexes);
-                        mesh.geometry.attributes.splatIndex.set(indexes);
-                        mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                        mesh.geometry.instanceCount = indexes.length;
+                        const indexes = new Uint32Array(e.data.sortedIndexes);
+                        const oldSet = new Set(this.lastSortIndexes);
+                        const newSet = new Set(indexes);
+                        this.sortAdds = [];
+                        this.sortRemoves = [];
+                        for (const idx of indexes) if (!oldSet.has(idx)) this.sortAdds.push(idx);
+                        for (const idx of this.lastSortIndexes) if (!newSet.has(idx)) this.sortRemoves.push(idx);
+                        this.lastSortIndexes = indexes;
+                        this.updateFromWorkers();
                         this.sortReady = true;
                 };
 
