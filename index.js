@@ -721,8 +721,162 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
         createWorker: function (self) {
                 let matrices = undefined;
+                let lastBasic = null;
+                let lastOcclusion = null;
 
-                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                const basicCull = async function basicCull(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                        const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
+                        const vertexCount = matrices.length / 16;
+                        let threshold = -0.001;
+                        let validIndexList = new Uint32Array(vertexCount);
+                        let validCount = 0;
+                        for (let i = 0; i < vertexCount; i++) {
+                                const px = matrices[i * 16 + 12];
+                                const py = matrices[i * 16 + 13];
+                                const pz = matrices[i * 16 + 14];
+                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+                                const radius = matrices[i * 16 + 15] * scaleFactor;
+                                const transparency = matrices[i * 16 + 11];
+                                const radiusTransparencyProduct = radius * transparency;
+                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 1.0;
+                                if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) continue;
+                                const invW = 1.0 / clip_w;
+                                const ndcX = clip_x * invW;
+                                const ndcY = clip_y * invW;
+                                const ndcZ = clip_z * invW;
+                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) continue;
+                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+                                if (radiusTransparencyProduct < sizeThreshold) continue;
+                                const nearPlaneClip = -0.19;
+                                if (!skipCull && (depth + radius > nearPlaneClip)) continue;
+                                if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) continue;
+                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.5);
+                                const pixelRadius = focal * radiusTransparencyProduct / (-depth);
+                                if ((pixelRadius < 0.9 * edgeMultiplier) && !skipCull) continue;
+                                if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
+                                        validIndexList[validCount++] = i;
+                                }
+                        }
+                        return Array.from(validIndexList.slice(0, validCount));
+                };
+
+                const occlusionSort = async function occlusionSort(indices, matrices, view, mvp, scaleFactor = 1.0) {
+                        if (!indices || indices.length === 0) return [];
+                        let maxDepth = -Infinity;
+                        let minDepth = Infinity;
+                        let depthList = new Float32Array(indices.length);
+                        let sizeList = new Int32Array(depthList.buffer);
+                        for (let i = 0; i < indices.length; i++) {
+                                const idx = indices[i];
+                                const px = matrices[idx * 16 + 12];
+                                const py = matrices[idx * 16 + 13];
+                                const pz = matrices[idx * 16 + 14];
+                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+                                depthList[i] = depth;
+                                if (depth > maxDepth) maxDepth = depth;
+                                if (depth < minDepth) minDepth = depth;
+                        }
+                        let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
+                        let counts0 = new Uint32Array(256 * 256);
+                        for (let i = 0; i < depthList.length; i++) {
+                                sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+                                counts0[sizeList[i]]++;
+                        }
+                        let starts0 = new Uint32Array(256 * 256);
+                        for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+                        let depthIndex = new Uint32Array(depthList.length);
+                        for (let i = 0; i < depthList.length; i++) depthIndex[starts0[sizeList[i]]++] = indices[i];
+
+                        const gridSize = 256;
+                        const coverage = new Float32Array(gridSize * gridSize);
+                        let tmpVisible = new Uint32Array(depthList.length);
+                        let visibleCount = 0;
+                        for (let j = depthIndex.length - 1; j >= 0; j--) {
+                                const idx = depthIndex[j];
+                                const px = matrices[idx * 16 + 12];
+                                const py = matrices[idx * 16 + 13];
+                                const pz = matrices[idx * 16 + 14];
+                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+                                if (clip_w <= 0.0) {
+                                        tmpVisible[visibleCount++] = idx;
+                                        continue;
+                                }
+                                const invW = 1.0 / clip_w;
+                                const ndcX = clip_x * invW;
+                                const ndcY = clip_y * invW;
+                                const ndcZ = clip_z * invW;
+                                if (ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0) {
+                                        tmpVisible[visibleCount++] = idx;
+                                        continue;
+                                }
+                                const opacity = matrices[idx * 16 + 11];
+                                const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+                                const radius = matrices[idx * 16 + 15] * scaleFactor;
+                                const ndcRadius = Math.abs(radius / depth);
+                                const cx = (ndcX * 0.5 + 0.5) * gridSize;
+                                const cy = (ndcY * 0.5 + 0.5) * gridSize;
+                                const r = ndcRadius * gridSize * 0.5;
+                                let totalWeight = 0.0, occludedWeight = 0.0;
+                                const minX = Math.max(0, Math.floor(cx - r));
+                                const maxX = Math.min(gridSize - 1, Math.ceil(cx + r));
+                                const minY = Math.max(0, Math.floor(cy - r));
+                                const maxY = Math.min(gridSize - 1, Math.ceil(cy + r));
+                                const r2 = r * r;
+                                for (let y = minY; y <= maxY; y++) {
+                                        for (let x = minX; x <= maxX; x++) {
+                                                const dx = x + 0.5 - cx;
+                                                const dy = y + 0.5 - cy;
+                                                const norm = (dx * dx + dy * dy) / r2;
+                                                if (norm > 1.0) continue;
+                                                const weight = Math.exp(-norm);
+                                                totalWeight += weight;
+                                                occludedWeight += coverage[y * gridSize + x] * weight;
+                                        }
+                                }
+                                const stillVisible = 1 - (occludedWeight / totalWeight);
+                                if (totalWeight === 0.0 || stillVisible > 0.01) {
+                                        tmpVisible[visibleCount++] = idx;
+                                        for (let y = minY; y <= maxY; y++) {
+                                                for (let x = minX; x <= maxX; x++) {
+                                                        const dx = x + 0.5 - cx;
+                                                        const dy = y + 0.5 - cy;
+                                                        const norm = (dx * dx + dy * dy) / r2;
+                                                        if (norm > 1.0) continue;
+                                                        const weight = Math.exp(-norm);
+                                                        const idx2 = y * gridSize + x;
+                                                        const alphaContrib = weight * (opacity * opacity * opacity * opacity);
+                                                        coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
+                                                }
+                                        }
+                                }
+                        }
+                        let result = new Uint32Array(visibleCount);
+                        for (let i = 0; i < visibleCount; i++) result[i] = tmpVisible[visibleCount - 1 - i];
+                        return Array.from(result);
+                };
+
+                const intersectLists = function(a, b) {
+                        const bSet = new Set(b);
+                        return a.filter(v => bSet.has(v));
+                };
+
+                const runSort = function(view, mvp, scaleFactor, sliderValue, focal) {
+                        const prevBasic = lastBasic;
+                        const occlPromise = occlusionSort(prevBasic, matrices, view, mvp, scaleFactor);
+                        const basicPromise = basicCull(matrices, view, mvp, scaleFactor, sliderValue, focal).then(res => { lastBasic = res; });
+                        return Promise.all([occlPromise, basicPromise]).then(([occl]) => {
+                                lastOcclusion = occl;
+                                const final = lastBasic ? intersectLists(occl, lastBasic) : occl;
+                                return new Uint32Array(final);
+                        });
+                };
                         const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
@@ -920,8 +1074,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, sliderValue, focal);
-                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                        runSort(view, mvp, scaleFactor, sliderValue, focal).then((sortedIndexes) => {
+                                                self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                        });
                                 }
                         }
 		};
