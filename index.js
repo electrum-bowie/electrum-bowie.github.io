@@ -973,13 +973,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
                                         const depthIndex = basicCull(matrices, view, mvp, scaleFactor, sliderValue, focal);
-
-                                        const prev = lastDepthIndex || new Uint32Array(0);
-                                        const wasInView = new Set(prev);
-                                        for (let i = 0; i < depthIndex.length; i++) {
-                                                const idx = depthIndex[i];
-                                                if (!wasInView.has(idx)) occlusionHidden[idx] = 0;
-                                        }
+                                        
                                         lastDepthIndex = depthIndex.slice(0);
 
                                         let filtered = new Uint32Array(depthIndex.length);
