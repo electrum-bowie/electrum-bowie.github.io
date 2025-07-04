@@ -294,17 +294,26 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.worker.onmessage = (e) => {
                         if (e.data.method === "basicCull") {
-                                let depthIndex = new Uint32Array(e.data.depthIndex);
-                                this.lastDepthIndex = depthIndex.slice(0);
+                                const newDepthIndex = new Uint32Array(e.data.depthIndex);
                                 
-                                for (let i = 0; i < depthIndex.length; i++) {
-                                        this.occlusionHidden[ depthIndex[i] ] = 0;
+                                // 1) only clear hide-flags for splats that are *newly* in view
+                                const prev = this.lastDepthIndex || new Uint32Array(0);
+                                const wasInView = new Set(prev);
+                                for (let i = 0; i < newDepthIndex.length; i++) {
+                                        const idx = newDepthIndex[i];
+                                        if (!wasInView.has(idx)) {
+                                                // resurrect only those that just came into view
+                                                this.occlusionHidden[idx] = 0;
+                                        }
                                 }
-                                
-                                let filtered = new Uint32Array(depthIndex.length);
+                                // 2) update lastDepthIndex for next frame
+                                this.lastDepthIndex = newDepthIndex.slice(0);
+
+                                // 3) your existing occlusion-mask filter
+                                let filtered = new Uint32Array(newDepthIndex.length);
                                 let count = 0;
-                                for (let i = 0; i < depthIndex.length; i++) {
-                                        const idx = depthIndex[i];
+                                for (let i = 0; i < newDepthIndex.length; i++) {
+                                        const idx = newDepthIndex[i];
                                         if (!this.occlusionHidden[idx]) {
                                                 filtered[count++] = idx;
                                         }
