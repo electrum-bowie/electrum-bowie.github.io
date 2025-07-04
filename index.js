@@ -296,6 +296,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method === "basicCull") {
                                 let depthIndex = new Uint32Array(e.data.depthIndex);
                                 this.lastDepthIndex = depthIndex.slice(0);
+                                
+                                for (let i = 0; i < depthIndex.length; i++) {
+                                        this.occlusionHidden[ depthIndex[i] ] = 0;
+                                }
+                                
                                 let filtered = new Uint32Array(depthIndex.length);
                                 let count = 0;
                                 for (let i = 0; i < depthIndex.length; i++) {
