@@ -886,10 +886,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                                     tmpVisible[visibleCount++] = idx;
                                     continue;
                                 }
+                                
+                                const baseRadius = matrices[idx * 16 + 15];
+
+                                const isBig = baseRadius > 0.05;
+
+                                if (isBig) {
+                                    tmpVisible[visibleCount++] = idx;
+                                    continue;
+				}
 
                                 const opacity = matrices[idx * 16 + 11];
                                 const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-                                const radius = matrices[idx * 16 + 15] * scaleFactor;
+                                const radius = baseRadius * scaleFactor;
                                 const ndcRadius = Math.abs(radius / depth);
 
                                 const cx = (ndcX * 0.5 + 0.5) * gridSize;
@@ -913,10 +922,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 totalWeight += weight;
                                                 occludedWeight += coverage[y * gridSize + x] * weight;
                                         }
-                                }
-
+				}
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (totalWeight === 0.0 || stillVisible > 0.0001) {
+                                if (isBig || totalWeight === 0.0 || stillVisible > 0.0001) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
                                                 for (let x = minX; x <= maxX; x++) {
