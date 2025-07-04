@@ -936,7 +936,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         const weight = Math.exp(-norm);
                                                         const idx2 = y * gridSize + x;
                                                         const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity);
-                                                        coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
+                                                        for (let ny = -1; ny <= 1; ny++) {
+                                                                for (let nx = -1; nx <= 1; nx++) {
+                                                                        const yy = y + ny, xx = x + nx;
+                                                                        if (yy < 0 || yy >= gridSize || xx < 0 || xx >= gridSize) continue;
+                                                                        const idx2 = yy * gridSize + xx;
+                                                                        coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
+                                                                }
+                                                        }
                                                 }
                                         }
                                 }
