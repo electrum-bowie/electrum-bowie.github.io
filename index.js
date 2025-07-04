@@ -859,7 +859,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
 
                 const occlusionSort = function occlusionSort(matrices, depthIndex, view, mvp, scaleFactor = 1.0) {
-                        const gridSize = 128;
+                        const gridSize = 64;
                         const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(depthIndex.length);
                         let visibleCount = 0;
@@ -908,7 +908,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const minY = Math.max(0, Math.floor(cy - r));
                                 const maxY = Math.min(gridSize - 1, Math.ceil(cy + r));
 
-                                const isBig = baseRadius > 0.05;
+                                const isBig = false // baseRadius > 0.1;
                                 
                                 const r2 = r * r;
                                 for (let y = minY; y <= maxY; y++) {
@@ -925,7 +925,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         }
 				}
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || totalWeight === 0.0 || stillVisible > 0.01) {
+                                if (isBig || totalWeight === 0.0 || stillVisible > 0.00001) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
                                                 for (let x = minX; x <= maxX; x++) {
