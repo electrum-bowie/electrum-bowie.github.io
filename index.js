@@ -908,9 +908,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const r2 = r * r;
                                 for (let y = minY; y <= maxY; y++) {
-                                        if (isBig > 1.0) continue;
+                                        if (isBig) continue;
                                         for (let x = minX; x <= maxX; x++) {
-                                                if (isBig > 1.0) continue;
+                                                if (isBig) continue;
                                                 const dx = x + 0.5 - cx;
                                                 const dy = y + 0.5 - cy;
                                                 const norm = (dx * dx + dy * dy) / r2;
