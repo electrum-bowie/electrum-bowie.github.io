@@ -101,6 +101,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.tmpCameraQuat = new THREE.Quaternion();
                 this.viewRotationMatrix = new THREE.Matrix3();
 
+                this.occlusionHidden = new Uint8Array(4096 * 4096);
+                this.lastDepthIndex = null;
+                this.occlusionReady = true;
+                this.pendingOcclusion = false;
+
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
 		this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
@@ -287,19 +292,61 @@ AFRAME.registerComponent("gaussian_splatting", {
 			),
 		);
 
-		this.worker.onmessage = (e) => {
-			let indexes = new Uint32Array(e.data.sortedIndexes);
-			mesh.geometry.attributes.splatIndex.set(indexes);
-			mesh.geometry.attributes.splatIndex.needsUpdate = true;
-			mesh.geometry.instanceCount = indexes.length;
-			this.sortReady = true;
-		};
+                this.worker.onmessage = (e) => {
+                        if (e.data.method === "basicCull") {
+                                let depthIndex = new Uint32Array(e.data.depthIndex);
+                                this.lastDepthIndex = depthIndex.slice(0);
+                                let filtered = new Uint32Array(depthIndex.length);
+                                let count = 0;
+                                for (let i = 0; i < depthIndex.length; i++) {
+                                        const idx = depthIndex[i];
+                                        if (!this.occlusionHidden[idx]) {
+                                                filtered[count++] = idx;
+                                        }
+                                }
+                                filtered = filtered.slice(0, count);
+                                mesh.geometry.attributes.splatIndex.set(filtered);
+                                mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                                mesh.geometry.instanceCount = filtered.length;
+                                this.sortReady = true;
+                                if (this.occlusionReady) {
+                                        this.occlusionReady = false;
+                                        this.occlusionSortNow();
+                                } else {
+                                        this.pendingOcclusion = true;
+                                }
+                        } else if (e.data.method === "occlusionSort") {
+                                let indexes = new Uint32Array(e.data.sortedIndexes);
+                                this.occlusionHidden.fill(1);
+                                for (let i = 0; i < indexes.length; i++) this.occlusionHidden[indexes[i]] = 0;
+                                let filtered = new Uint32Array(this.lastDepthIndex.length);
+                                let count = 0;
+                                for (let i = 0; i < this.lastDepthIndex.length; i++) {
+                                        const idx = this.lastDepthIndex[i];
+                                        if (!this.occlusionHidden[idx]) filtered[count++] = idx;
+                                }
+                                filtered = filtered.slice(0, count);
+                                mesh.geometry.attributes.splatIndex.set(filtered);
+                                mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                                mesh.geometry.instanceCount = filtered.length;
+                                this.occlusionReady = true;
+                                if (this.pendingOcclusion) {
+                                        this.pendingOcclusion = false;
+                                        this.occlusionReady = false;
+                                        this.occlusionSortNow();
+                                }
+                        }
+                };
 		this.sortReady = true;
 	},
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
                 this.worker.postMessage({ method: "clear" });
+                this.occlusionHidden.fill(0);
+                this.lastDepthIndex = null;
+                this.occlusionReady = true;
+                this.pendingOcclusion = false;
                 this.originalBuffers = [];
                 this.isCaching = true;
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -391,7 +438,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         this.needsQualityUpdate = false;
                                         this.updateQuality();
                                 }
-                                this.sortSplatsNow();
+                                this.basicCullNow();
                         });
         },
         pushDataBuffer: function (buffer, vertexCount) {
@@ -557,7 +604,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
 
                 if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
-                        this.sortSplatsNow();
+                        this.basicCullNow();
                 }
 
                 // Dynamic XR resolution based on frame rate
@@ -591,6 +638,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.mesh.geometry.instanceCount = 0;
                 }
                 this.worker.postMessage({ method: "clear" });
+                this.occlusionHidden.fill(0);
+                this.lastDepthIndex = null;
+                this.occlusionReady = true;
+                this.pendingOcclusion = false;
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
@@ -645,7 +696,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
         },
 
-        sortSplatsNow: function () {
+        basicCullNow: function () {
                 if (!this.sortReady) return;
                 this.sortReady = false;
                 const viewMatrix = this.getModelViewMatrix();
@@ -665,7 +716,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
                 this.worker.postMessage({
-                        method: "sort",
+                        method: "basicCull",
                         view: view.buffer,
                         mvp: mvp.buffer,
                         scale: globalScale,
@@ -679,6 +730,27 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.camera.getWorldQuaternion(this.lastCameraQuat);
                 this.lastObjectPos.copy(this.object.position);
                 this.lastObjectQuat.copy(this.object.quaternion);
+        },
+
+        occlusionSortNow: function () {
+                if (!this.lastDepthIndex) return;
+                const viewMatrix = this.getModelViewMatrix();
+                const projectionMatrix = this.getProjectionMatrix();
+                let camera_mtx = viewMatrix.elements;
+                let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
+
+                const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
+                let mvp = new Float32Array(mvpMatrix.elements);
+
+                const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
+                let depthIndexCopy = this.lastDepthIndex.slice(0);
+                this.worker.postMessage({
+                        method: "occlusionSort",
+                        depthIndex: depthIndexCopy.buffer,
+                        view: view.buffer,
+                        mvp: mvp.buffer,
+                        scale: globalScale,
+                }, [depthIndexCopy.buffer, view.buffer, mvp.buffer]);
         },
         getProjectionMatrix: function (camera) {
                 if (!camera) {
@@ -722,7 +794,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
 
-                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                const basicCull = function basicCull(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
                         const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
@@ -805,14 +877,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = new Uint32Array(validCount);
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        // Occlusion-based discarding
+                        return depthIndex;
+                };
+
+                const occlusionSort = function occlusionSort(matrices, depthIndex, view, mvp, scaleFactor = 1.0) {
                         const gridSize = 256;
                         const coverage = new Float32Array(gridSize * gridSize);
-                        let tmpVisible = new Uint32Array(validCount);
+                        let tmpVisible = new Uint32Array(depthIndex.length);
                         let visibleCount = 0;
                         for (let j = depthIndex.length - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-                                const baseRadius = matrices[idx * 16 + 15];
                                 const px = matrices[idx * 16 + 12];
                                 const py = matrices[idx * 16 + 13];
                                 const pz = matrices[idx * 16 + 14];
@@ -823,12 +897,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
                                 if (clip_w <= 0.0) {
-                                        tmpVisible[visibleCount++] = idx;   // keep it in the draw list
-                                        continue;                           // but do NOT touch coverage[]
+                                        tmpVisible[visibleCount++] = idx;
+                                        continue;
                                 }
 
                                 const invW  = 1.0 / clip_w;
-                                
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
@@ -836,12 +909,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (ndcZ < -1.0 || ndcZ > 1.0 ||
                                     ndcX < -1.0 || ndcX > 1.0 ||
                                     ndcY < -1.0 || ndcY > 1.0) {
-                                    tmpVisible[visibleCount++] = idx; // keep it in the draw list
-                                    continue; // centre is outside — skip splat
+                                    tmpVisible[visibleCount++] = idx;
+                                    continue;
                                 }
-                                
-                                const opacity = matrices[idx * 16 + 11];
 
+                                const opacity = matrices[idx * 16 + 11];
                                 const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
                                 const radius = matrices[idx * 16 + 15] * scaleFactor;
                                 const ndcRadius = Math.abs(radius / depth);
@@ -869,9 +941,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         }
                                 }
 
-                                const isBig = false; // baseRadius > 0.05;
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || totalWeight === 0.0 || stillVisible > 0.01) {
+                                if (totalWeight === 0.0 || stillVisible > 0.01) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
                                                 for (let x = minX; x <= maxX; x++) {
@@ -881,8 +952,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         if (norm > 1.0) continue;
                                                         const weight = Math.exp(-norm);
                                                         const idx2 = y * gridSize + x;
-                                                        
-                                                        // αlpha contribution at this pixel:
                                                         const alphaContrib = weight * (opacity * opacity * opacity * opacity);
                                                         coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
                                                 }
@@ -910,21 +979,34 @@ AFRAME.registerComponent("gaussian_splatting", {
 					matrices = resized;
 				}
 			}
-                        if (e.data.method == "sort") {
+                        if (e.data.method == "basicCull") {
                                 if (matrices === undefined) {
-                                        const sortedIndexes = new Uint32Array(1);
-                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                        const depthIndex = new Uint32Array(0);
+                                        self.postMessage({ method: "basicCull", depthIndex }, [depthIndex.buffer]);
                                 } else {
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, sliderValue, focal);
-                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                        const depthIndex = basicCull(matrices, view, mvp, scaleFactor, sliderValue, focal);
+                                        self.postMessage({ method: "basicCull", depthIndex }, [depthIndex.buffer]);
                                 }
                         }
-		};
+                        if (e.data.method == "occlusionSort") {
+                                if (matrices === undefined) {
+                                        const sortedIndexes = new Uint32Array(0);
+                                        self.postMessage({ method: "occlusionSort", sortedIndexes }, [sortedIndexes.buffer]);
+                                } else {
+                                        const view = new Float32Array(e.data.view);
+                                        const mvp = new Float32Array(e.data.mvp);
+                                        const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
+                                        const depthIndex = new Uint32Array(e.data.depthIndex);
+                                        const sortedIndexes = occlusionSort(matrices, depthIndex, view, mvp, scaleFactor);
+                                        self.postMessage({ method: "occlusionSort", sortedIndexes }, [sortedIndexes.buffer]);
+                                }
+                        }
+                };
 	},
 	processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
