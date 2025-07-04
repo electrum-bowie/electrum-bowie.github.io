@@ -859,7 +859,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
 
                 const occlusionSort = function occlusionSort(matrices, depthIndex, view, mvp, scaleFactor = 1.0) {
-                        const gridSize = 64;
+                        const gridSize = 128;
                         const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(depthIndex.length);
                         let visibleCount = 0;
@@ -908,7 +908,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const minY = Math.max(0, Math.floor(cy - r));
                                 const maxY = Math.min(gridSize - 1, Math.ceil(cy + r));
 
-                                const isBig = false // baseRadius > 0.1;
+                                const isBig = baseRadius > 0.05;
                                 
                                 const r2 = r * r;
                                 for (let y = minY; y <= maxY; y++) {
@@ -925,7 +925,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         }
 				}
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || totalWeight === 0.0 || stillVisible > 0.000001) {
+                                if (isBig || totalWeight === 0.0 || stillVisible > 0.01) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
                                                 for (let x = minX; x <= maxX; x++) {
@@ -936,14 +936,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         const weight = Math.exp(-norm);
                                                         const idx2 = y * gridSize + x;
                                                         const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity);
-                                                        for (let ny = -1; ny <= 1; ny++) {
-                                                                for (let nx = -1; nx <= 1; nx++) {
-                                                                        const yy = y + ny, xx = x + nx;
-                                                                        if (yy < 0 || yy >= gridSize || xx < 0 || xx >= gridSize) continue;
-                                                                        const idx2 = yy * gridSize + xx;
-                                                                        coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
-                                                                }
-                                                        }
+                                                        coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
                                                 }
                                         }
                                 }
