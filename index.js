@@ -879,10 +879,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 if (isBig) continue;
                                                 const dx = x + 0.5 - cx;
                                                 const dy = y + 0.5 - cy;
-                                                const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
-                                                const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
-                                                const dist2 = ix * ix + iy * iy;
-                                                if (dist2 > r2) continue;
+                                                if (dx*dx + dy*dy > r2) continue;
                                                 const norm = (dx * dx + dy * dy) / r2;
                                                 const weight = Math.exp(-norm);
                                                 totalWeight += weight;
