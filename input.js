@@ -163,17 +163,7 @@ document.addEventListener("DOMContentLoaded", function () {
             splatLoaded = true;
         });
 
-        // Reattach slider listeners in case the element was recreated
-        const slider = document.getElementById("slider");
-        if (slider) {
-            slider.removeEventListener('input', updateSliderValue);
-            slider.removeEventListener('change', updateSliderValue);
-            slider.addEventListener('input', updateSliderValue);
-            slider.addEventListener('change', updateSliderValue);
-            if (typeof updateSliderValue === 'function') {
-                updateSliderValue();
-            }
-        }
+
 
         if (fileButton) fileButton.style.display = "none";
         if (backButton) backButton.style.display = "block";

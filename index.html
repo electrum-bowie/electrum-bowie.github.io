@@ -34,43 +34,7 @@
         #fileInput {
             display: none;
         }
-        /* CSS for slider container */
-        .slider-container {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 80%; /* Adjust the width as needed */
-            z-index: 1;
-        }
-
-        /* CSS for the slider input */
-        #slider {
-            width: 100%;
-            accent-color: #00008b;
-        }
-
-        /* CSS for the displayed value */
-        #slider-value {
-            text-align: center;
-            color: #fff;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px;
-            border-radius: 5px;
-            display: inline-block;
-            width: 60px; /* Adjust the width as needed */
-            margin: 0 auto;
-        }
-
-        #slider-label {
-            text-align: center;
-            color: #fff;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px;
-            border-radius: 5px;
-            display: inline-block;
-            margin-bottom: 5px;
-        }
+        /* removed slider styles */
 
         #logMessage {
             position: absolute;
@@ -109,11 +73,7 @@
         <!-- Add a button to trigger file selection -->
         <button id="fileButton" style="position: fixed; z-index: 1;">Select .zip, .ply or .splat File</button>
         <button id="backButton">Go Back</button>
-        <div class="slider-container">
-            <div id="slider-label">Quality Factor:</div>
-            <input type="range" min="1.0" max="4.0" step="0.5" value="5" id="slider">
-            <span id="slider-value">5</span>
-        </div>
+
 
         <!-- Display the most recent error message -->
         <div id="logMessage"></div>
@@ -156,43 +116,7 @@
             displayLogMessage(args.join(' '));
         };
 
-        // Store and update the latest slider value
-        // Expose on window so other scripts can always access it
-        window.latestSliderValue = window.latestSliderValue || 0;
 
-        function updateSliderValue() {
-            const slider = document.getElementById('slider');
-            const sliderValue = document.getElementById('slider-value');
-            const min = parseFloat(slider.min);
-            const max = parseFloat(slider.max);
-            window.latestSliderValue = parseFloat(slider.value);
-            const percent = Math.round((window.latestSliderValue - min) / (max - min) * 100);
-            sliderValue.innerText = percent + '%';
-            if (window.gaussianComponent && typeof window.gaussianComponent.updateQuality === 'function') {
-                window.gaussianComponent.updateQuality();
-            }
-        }
-
-        // Initialize and listen for slider changes
-        const slider = document.getElementById('slider');
-        window.latestSliderValue = parseFloat(slider.value);
-        updateSliderValue();
-        slider.addEventListener('input', updateSliderValue);
-        slider.addEventListener('change', updateSliderValue);
-
-        const sliderValueElement = document.getElementById('slider-value');
-        const sliderLabelElement = document.getElementById('slider-label');
-        function syncSliderVisibility() {
-            sliderValueElement.style.display = slider.style.display;
-            if (sliderLabelElement) {
-                sliderLabelElement.style.display = slider.style.display;
-            }
-        }
-        syncSliderVisibility();
-        new MutationObserver(syncSliderVisibility).observe(slider, {
-            attributes: true,
-            attributeFilter: ['style']
-        });
     </script>
 </body>
 </html>
