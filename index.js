@@ -661,7 +661,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         view: view.buffer,
                         mvp: mvp.buffer,
                         scale: globalScale,
-                        sliderValue: 1,
                         focal: focal,
                 }, [view.buffer, mvp.buffer]);
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
@@ -735,8 +734,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let occlusionHidden = new Uint8Array(4096 * 4096);
                 let lastDepthIndex = null;
 
-                const basicCull = function basicCull(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
-                        const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
+                const basicCull = function basicCull(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
+                        const sizeThreshold = 0.00001;
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
 
@@ -940,9 +939,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
-                                        const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const depthIndex = basicCull(matrices, view, mvp, scaleFactor, sliderValue, focal);
+                                        const depthIndex = basicCull(matrices, view, mvp, scaleFactor, focal);
 
                                         self.postMessage({ method: "basicCull", depthIndex }, [depthIndex.buffer]);
                                 }
