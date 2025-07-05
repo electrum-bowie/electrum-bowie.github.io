@@ -443,7 +443,40 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (this.isCaching) {
                         this.originalBuffers.push(buffer.slice(0));
                 }
-                let u_buffer = new Uint8Array(buffer);
+                const sliderElement = document.getElementById("slider");
+                const sliderValueElement = document.getElementById("slider-value");
+                const sliderLabelElement = document.getElementById("slider-label");
+                let sliderValue = 1;
+                if (sliderElement) {
+                        const min = parseFloat(sliderElement.min);
+                        const max = parseFloat(sliderElement.max);
+                        
+                        sliderValue = parseFloat(sliderElement.value);
+                        
+                        window.latestSliderValue = sliderValue;
+                        
+                        sliderValue = min + max - sliderValue;
+                }
+                else if (typeof window !== 'undefined' &&
+                        typeof window.latestSliderValue === 'number') {
+                        sliderValue = window.latestSliderValue;
+                }
+
+                vertexCount = vertexCount / (isNaN(sliderValue) ? 1 : sliderValue);
+
+                // Keep the quality slider visible after loading so users can
+                // continue adjusting the value for subsequent loads.
+                if (sliderElement) {
+                        // sliderElement.style.display = 'none';
+                        if (sliderValueElement) {
+                                // sliderValueElement.style.display = 'none';
+                        }
+                        if (sliderLabelElement) {
+                                // sliderLabelElement.style.display = 'none';
+                        }
+                }
+
+		let u_buffer = new Uint8Array(buffer);
 		let f_buffer = new Float32Array(buffer);
 		let matrices = new Float32Array(vertexCount * 16);
 
@@ -653,6 +686,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let mvp = new Float32Array(mvpMatrix.elements);
 
                 const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
+                let sliderValue = 1;
+                if (typeof window !== 'undefined' && typeof window.latestSliderValue === 'number') {
+                        sliderValue = window.latestSliderValue;
+                }
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
@@ -661,6 +698,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         view: view.buffer,
                         mvp: mvp.buffer,
                         scale: globalScale,
+                        sliderValue: sliderValue,
                         focal: focal,
                 }, [view.buffer, mvp.buffer]);
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
@@ -734,8 +772,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let occlusionHidden = new Uint8Array(4096 * 4096);
                 let lastDepthIndex = null;
 
-                const basicCull = function basicCull(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
-                        const sizeThreshold = 0.00001;
+                const basicCull = function basicCull(matrices, view, mvp, scaleFactor = 1.0, sliderValue = 1, focal = 1.0) {
+                        const sizeThreshold = 0.00001 * (isNaN(sliderValue) ? 1 : sliderValue);
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
 
@@ -879,8 +917,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 if (isBig) continue;
                                                 const dx = x + 0.5 - cx;
                                                 const dy = y + 0.5 - cy;
+                                                const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
+                                                const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
+                                                const dist2 = ix * ix + iy * iy;
+                                                if (dist2 > r2) continue;
                                                 const norm = (dx * dx + dy * dy) / r2;
-                                                if (norm > 1.0) continue;
                                                 const weight = Math.exp(-norm);
                                                 totalWeight += weight;
                                                 occludedWeight += coverage[y * gridSize + x] * weight;
@@ -942,8 +983,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
+                                        const sliderValue = typeof e.data.sliderValue === 'number' ? e.data.sliderValue : 1;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const depthIndex = basicCull(matrices, view, mvp, scaleFactor, focal);
+                                        const depthIndex = basicCull(matrices, view, mvp, scaleFactor, sliderValue, focal);
 
                                         self.postMessage({ method: "basicCull", depthIndex }, [depthIndex.buffer]);
                                 }
