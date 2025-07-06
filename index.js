@@ -96,7 +96,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.pendingOcclusion = false;
                 this.occlusionHidden = new Uint8Array(4096 * 4096);
                 this.lastDepthIndex = null;
-                this.lastDepthIndexId = 0;
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
@@ -295,7 +294,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method === "basicCull") {
                                 const depthIndex = new Uint32Array(e.data.depthIndex);
                                 this.lastDepthIndex = depthIndex;
-                                this.lastDepthIndexId++;
                                 let filtered = new Uint32Array(depthIndex.length);
                                 let count = 0;
                                 for (let i = 0; i < depthIndex.length; i++) {
@@ -318,15 +316,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.sortWorker.onmessage = (e) => {
                         if (e.data.method === "occlusionSort") {
-                                if (e.data.id !== this.lastDepthIndexId) {
-                                        if (this.pendingOcclusion) {
-                                                this.pendingOcclusion = false;
-                                                this.occlusionSortNow();
-                                        } else {
-                                                this.occlusionReady = true;
-                                        }
-                                        return;
-                                }
                                 let indexes = new Uint32Array(e.data.sortedIndexes);
                                 this.occlusionHidden.fill(1);
                                 for (let i = 0; i < indexes.length; i++) this.occlusionHidden[indexes[i]] = 0;
@@ -695,7 +684,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
                 this.sortWorker.postMessage({
                         method: "occlusionSort",
-                        id: this.lastDepthIndexId,
                         view: view.buffer,
                         mvp: mvp.buffer,
                         depthIndex: this.lastDepthIndex,
@@ -971,14 +959,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method == "occlusionSort") {
                                 if (matrices === undefined || !e.data.depthIndex) {
                                         const sortedIndexes = new Uint32Array(0);
-                                        self.postMessage({ method: "occlusionSort", id: e.data.id, sortedIndexes }, [sortedIndexes.buffer]);
+                                        self.postMessage({ method: "occlusionSort", sortedIndexes }, [sortedIndexes.buffer]);
                                 } else {
                                         const depthIndex = new Uint32Array(e.data.depthIndex);
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const sortedIndexes = occlusionSort(matrices, depthIndex, view, mvp, scaleFactor);
-                                        self.postMessage({ method: "occlusionSort", id: e.data.id, sortedIndexes }, [sortedIndexes.buffer]);
+                                        self.postMessage({ method: "occlusionSort", sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
                 };
