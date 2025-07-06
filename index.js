@@ -821,7 +821,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
 
                 const occlusionSort = function occlusionSort(matrices, depthIndex, view, mvp, scaleFactor = 1.0) {
-                        const gridSize = 64;
+                        const gridSize = 150;
                         const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(depthIndex.length);
                         let visibleCount = 0;
