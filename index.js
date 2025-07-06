@@ -794,7 +794,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.5);
                                 const pixelRadius = focal * radiusTransparencyProduct / (-depth);
-                                if ((pixelRadius < 0.75 * edgeMultiplier) && !skipCull) continue;
+                                if ((pixelRadius < 0.9 * edgeMultiplier) && !skipCull) continue;
                                 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
@@ -821,7 +821,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
 
                 const occlusionSort = function occlusionSort(matrices, depthIndex, view, mvp, scaleFactor = 1.0) {
-                        const gridSize = 150;
+                        const gridSize = 64;
                         const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(depthIndex.length);
                         let visibleCount = 0;
@@ -846,26 +846,24 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
 
+                                const baseRadius = matrices[idx * 16 + 15];
+
+                                const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+                                const radius = baseRadius * scaleFactor;
+                                
                                 if (ndcZ < -1.0 || ndcZ > 1.0 ||
                                     ndcX < -1.0 || ndcX > 1.0 ||
                                     ndcY < -1.0 || ndcY > 1.0) {
                                     tmpVisible[visibleCount++] = idx;
                                     continue;
                                 }
-                                
-                                const baseRadius = matrices[idx * 16 + 15];
-
-                                const opacity = matrices[idx * 16 + 11];
-                                const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-                                const radius = baseRadius * scaleFactor;
-                                const ndcRadius = Math.abs(radius / depth);
-                                
-                                if (depth + radius > -0.25 && !(ndcZ < -1.0 || ndcZ > 1.0 ||
-                                                                        ndcX < -1.0 || ndcX > 1.0 ||
-                                                                        ndcY < -1.0 || ndcY > 1.0)) {
-                                        tmpVisible[visibleCount++] = idx;
-                                        continue; // centre is inside the view and too close to the camera
+                                else if (depth + radius > -0.25) {
+                                         tmpVisible[visibleCount++] = idx;
+                                         continue; // centre is inside the view and too close to the camera
                                 }
+                                
+                                const opacity = matrices[idx * 16 + 11];
+                                const ndcRadius = Math.abs(radius / depth);
                                 
                                 const cx = (ndcX * 0.5 + 0.5) * gridSize;
                                 const cy = (ndcY * 0.5 + 0.5) * gridSize;
