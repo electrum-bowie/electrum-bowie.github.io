@@ -860,6 +860,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const radius = baseRadius * scaleFactor;
                                 const ndcRadius = Math.abs(radius / depth);
 
+                                const nearPlaneClip = -0.19;
+                                if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                                        ndcX < -1.0 || ndcX > 1.0 ||
+                                                                        ndcY < -1.0 || ndcY > 1.0)) {
+                                        continue; // centre is inside the view and too close to the camera
+                                }
+                                
                                 const cx = (ndcX * 0.5 + 0.5) * gridSize;
                                 const cy = (ndcY * 0.5 + 0.5) * gridSize;
                                 const r = ndcRadius * gridSize * 0.5;
