@@ -847,9 +847,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcZ  = clip_z * invW;
 
                                 const baseRadius = matrices[idx * 16 + 15];
-
-                                const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
                                 const radius = baseRadius * scaleFactor;
+                                
+                                const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
                                 
                                 if (ndcZ < -1.0 || ndcZ > 1.0 ||
                                     ndcX < -1.0 || ndcX > 1.0 ||
