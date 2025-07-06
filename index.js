@@ -96,6 +96,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.pendingOcclusion = false;
                 this.occlusionHidden = new Uint8Array(4096 * 4096);
                 this.lastDepthIndex = null;
+                this.nextSortedIndexes = null;
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
@@ -319,9 +320,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let indexes = new Uint32Array(e.data.sortedIndexes);
                                 this.occlusionHidden.fill(1);
                                 for (let i = 0; i < indexes.length; i++) this.occlusionHidden[indexes[i]] = 0;
-                                mesh.geometry.attributes.splatIndex.set(indexes);
-                                mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                                mesh.geometry.instanceCount = indexes.length;
+                                this.nextSortedIndexes = indexes;
                                 this.occlusionReady = true;
                                 if (this.pendingOcclusion) {
                                         this.pendingOcclusion = false;
@@ -556,6 +555,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }, [bufCopy]);
 	},
         tick: function (time, timeDelta) {
+                if (this.nextSortedIndexes) {
+                        this.mesh.geometry.attributes.splatIndex.set(this.nextSortedIndexes);
+                        this.mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                        this.mesh.geometry.instanceCount = this.nextSortedIndexes.length;
+                        this.nextSortedIndexes = null;
+                }
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 
                 const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 0.001;
