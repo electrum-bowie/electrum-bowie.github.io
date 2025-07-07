@@ -695,7 +695,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 if (radiusTransparencyProduct < sizeThreshold) continue;
                                 
-                                const nearPlaneClip = -0.19;
+                                const nearPlaneClip = -0.18;
                                 
                                 if (!skipCull && (depth + radius > nearPlaneClip)) continue;
                                 
@@ -734,7 +734,7 @@ for (let i = 0; i < validCount; i++) {
 }
 
                         // Occlusion-based discarding
-                        const gridSize = 16;
+                        const gridSize = 20;
                         const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
@@ -770,7 +770,7 @@ for (let i = 0; i < validCount; i++) {
                                     tmpVisible[visibleCount++] = idx;
                                     continue;
                                 }
-                                else if (depth + radius > -0.25) {
+                                else if (depth + radius > -0.2) {
                                          tmpVisible[visibleCount++] = idx;
                                          continue; // centre is inside the view and too close to the camera
                                 }
@@ -821,7 +821,7 @@ for (let i = 0; i < validCount; i++) {
                                                 const norm = (dx * dx + dy * dy) / r2;
                                                 const weight = Math.exp(-norm);
                                                 const idx2 = y * gridSize + x;
-                                                const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity);
+                                                const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity * opacity);
                                                 coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
                                         }
                                         }
