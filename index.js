@@ -65,9 +65,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 		this.object = object;
                 this.renderer = renderer;
                 
-		this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-                this.renderer.outputEncoding = THREE.sRGBEncoding;
-		
                 this.textureReady = false;
                 this.object.frustumCulled = false;
 
@@ -225,7 +222,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 void main () {
                                         float len2 = dot(vPosition, vPosition);
-                                        if (len2 > 4.0) discard;
+                                        if (len2 > 4.5) discard;
                                         float B = exp(-len2) * vColor.a;
                                         gl_FragColor = vec4(vColor.rgb, B);
                                 }
