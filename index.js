@@ -96,6 +96,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.pendingOcclusion = false;
                 this.occlusionHidden = new Uint8Array(4096 * 4096);
                 this.lastDepthIndex = null;
+                this.basicReady = true;
+                this.occlusionWorkerReady = true;
+                this.sortWorkerReady = true;
+                this.basicCullResult = null;
+                this.filteredCull = null;
+                this.occlusionResult = null;
+                this.basicTimestamp = 0;
+                this.occlusionTimestamp = 0;
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
@@ -275,14 +283,21 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.object.add(mesh);
                 this.mesh = mesh;
 
-                this.cullWorker = new Worker(
+                this.basicWorker = new Worker(
                         URL.createObjectURL(
                                 new Blob(["(", this.createWorker.toString(), ")(self)"], {
                                         type: "application/javascript",
                                 }),
                         ),
                 );
-                this.sortWorker = new Worker(
+                this.occlusionWorker = new Worker(
+                        URL.createObjectURL(
+                                new Blob(["(", this.createWorker.toString(), ")(self)"], {
+                                        type: "application/javascript",
+                                }),
+                        ),
+                );
+                this.splatSortWorker = new Worker(
                         URL.createObjectURL(
                                 new Blob(["(", this.createWorker.toString(), ")(self)"], {
                                         type: "application/javascript",
@@ -290,7 +305,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         ),
                 );
 
-                this.cullWorker.onmessage = (e) => {
+                this.basicWorker.onmessage = (e) => {
                         if (e.data.method === "basicCull") {
                                 const depthIndex = new Uint32Array(e.data.depthIndex);
                                 this.lastDepthIndex = depthIndex;
@@ -301,42 +316,56 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         if (!this.occlusionHidden[idx]) filtered[count++] = idx;
                                 }
                                 filtered = filtered.slice(0, count);
-                                mesh.geometry.attributes.splatIndex.set(filtered);
-                                mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                                mesh.geometry.instanceCount = filtered.length;
-                                this.sortReady = true;
-                                if (this.occlusionReady) {
-                                        this.occlusionReady = false;
-                                        this.occlusionSortNow();
+                                this.filteredCull = filtered;
+                                this.basicCullResult = depthIndex;
+                                this.basicTimestamp = performance.now();
+                                this.basicReady = true;
+                                if (this.occlusionWorkerReady) {
+                                        this.occlusionWorkerReady = false;
+                                        this.occlusionCullNow();
                                 } else {
                                         this.pendingOcclusion = true;
                                 }
+                                this.triggerSplatSort();
                         }
                 };
 
-                this.sortWorker.onmessage = (e) => {
+                this.occlusionWorker.onmessage = (e) => {
                         if (e.data.method === "occlusionSort") {
                                 let indexes = new Uint32Array(e.data.sortedIndexes);
                                 this.occlusionHidden.fill(1);
                                 for (let i = 0; i < indexes.length; i++) this.occlusionHidden[indexes[i]] = 0;
+                                this.occlusionResult = indexes;
+                                this.occlusionTimestamp = performance.now();
+                                this.occlusionWorkerReady = true;
+                                if (this.pendingOcclusion) {
+                                        this.pendingOcclusion = false;
+                                        this.occlusionWorkerReady = false;
+                                        this.occlusionCullNow();
+                                }
+                                this.triggerSplatSort();
+                        }
+                };
+                this.splatSortWorker.onmessage = (e) => {
+                        if (e.data.method === "splatSort") {
+                                let indexes = new Uint32Array(e.data.finalIndexes);
                                 mesh.geometry.attributes.splatIndex.set(indexes);
                                 mesh.geometry.attributes.splatIndex.needsUpdate = true;
                                 mesh.geometry.instanceCount = indexes.length;
-                                this.occlusionReady = true;
-                                if (this.pendingOcclusion) {
-                                        this.pendingOcclusion = false;
-                                        this.occlusionReady = false;
-                                        this.occlusionSortNow();
-                                }
+                                this.sortWorkerReady = true;
                         }
                 };
-                this.sortReady = true;
-	},
+                this.sortLoop = () => {
+                        this.triggerSplatSort();
+                        requestAnimationFrame(this.sortLoop);
+                };
+                requestAnimationFrame(this.sortLoop);
+        },
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-                this.cullWorker.postMessage({ method: "clear" });
-                this.sortWorker.postMessage({ method: "clear" });
+                this.basicWorker.postMessage({ method: "clear" });
+                this.occlusionWorker.postMessage({ method: "clear" });
                 this.occlusionReady = true;
                 this.pendingOcclusion = false;
                 this.originalBuffers = [];
@@ -546,11 +575,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 		}
 
 		const bufCopy = matrices.buffer.slice(0);
-                this.cullWorker.postMessage({
+                this.basicWorker.postMessage({
                         method: "push",
                         matrices: matrices.buffer
                 }, [matrices.buffer]);
-                this.sortWorker.postMessage({
+                this.occlusionWorker.postMessage({
                         method: "push",
                         matrices: bufCopy
                 }, [bufCopy]);
@@ -567,7 +596,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
 
-                if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
+                if (this.basicReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
                         this.basicCullNow();
                 }
         },
@@ -583,8 +612,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (this.mesh && this.mesh.geometry) {
                         this.mesh.geometry.instanceCount = 0;
                 }
-                this.cullWorker.postMessage({ method: "clear" });
-                this.sortWorker.postMessage({ method: "clear" });
+                this.basicWorker.postMessage({ method: "clear" });
+                this.occlusionWorker.postMessage({ method: "clear" });
                 this.occlusionReady = true;
                 this.pendingOcclusion = false;
                 this.centerAndScaleTexture.needsUpdate = true;
@@ -592,7 +621,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 for (const buf of this.originalBuffers) {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
-                this.sortReady = true;
+                this.basicReady = true;
         },
 
         // Apply the configured foveation level to the current XR session.
@@ -642,8 +671,8 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
 
         basicCullNow: function () {
-                if (!this.sortReady) return;
-                this.sortReady = false;
+                if (!this.basicReady) return;
+                this.basicReady = false;
                 const viewMatrix = this.getModelViewMatrix();
                 const projectionMatrix = this.getProjectionMatrix();
                 let camera_mtx = viewMatrix.elements;
@@ -656,7 +685,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                this.cullWorker.postMessage({
+                this.basicWorker.postMessage({
                         method: "basicCull",
                         view: view.buffer,
                         mvp: mvp.buffer,
@@ -672,7 +701,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lastObjectQuat.copy(this.object.quaternion);
         },
 
-        occlusionSortNow: function () {
+        occlusionCullNow: function () {
                 const viewMatrix = this.getModelViewMatrix();
                 const projectionMatrix = this.getProjectionMatrix();
                 let camera_mtx = viewMatrix.elements;
@@ -682,13 +711,27 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let mvp = new Float32Array(mvpMatrix.elements);
 
                 const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
-                this.sortWorker.postMessage({
+                this.occlusionWorker.postMessage({
                         method: "occlusionSort",
                         view: view.buffer,
                         mvp: mvp.buffer,
                         depthIndex: this.lastDepthIndex,
                         scale: globalScale,
                 }, [view.buffer, mvp.buffer]);
+        },
+
+        triggerSplatSort: function () {
+                if (!this.sortWorkerReady) return;
+                const basic = this.filteredCull || new Uint32Array(0);
+                const occ = this.occlusionResult || new Uint32Array(0);
+                const useOcc = this.occlusionTimestamp >= this.basicTimestamp;
+                this.sortWorkerReady = false;
+                this.splatSortWorker.postMessage({
+                        method: "splatSort",
+                        basic: basic.buffer,
+                        occlusion: occ.buffer,
+                        useOcclusion: useOcc,
+                }, [basic.buffer, occ.buffer]);
         },
         getProjectionMatrix: function (camera) {
                 if (!camera) {
@@ -968,6 +1011,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const sortedIndexes = occlusionSort(matrices, depthIndex, view, mvp, scaleFactor);
                                         self.postMessage({ method: "occlusionSort", sortedIndexes }, [sortedIndexes.buffer]);
                                 }
+                        }
+                        if (e.data.method == "splatSort") {
+                                const basic = new Uint32Array(e.data.basic);
+                                const occlusion = new Uint32Array(e.data.occlusion);
+                                const useOcclusion = e.data.useOcclusion;
+                                const result = useOcclusion ? occlusion : basic;
+                                self.postMessage({ method: "splatSort", finalIndexes: result }, [result.buffer]);
                         }
                 };
 	},
