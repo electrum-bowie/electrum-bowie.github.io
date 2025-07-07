@@ -5,9 +5,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 xrPixelRatio: { type: 'number', default: 0.8 },
                 // Fixed foveation level. Set to 0 to disable foveated rendering
                 foveation: { type: 'number', default: 1.0 },
-                minXrPixelRatio: { type: 'number', default: 0.4 },
-                maxXrPixelRatio: { type: 'number', default: 1.1 },
-                targetFramerate: { type: 'number', default: 60 },
         },
         init: function () {
                 // aframe-specific data
@@ -16,12 +13,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
 
-                this.currentXrPixelRatio = xrPixelRatio;
-                this.minXrPixelRatio = this.data.minXrPixelRatio;
-                this.maxXrPixelRatio = this.data.maxXrPixelRatio;
-                this.targetFramerate = this.data.targetFramerate;
-                this._frameCount = 0;
-                this._frameTime = 0;
                 const gl = this.el.sceneEl.renderer.getContext();
                 gl.disable(gl.DITHER);
                 this.originalBuffers = [];
@@ -47,14 +38,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         } else {
                                 console.log("Multiview not supported");
                         }
-                        const session = this.el.sceneEl.renderer.xr.getSession?.();
-                        if (session && session.updateTargetFrameRate) {
-                                try {
-                                        await session.updateTargetFrameRate(60);
-                                } catch (e) {
-                                        console.warn('Failed to set target FPS', e);
-                                }
-                        }
+
                         this.applyFoveationLevel();
                         this.currentXrPixelRatio = this.data.xrPixelRatio;
                         this.updateXRScale();
@@ -526,24 +510,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
                         this.sortSplatsNow();
-                }
-
-                // Dynamic XR resolution based on frame rate
-                if (this.el.sceneEl.is('vr-mode') || this.el.sceneEl.renderer.xr.isPresenting) {
-                        this._frameCount++;
-                        this._frameTime += timeDelta;
-                        if (this._frameTime >= 1000) {
-                                const fps = 1000 * this._frameCount / this._frameTime;
-                                if (fps < this.targetFramerate && this.currentXrPixelRatio > this.minXrPixelRatio) {
-                                        this.currentXrPixelRatio = Math.max(this.minXrPixelRatio, this.currentXrPixelRatio - 0.05);
-                                        this.updateXRScale();
-                                } else if (fps > this.targetFramerate && this.currentXrPixelRatio < this.maxXrPixelRatio) {
-                                        this.currentXrPixelRatio = Math.min(this.maxXrPixelRatio, this.currentXrPixelRatio + 0.05);
-                                        this.updateXRScale();
-                                }
-                                this._frameCount = 0;
-                                this._frameTime = 0;
-                        }
                 }
         },
         updateQuality: function () {
