@@ -5,6 +5,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 xrPixelRatio: { type: 'number', default: 0.8 },
                 // Fixed foveation level. Set to 0 to disable foveated rendering
                 foveation: { type: 'number', default: 1.0 },
+                minXrPixelRatio: { type: 'number', default: 0.4 },
+                maxXrPixelRatio: { type: 'number', default: 1.1 },
+                targetFramerate: { type: 'number', default: 60 },
         },
         init: function () {
                 // aframe-specific data
@@ -14,6 +17,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
 
                 this.currentXrPixelRatio = xrPixelRatio;
+                this.minXrPixelRatio = this.data.minXrPixelRatio;
+                this.maxXrPixelRatio = this.data.maxXrPixelRatio;
+                this.targetFramerate = this.data.targetFramerate;
                 this._frameCount = 0;
                 this._frameTime = 0;
                 const gl = this.el.sceneEl.renderer.getContext();
@@ -75,6 +81,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 		this.object = object;
                 this.renderer = renderer;
                 
+		this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+                this.renderer.outputEncoding = THREE.sRGBEncoding;
+		
                 this.textureReady = false;
                 this.object.frustumCulled = false;
 
@@ -91,9 +100,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.tmpCameraPos = new THREE.Vector3();
                 this.tmpCameraQuat = new THREE.Quaternion();
                 this.viewRotationMatrix = new THREE.Matrix3();
-
-                this.occlusionReady = true;
-                this.pendingOcclusion = false;
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
@@ -235,7 +241,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 void main () {
                                         float len2 = dot(vPosition, vPosition);
-                                        if (len2 > 4.5) discard;
+                                        if (len2 > 4.0) discard;
                                         float B = exp(-len2) * vColor.a;
                                         gl_FragColor = vec4(vColor.rgb, B);
                                 }
@@ -281,40 +287,19 @@ AFRAME.registerComponent("gaussian_splatting", {
 			),
 		);
 
-                this.worker.onmessage = (e) => {
-                        if (e.data.method === "basicCull") {
-                                const filtered = new Uint32Array(e.data.depthIndex);
-                                mesh.geometry.attributes.splatIndex.set(filtered);
-                                mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                                mesh.geometry.instanceCount = filtered.length;
-                                this.sortReady = true;
-                                if (this.occlusionReady) {
-                                        this.occlusionReady = false;
-                                        this.occlusionSortNow();
-                                } else {
-                                        this.pendingOcclusion = true;
-                                }
-                        } else if (e.data.method === "occlusionSort") {
-                                let indexes = new Uint32Array(e.data.sortedIndexes);
-                                mesh.geometry.attributes.splatIndex.set(indexes);
-                                mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                                mesh.geometry.instanceCount = indexes.length;
-                                this.occlusionReady = true;
-                                if (this.pendingOcclusion) {
-                                        this.pendingOcclusion = false;
-                                        this.occlusionReady = false;
-                                        this.occlusionSortNow();
-                                }
-                        }
-                };
+		this.worker.onmessage = (e) => {
+			let indexes = new Uint32Array(e.data.sortedIndexes);
+			mesh.geometry.attributes.splatIndex.set(indexes);
+			mesh.geometry.attributes.splatIndex.needsUpdate = true;
+			mesh.geometry.instanceCount = indexes.length;
+			this.sortReady = true;
+		};
 		this.sortReady = true;
 	},
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
                 this.worker.postMessage({ method: "clear" });
-                this.occlusionReady = true;
-                this.pendingOcclusion = false;
                 this.originalBuffers = [];
                 this.isCaching = true;
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -406,7 +391,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         this.needsQualityUpdate = false;
                                         this.updateQuality();
                                 }
-                                this.basicCullNow();
+                                this.sortSplatsNow();
                         });
         },
         pushDataBuffer: function (buffer, vertexCount) {
@@ -419,7 +404,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (this.isCaching) {
                         this.originalBuffers.push(buffer.slice(0));
                 }
-
+                
 		let u_buffer = new Uint8Array(buffer);
 		let f_buffer = new Float32Array(buffer);
 		let matrices = new Float32Array(vertexCount * 16);
@@ -540,7 +525,25 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
 
                 if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
-                        this.basicCullNow();
+                        this.sortSplatsNow();
+                }
+
+                // Dynamic XR resolution based on frame rate
+                if (this.el.sceneEl.is('vr-mode') || this.el.sceneEl.renderer.xr.isPresenting) {
+                        this._frameCount++;
+                        this._frameTime += timeDelta;
+                        if (this._frameTime >= 1000) {
+                                const fps = 1000 * this._frameCount / this._frameTime;
+                                if (fps < this.targetFramerate && this.currentXrPixelRatio > this.minXrPixelRatio) {
+                                        this.currentXrPixelRatio = Math.max(this.minXrPixelRatio, this.currentXrPixelRatio - 0.05);
+                                        this.updateXRScale();
+                                } else if (fps > this.targetFramerate && this.currentXrPixelRatio < this.maxXrPixelRatio) {
+                                        this.currentXrPixelRatio = Math.min(this.maxXrPixelRatio, this.currentXrPixelRatio + 0.05);
+                                        this.updateXRScale();
+                                }
+                                this._frameCount = 0;
+                                this._frameTime = 0;
+                        }
                 }
         },
         updateQuality: function () {
@@ -556,8 +559,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.mesh.geometry.instanceCount = 0;
                 }
                 this.worker.postMessage({ method: "clear" });
-                this.occlusionReady = true;
-                this.pendingOcclusion = false;
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
@@ -612,7 +613,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
         },
 
-        basicCullNow: function () {
+        sortSplatsNow: function () {
                 if (!this.sortReady) return;
                 this.sortReady = false;
                 const viewMatrix = this.getModelViewMatrix();
@@ -628,7 +629,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
                 this.worker.postMessage({
-                        method: "basicCull",
+                        method: "sort",
                         view: view.buffer,
                         mvp: mvp.buffer,
                         scale: globalScale,
@@ -641,24 +642,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.camera.getWorldQuaternion(this.lastCameraQuat);
                 this.lastObjectPos.copy(this.object.position);
                 this.lastObjectQuat.copy(this.object.quaternion);
-        },
-
-        occlusionSortNow: function () {
-                const viewMatrix = this.getModelViewMatrix();
-                const projectionMatrix = this.getProjectionMatrix();
-                let camera_mtx = viewMatrix.elements;
-                let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
-
-                const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
-                let mvp = new Float32Array(mvpMatrix.elements);
-
-                const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
-                this.worker.postMessage({
-                        method: "occlusionSort",
-                        view: view.buffer,
-                        mvp: mvp.buffer,
-                        scale: globalScale,
-                }, [view.buffer, mvp.buffer]);
         },
         getProjectionMatrix: function (camera) {
                 if (!camera) {
@@ -701,10 +684,8 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
         createWorker: function (self) {
                 let matrices = undefined;
-                let occlusionHidden = new Uint8Array(4096 * 4096);
-                let lastDepthIndex = null;
 
-                const basicCull = function basicCull(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
+                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const sizeThreshold = 0.00001;
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
@@ -787,16 +768,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = new Uint32Array(validCount);
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        return depthIndex;
-                };
-
-                const occlusionSort = function occlusionSort(matrices, depthIndex, view, mvp, scaleFactor = 1.0) {
+                        // Occlusion-based discarding
                         const gridSize = 16;
                         const coverage = new Float32Array(gridSize * gridSize);
-                        let tmpVisible = new Uint32Array(depthIndex.length);
+                        let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
                         for (let j = depthIndex.length - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
+                                const baseRadius = matrices[idx * 16 + 15];
                                 const px = matrices[idx * 16 + 12];
                                 const py = matrices[idx * 16 + 13];
                                 const pz = matrices[idx * 16 + 14];
@@ -807,11 +786,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
                                 if (clip_w <= 0.0) {
-                                        tmpVisible[visibleCount++] = idx;
-                                        continue;
+                                        tmpVisible[visibleCount++] = idx;   // keep it in the draw list
+                                        continue;                           // but do NOT touch coverage[]
                                 }
 
                                 const invW  = 1.0 / clip_w;
+                                
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
@@ -819,15 +799,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (ndcZ < -1.0 || ndcZ > 1.0 ||
                                     ndcX < -1.0 || ndcX > 1.0 ||
                                     ndcY < -1.0 || ndcY > 1.0) {
-                                    tmpVisible[visibleCount++] = idx;
-                                    continue;
+                                    tmpVisible[visibleCount++] = idx; // keep it in the draw list
+                                    continue; // centre is outside — skip splat
                                 }
                                 
-                                const baseRadius = matrices[idx * 16 + 15];
-
                                 const opacity = matrices[idx * 16 + 11];
+
                                 const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-                                const radius = baseRadius * scaleFactor;
+                                const radius = matrices[idx * 16 + 15] * scaleFactor;
                                 const ndcRadius = Math.abs(radius / depth);
 
                                 const cx = (ndcX * 0.5 + 0.5) * gridSize;
@@ -840,13 +819,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const minY = Math.max(0, Math.floor(cy - r));
                                 const maxY = Math.min(gridSize - 1, Math.ceil(cy + r));
 
-                                const isBig = baseRadius > 0.05;
-                                
                                 const r2 = r * r;
                                 for (let y = minY; y <= maxY; y++) {
-                                        if (isBig) continue;
                                         for (let x = minX; x <= maxX; x++) {
-                                                if (isBig) continue;
                                                 const dx = x + 0.5 - cx;
                                                 const dy = y + 0.5 - cy;
                                                 const norm = (dx * dx + dy * dy) / r2;
@@ -855,7 +830,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 totalWeight += weight;
                                                 occludedWeight += coverage[y * gridSize + x] * weight;
                                         }
-				}
+                                }
+
+                                const isBig = false; // baseRadius > 0.05;
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
                                 if (isBig || totalWeight === 0.0 || stillVisible > 0.01) {
                                         tmpVisible[visibleCount++] = idx;
@@ -867,7 +844,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         if (norm > 1.0) continue;
                                                         const weight = Math.exp(-norm);
                                                         const idx2 = y * gridSize + x;
-                                                        const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity);
+                                                        
+                                                        // αlpha contribution at this pixel:
+                                                        const alphaContrib = weight * (opacity * opacity * opacity * opacity);
                                                         coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
                                                 }
                                         }
@@ -879,73 +858,35 @@ AFRAME.registerComponent("gaussian_splatting", {
                         return result;
                 };
 
-                self.onmessage = (e) => {
-                        if (e.data.method == "clear") {
-                                matrices = undefined;
-                                occlusionHidden.fill(0);
-                                lastDepthIndex = null;
-                        }
-                        if (e.data.method == "push") {
-                                new_matrices = new Float32Array(e.data.matrices);
+		self.onmessage = (e) => {
+			if (e.data.method == "clear") {
+				matrices = undefined;
+			}
+			if (e.data.method == "push") {
+				new_matrices = new Float32Array(e.data.matrices);
+				if (matrices === undefined) {
+					matrices = new_matrices;
+				} else {
+					resized = new Float32Array(matrices.length + new_matrices.length);
+					resized.set(matrices);
+					resized.set(new_matrices, matrices.length);
+					matrices = resized;
+				}
+			}
+                        if (e.data.method == "sort") {
                                 if (matrices === undefined) {
-                                        matrices = new_matrices;
-                                } else {
-                                        resized = new Float32Array(matrices.length + new_matrices.length);
-                                        resized.set(matrices);
-                                        resized.set(new_matrices, matrices.length);
-                                        matrices = resized;
-                                }
-                                if (occlusionHidden.length < matrices.length / 16) {
-                                        let tmp = new Uint8Array(matrices.length / 16);
-                                        tmp.set(occlusionHidden);
-                                        occlusionHidden = tmp;
-                                }
-                        }
-                        if (e.data.method == "basicCull") {
-                                if (matrices === undefined) {
-                                        const depthIndex = new Uint32Array(0);
-                                        self.postMessage({ method: "basicCull", depthIndex }, [depthIndex.buffer]);
+                                        const sortedIndexes = new Uint32Array(1);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 } else {
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const depthIndex = basicCull(matrices, view, mvp, scaleFactor, focal);
-                                        
-                                        lastDepthIndex = depthIndex.slice(0);
-
-                                        let filtered = new Uint32Array(depthIndex.length);
-                                        let count = 0;
-                                        for (let i = 0; i < depthIndex.length; i++) {
-                                                const idx = depthIndex[i];
-                                                if (!occlusionHidden[idx]) filtered[count++] = idx;
-                                        }
-                                        filtered = filtered.slice(0, count);
-                                        self.postMessage({ method: "basicCull", depthIndex: filtered }, [filtered.buffer]);
+                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, focal);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
-                        if (e.data.method == "occlusionSort") {
-                                if (matrices === undefined || lastDepthIndex === null) {
-                                        const sortedIndexes = new Uint32Array(0);
-                                        self.postMessage({ method: "occlusionSort", sortedIndexes }, [sortedIndexes.buffer]);
-                                } else {
-                                        const view = new Float32Array(e.data.view);
-                                        const mvp = new Float32Array(e.data.mvp);
-                                        const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
-                                        const sortedIndexes = occlusionSort(matrices, lastDepthIndex, view, mvp, scaleFactor);
-                                        occlusionHidden.fill(1);
-                                        for (let i = 0; i < sortedIndexes.length; i++) occlusionHidden[sortedIndexes[i]] = 0;
-                                        let filtered = new Uint32Array(lastDepthIndex.length);
-                                        let count = 0;
-                                        for (let i = 0; i < lastDepthIndex.length; i++) {
-                                                const idx = lastDepthIndex[i];
-                                                if (!occlusionHidden[idx]) filtered[count++] = idx;
-                                        }
-                                        filtered = filtered.slice(0, count);
-                                        self.postMessage({ method: "occlusionSort", sortedIndexes: filtered }, [filtered.buffer]);
-                                }
-                        }
-                };
+		};
 	},
 	processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
