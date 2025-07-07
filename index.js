@@ -734,7 +734,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         // Occlusion-based discarding
                         const gridSize = 16;
                         const coverage = new Float32Array(gridSize * gridSize);
-                        let tmpVisible = new Uint32Array(depthIndex.length);
+                        let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
                         for (let j = depthIndex.length - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
