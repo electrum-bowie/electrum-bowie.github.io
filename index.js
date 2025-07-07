@@ -719,19 +719,17 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                         }
 
-let pairs = new Array(validCount);
-for (let i = 0; i < validCount; i++) {
-    pairs[i] = { idx: validIndexList[i], depth: depthList[i] };
-}
-// Sort ascending by depth, then ascending by idx
-pairs.sort((a, b) => {
-    if (a.depth === b.depth) return a.idx - b.idx;
-    return a.depth - b.depth;
-});
-let depthIndex = new Uint32Array(validCount);
-for (let i = 0; i < validCount; i++) {
-    depthIndex[i] = pairs[i].idx;
-}
+                        // This is a 16 bit single-pass counting sort
+			let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
+			let counts0 = new Uint32Array(256 * 256);
+			for (let i = 0; i < validCount; i++) {
+				sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+				counts0[sizeList[i]]++;
+			}
+			let starts0 = new Uint32Array(256 * 256);
+			for (let i = 1; i < 256 * 256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+                        let depthIndex = new Uint32Array(validCount);
+                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
                         const gridSize = 20;
