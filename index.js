@@ -792,6 +792,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const minY = Math.max(0, Math.floor(cy - rY));
                                 const maxY = Math.min(gridY - 1, Math.ceil (cy + rY));
 
+                                const rX2 = rX*rX;
+                                const rY2 = rY*rY;
+                                
                                 const isBig = false // baseRadius > 0.1;
                                 
                                 for (let y = minY; y <= maxY; y++) {
@@ -802,7 +805,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 const dy = y + 0.5 - cy;
                                                 const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                 const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
-                                                const dist2 = (ix*ix)/(rX*rX) + (iy*iy)/(rY*rY);
+                                                const dist2 = (ix*ix)/rX2 + (iy*iy)/rY2;
                                                 if (dist2 > 1.0) continue;
                                                 const norm = dist2;
                                                 const weight = Math.exp(-norm);
@@ -810,6 +813,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 occludedWeight += coverage[y * gridX + x] * weight;
                                         }
                                 }
+                                
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
                                 if (isBig || totalWeight <= 0.0 || stillVisible > 0.001) {
                                         tmpVisible[visibleCount++] = idx;
@@ -819,7 +823,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 const dy = y + 0.5 - cy;
                                                 const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                 const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
-                                                const dist2 = (ix*ix)/(rX*rX) + (iy*iy)/(rY*rY);
+                                                const dist2 = (ix*ix)/rX2 + (iy*iy)/rY2;
                                                 if (dist2 > 1.0) continue;
                                                 const norm = dist2;
                                                 const weight = Math.exp(-norm);
