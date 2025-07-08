@@ -735,7 +735,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const gridX = 16;                      // columns  (= horizontal bins)
                         const gridY = gridX >> 1;
                         
-                        const visMargin = 1.0; // in grid cells
+                        const visMargin = 0.0; // in grid cells
 
                         const coverage = new Float32Array(gridX * gridY);
                         let tmpVisible = new Uint32Array(validCount);
