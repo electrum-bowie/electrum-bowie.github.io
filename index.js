@@ -732,12 +732,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridX = 16;                      // columns  (= horizontal bins)
-                        const gridY = gridX >> 1;
-                        
-                        const visMargin = 0.0; // in grid cells
-
-                        const coverage = new Float32Array(gridX * gridY);
+                        const gridSize = 16;
+                        const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
                         for (let j = depthIndex.length - 1; j >= 0; j--) {
@@ -780,23 +776,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const opacity = matrices[idx * 16 + 11];
                                 const ndcRadius = Math.abs(radius / depth);
                                 
-                                const cx = (ndcX * 0.5 + 0.5) * gridX;
-                                const cy = (ndcY * 0.5 + 0.5) * gridY;
-                               const rX = ndcRadius * gridX * 0.5 + visMargin;
-                                const rY = ndcRadius * gridY * 0.5 + visMargin;
+                                const cx = (ndcX * 0.5 + 0.5) * gridSize;
+                                const cy = (ndcY * 0.5 + 0.5) * gridSize;
+                                const r = ndcRadius * gridSize * 0.5;
 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
-                                
-                                const minX = Math.max(0, Math.floor(cx - rX));
-                                const maxX = Math.min(gridX - 1, Math.ceil (cx + rX));
-                                const minY = Math.max(0, Math.floor(cy - rY));
-                                const maxY = Math.min(gridY - 1, Math.ceil (cy + rY));
+                                const minX = Math.max(0, Math.floor(cx - r));
+                                const maxX = Math.min(gridSize - 1, Math.ceil(cx + r));
+                                const minY = Math.max(0, Math.floor(cy - r));
+                                const maxY = Math.min(gridSize - 1, Math.ceil(cy + r));
 
-                                const rX2 = rX*rX;
-                                const rY2 = rY*rY;
-                                
                                 const isBig = false // baseRadius > 0.1;
                                 
+                                const r2 = r * r;
                                 for (let y = minY; y <= maxY; y++) {
                                         if (isBig) continue;
                                         for (let x = minX; x <= maxX; x++) {
@@ -805,15 +797,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 const dy = y + 0.5 - cy;
                                                 const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                 const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
-                                                const dist2 = ((ix*ix)/rX2) + ((iy*iy)/rY2);
-                                                if (dist2 > 1.0) continue;
-                                                const norm = dist2;
+                                                const dist2 = ix * ix + iy * iy;
+                                                if (dist2 > r2) continue;
+                                                const norm = (dx * dx + dy * dy) / r2;
                                                 const weight = Math.exp(-norm);
                                                 totalWeight += weight;
-                                                occludedWeight += coverage[y * gridX + x] * weight;
+                                                occludedWeight += coverage[y * gridSize + x] * weight;
                                         }
                                 }
-                                
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
                                 if (isBig || totalWeight <= 0.0 || stillVisible > 0.001) {
                                         tmpVisible[visibleCount++] = idx;
@@ -823,11 +814,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 const dy = y + 0.5 - cy;
                                                 const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                 const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
-                                                const dist2 = ((ix*ix)/rX2) + ((iy*iy)/rY2);
-                                                if (dist2 > 1.0) continue;
-                                                const norm = dist2;
+                                                const dist2 = ix * ix + iy * iy;
+                                                if (dist2 > r2) continue;
+                                                const norm = (dx * dx + dy * dy) / r2;
                                                 const weight = Math.exp(-norm);
-                                                const idx2 = y * gridX + x;
+                                                const idx2 = y * gridSize + x;
                                                 const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity * opacity);
                                                 coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
                                         }
