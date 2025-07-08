@@ -805,8 +805,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 const dy = y + 0.5 - cy;
                                                 const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                 const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
-                                                const dist2 = (ix*ix)/rX2 + (iy*iy)/rY2;
-                                                if (dist2 > 0.5) continue;
+                                                const dist2 = ((ix*ix)/rX2) + ((iy*iy)/rY2);
+                                                if (dist2 > 1.0) continue;
                                                 const norm = dist2;
                                                 const weight = Math.exp(-norm);
                                                 totalWeight += weight;
@@ -823,8 +823,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 const dy = y + 0.5 - cy;
                                                 const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                 const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
-                                                const dist2 = (ix*ix)/rX2 + (iy*iy)/rY2;
-                                                if (dist2 > 0.5) continue;
+                                                const dist2 = ((ix*ix)/rX2) + ((iy*iy)/rY2);
+                                                if (dist2 > 1.0) continue;
                                                 const norm = dist2;
                                                 const weight = Math.exp(-norm);
                                                 const idx2 = y * gridX + x;
