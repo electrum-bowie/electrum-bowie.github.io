@@ -708,7 +708,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.5);
                                 const pixelRadius = focal * radiusTransparencyProduct / (-depth);
-                                if ((pixelRadius < 0.9 * edgeMultiplier) && !skipCull) continue;
+                                if ((pixelRadius < 1.0 * edgeMultiplier) && !skipCull) continue;
                                 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
@@ -732,7 +732,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSize = 20;
+                        const gridSize = 50;
                         const coverage = new Float32Array(gridSize * gridSize);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
@@ -806,7 +806,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         }
                                 }
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || totalWeight === 0.0 || stillVisible > 0.0) {
+                                if (isBig || totalWeight === 0.0 || stillVisible > 0.0000001) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
                                         for (let x = minX; x <= maxX; x++) {
