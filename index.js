@@ -5,7 +5,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 xrPixelRatio: { type: 'number', default: 0.8 },
                 // Fixed foveation level. Set to 0 to disable foveated rendering
                 foveation: { type: 'number', default: 1.0 },
-                clusterDensity: { type: 'number', default: 32 },
         },
         init: function () {
                 // aframe-specific data
@@ -598,7 +597,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         mvp: mvp.buffer,
                         scale: globalScale,
                         focal: focal,
-                        clusterDensity: this.data.clusterDensity,
                 }, [view.buffer, mvp.buffer]);
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
                 this.lastObjectMatrix.copy(this.object.matrixWorld);
@@ -649,138 +647,6 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
         createWorker: function (self) {
                 let matrices = undefined;
-                let clusterTree = null;
-                let splatData = null;
-                let clusterDensity = 32;
-
-                const buildSplatData = (mvp, view) => {
-                        const vertexCount = matrices.length / 16;
-                        splatData = new Array(vertexCount);
-                        for (let i = 0; i < vertexCount; i++) {
-                                const px = matrices[i * 16 + 12];
-                                const py = matrices[i * 16 + 13];
-                                const pz = matrices[i * 16 + 14];
-
-                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
-                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
-                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
-                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
-
-                                const invW = 1.0 / clip_w;
-                                const ndcX = clip_x * invW;
-                                const ndcY = clip_y * invW;
-
-                                const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-                                const radius = matrices[i * 16 + 15];
-                                const ndcRadius = Math.abs(radius / depth);
-                                const opacity = matrices[i * 16 + 11];
-
-                                splatData[i] = { index: i, x: ndcX, y: ndcY, r: ndcRadius, depth: depth, opacity: opacity };
-                        }
-                };
-
-                const buildCluster = (indices) => {
-                        let node = { children: null, indices: null, cx: 0, cy: 0, r: 0, maxDepth: -Infinity, opacity: 0 };
-                        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-                        for (const id of indices) {
-                                const s = splatData[id];
-                                if (s.x - s.r < minX) minX = s.x - s.r;
-                                if (s.x + s.r > maxX) maxX = s.x + s.r;
-                                if (s.y - s.r < minY) minY = s.y - s.r;
-                                if (s.y + s.r > maxY) maxY = s.y + s.r;
-                                if (s.depth > node.maxDepth) node.maxDepth = s.depth;
-                                if (s.opacity > node.opacity) node.opacity = s.opacity;
-                        }
-                        node.cx = (minX + maxX) / 2;
-                        node.cy = (minY + maxY) / 2;
-                        node.r = Math.sqrt((maxX - minX) * (maxX - minX) + (maxY - minY) * (maxY - minY)) / 2;
-
-                        if (indices.length <= clusterDensity) {
-                                node.indices = indices.slice().sort((a, b) => splatData[b].depth - splatData[a].depth);
-                                return node;
-                        }
-                        const axis = (maxX - minX) > (maxY - minY) ? 'x' : 'y';
-                        indices.sort((a, b) => splatData[a][axis] - splatData[b][axis]);
-                        const mid = indices.length >> 1;
-                        node.children = [buildCluster(indices.slice(0, mid)), buildCluster(indices.slice(mid))];
-                        return node;
-                };
-
-                const clusterOccluded = (node, coverage, gridSize) => {
-                        const cx = (node.cx * 0.5 + 0.5) * gridSize;
-                        const cy = (node.cy * 0.5 + 0.5) * gridSize;
-                        const r = node.r * gridSize * 0.5;
-                        const minX = Math.max(0, Math.floor(cx - r));
-                        const maxX = Math.min(gridSize - 1, Math.ceil(cx + r));
-                        const minY = Math.max(0, Math.floor(cy - r));
-                        const maxY = Math.min(gridSize - 1, Math.ceil(cy + r));
-                        for (let y = minY; y <= maxY; y++) {
-                                for (let x = minX; x <= maxX; x++) {
-                                        if (coverage[y * gridSize + x] < node.opacity) return false;
-                                }
-                        }
-                        return true;
-                };
-
-                const splatOcclusion = (splat, coverage, gridSize, visible) => {
-                        const cx = (splat.x * 0.5 + 0.5) * gridSize;
-                        const cy = (splat.y * 0.5 + 0.5) * gridSize;
-                        const r = splat.r * gridSize * 0.5;
-                        const opacity = splat.opacity;
-                        const minX = Math.max(0, Math.floor(cx - r));
-                        const maxX = Math.min(gridSize - 1, Math.ceil(cx + r));
-                        const minY = Math.max(0, Math.floor(cy - r));
-                        const maxY = Math.min(gridSize - 1, Math.ceil(cy + r));
-                        let totalWeight = 0.0, occludedWeight = 0.0;
-                        const r2 = r * r;
-                        for (let y = minY; y <= maxY; y++) {
-                                for (let x = minX; x <= maxX; x++) {
-                                        const dx = x + 0.5 - cx;
-                                        const dy = y + 0.5 - cy;
-                                        const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
-                                        const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
-                                        const dist2 = ix * ix + iy * iy;
-                                        if (dist2 > r2) continue;
-                                        const norm = (dx * dx + dy * dy) / r2;
-                                        const weight = Math.exp(-norm);
-                                        totalWeight += weight;
-                                        occludedWeight += coverage[y * gridSize + x] * weight;
-                                }
-                        }
-                        const stillVisible = 1 - (occludedWeight / totalWeight);
-                        if (totalWeight <= 0.0 || stillVisible > 0.001) {
-                                visible.push(splat.index);
-                                for (let y = minY; y <= maxY; y++) {
-                                        for (let x = minX; x <= maxX; x++) {
-                                                const dx = x + 0.5 - cx;
-                                                const dy = y + 0.5 - cy;
-                                                const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
-                                                const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
-                                                const dist2 = ix * ix + iy * iy;
-                                                if (dist2 > r2) continue;
-                                                const norm = (dx * dx + dy * dy) / r2;
-                                                const weight = Math.exp(-norm);
-                                                const idx2 = y * gridSize + x;
-                                                const alphaContrib = weight * (opacity ** 6);
-                                                coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
-                                        }
-                                }
-                        }
-                };
-
-                const traverseClusters = (node, coverage, gridSize, visible, validMask) => {
-                        if (clusterOccluded(node, coverage, gridSize)) return;
-                        if (node.children) {
-                                const [a, b] = node.children[0].maxDepth < node.children[1].maxDepth ? node.children : [node.children[1], node.children[0]];
-                                traverseClusters(a, coverage, gridSize, visible, validMask);
-                                traverseClusters(b, coverage, gridSize, visible, validMask);
-                        } else {
-                                for (const idx of node.indices) {
-                                        if (!validMask[idx]) continue;
-                                        splatOcclusion(splatData[idx], coverage, gridSize, visible);
-                                }
-                        }
-                };
 
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const sizeThreshold = 0.00001;
@@ -865,21 +731,103 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = new Uint32Array(validCount);
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        if (!clusterTree) {
-                                buildSplatData(mvp, view);
-                                clusterTree = buildCluster([...Array(vertexCount).keys()]);
-                                let result = new Uint32Array(validCount);
-                                for (let i = 0; i < validCount; i++) result[i] = depthIndex[validCount - 1 - i];
-                                return result;
-                        }
+                        // Occlusion-based discarding
                         const gridSize = 16;
                         const coverage = new Float32Array(gridSize * gridSize);
-                        const validMask = new Uint8Array(vertexCount);
-                        for (let i = 0; i < validCount; i++) validMask[validIndexList[i]] = 1;
-                        let visible = [];
-                        traverseClusters(clusterTree, coverage, gridSize, visible, validMask);
-                        let result = new Uint32Array(visible.length);
-                        for (let i = 0; i < visible.length; i++) result[i] = visible[i];
+                        let tmpVisible = new Uint32Array(validCount);
+                        let visibleCount = 0;
+                        for (let j = depthIndex.length - 1; j >= 0; j--) {
+                                const idx = depthIndex[j];
+                                const px = matrices[idx * 16 + 12];
+                                const py = matrices[idx * 16 + 13];
+                                const pz = matrices[idx * 16 + 14];
+
+                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
+                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
+                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
+                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+
+                                if (clip_w <= 0.0) {
+                                        tmpVisible[visibleCount++] = idx;
+                                        continue;
+                                }
+
+                                const invW  = 1.0 / clip_w;
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+                                const ndcZ  = clip_z * invW;
+
+                                const baseRadius = matrices[idx * 16 + 15];
+                                const radius = baseRadius * scaleFactor;
+                                
+                                const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+                                
+                                if (ndcZ < -1.0 || ndcZ > 1.0 ||
+                                    ndcX < -1.0 || ndcX > 1.0 ||
+                                    ndcY < -1.0 || ndcY > 1.0) {
+                                    tmpVisible[visibleCount++] = idx;
+                                    continue;
+                                }
+                                else if (depth + radius > -0.2) {
+                                         tmpVisible[visibleCount++] = idx;
+                                         continue; // centre is inside the view and too close to the camera
+                                }
+                                
+                                const opacity = matrices[idx * 16 + 11];
+                                const ndcRadius = Math.abs(radius / depth);
+                                
+                                const cx = (ndcX * 0.5 + 0.5) * gridSize;
+                                const cy = (ndcY * 0.5 + 0.5) * gridSize;
+                                const r = ndcRadius * gridSize * 0.5;
+
+                                let totalWeight = 0.0, occludedWeight = 0.0;
+                                const minX = Math.max(0, Math.floor(cx - r));
+                                const maxX = Math.min(gridSize - 1, Math.ceil(cx + r));
+                                const minY = Math.max(0, Math.floor(cy - r));
+                                const maxY = Math.min(gridSize - 1, Math.ceil(cy + r));
+
+                                const isBig = false // baseRadius > 0.1;
+                                
+                                const r2 = r * r;
+                                for (let y = minY; y <= maxY; y++) {
+                                        if (isBig) continue;
+                                        for (let x = minX; x <= maxX; x++) {
+                                                if (isBig) continue;
+                                                const dx = x + 0.5 - cx;
+                                                const dy = y + 0.5 - cy;
+                                                const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
+                                                const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
+                                                const dist2 = ix * ix + iy * iy;
+                                                if (dist2 > r2) continue;
+                                                const norm = (dx * dx + dy * dy) / r2;
+                                                const weight = Math.exp(-norm);
+                                                totalWeight += weight;
+                                                occludedWeight += coverage[y * gridSize + x] * weight;
+                                        }
+                                }
+                                const stillVisible = 1 - (occludedWeight / totalWeight);
+                                if (isBig || totalWeight <= 0.0 || stillVisible > 0.001) {
+                                        tmpVisible[visibleCount++] = idx;
+                                        for (let y = minY; y <= maxY; y++) {
+                                        for (let x = minX; x <= maxX; x++) {
+                                                const dx = x + 0.5 - cx;
+                                                const dy = y + 0.5 - cy;
+                                                const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
+                                                const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
+                                                const dist2 = ix * ix + iy * iy;
+                                                if (dist2 > r2) continue;
+                                                const norm = (dx * dx + dy * dy) / r2;
+                                                const weight = Math.exp(-norm);
+                                                const idx2 = y * gridSize + x;
+                                                const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity * opacity);
+                                                coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
+                                        }
+                                        }
+                                }
+                        }
+
+                        let result = new Uint32Array(visibleCount);
+                        for (let i = 0; i < visibleCount; i++) result[i] = tmpVisible[visibleCount - 1 - i];
                         return result;
                 };
 
@@ -907,7 +855,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        if (typeof e.data.clusterDensity === 'number') clusterDensity = e.data.clusterDensity;
                                         const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, focal);
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
