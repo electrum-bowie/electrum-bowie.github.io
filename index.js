@@ -782,8 +782,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const rX = ndcRadius * gridSizeX * 0.5;
                                 const rY = ndcRadius * gridSizeY * 0.5;
 
+                                let totalWeight = 0.0;
                                 let occluded = true;
-                                const coverageUpdates = [];
                                 const minX = Math.max(0, Math.floor(cx - rX));
                                 const maxX = Math.min(gridSizeX - 1, Math.ceil(cx + rX));
                                 const minY = Math.max(0, Math.floor(cy - rY));
@@ -805,19 +805,27 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 if (dist2 > 1.0) continue;
                                                 const norm = (dx * dx) / r2x + (dy * dy) / r2y;
                                                 const weight = Math.exp(-norm);
-                                                const idx2 = y * gridSizeX + x;
-                                                const curCoverage = coverage[idx2];
-                                                const alphaContrib = weight * opacity; // (opacity ** 6);
-                                                const newCoverage = curCoverage + (1 - curCoverage) * alphaContrib;
-                                                coverageUpdates.push([idx2, newCoverage]);
-                                                if (curCoverage < 0.99) occluded = false;
+                                                totalWeight += weight;
+                                                if (coverage[y * gridSizeX + x] < 0.99) occluded = false;
                                         }
                                 }
-
-                                if (isBig || !occluded) {
+                                
+                                if (isBig || totalWeight <= 0.0 || !occluded) {
                                         tmpVisible[visibleCount++] = idx;
-                                        for (const [idx2, value] of coverageUpdates) {
-                                                coverage[idx2] = value;
+                                        for (let y = minY; y <= maxY; y++) {
+                                        for (let x = minX; x <= maxX; x++) {
+                                                const dx = x + 0.5 - cx;
+                                                const dy = y + 0.5 - cy;
+                                                const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
+                                                const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
+                                                const dist2 = (ix * ix) / r2x + (iy * iy) / r2y;
+                                                if (dist2 > 1.0) continue;
+                                                const norm = (dx * dx) / r2x + (dy * dy) / r2y;
+                                                const weight = Math.exp(-norm);
+                                                const idx2 = y * gridSizeX + x;
+                                                const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity * opacity);
+                                                coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
+                                        }
                                         }
                                 }
                         }
