@@ -804,7 +804,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 const dist2 = (ix * ix) / r2x + (iy * iy) / r2y;
                                                 if (dist2 > 1.0) continue;
                                                 const norm = (dx * dx) / r2x + (dy * dy) / r2y;
-                                                if (norm > 2.0) continue;
+                                                if (norm > 1.0) continue;
                                                 const weight = Math.exp(-norm);
                                                 const alphaContrib = weight * opacity; // (opacity * opacity * opacity * opacity * opacity * opacity);
                                                 totalWeight += alphaContrib;
@@ -824,7 +824,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 const dist2 = (ix * ix) / r2x + (iy * iy) / r2y;
                                                 if (dist2 > 1.0) continue;
                                                 const norm = (dx * dx) / r2x + (dy * dy) / r2y;
-                                                if (norm > 2.0) continue;
+                                                if (norm > 1.0) continue;
                                                 const weight = Math.exp(-norm);
                                                 const idx2 = y * gridSizeX + x;
                                                 const alphaContrib = weight * opacity; // (opacity * opacity * opacity * opacity * opacity * opacity);
