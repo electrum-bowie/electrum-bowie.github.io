@@ -806,7 +806,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 const norm = (dx * dx) / r2x + (dy * dy) / r2y;
                                                 if (norm > 1.0) continue;
                                                 const weight = Math.exp(-norm);
-                                                const alphaContrib = weight * opacity; // (opacity * opacity * opacity * opacity * opacity * opacity);
+                                                const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity * opacity);
                                                 totalWeight += alphaContrib;
                                                 occludedWeight += coverage[y * gridSizeX + x] * alphaContrib;
                                         }
