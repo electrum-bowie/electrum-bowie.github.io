@@ -784,28 +784,35 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
-                                const minX = Math.max(0, Math.floor(cx - rX));
-                                const maxX = Math.min(gridSizeX - 1, Math.ceil(cx + rX));
-                                const minY = Math.max(0, Math.floor(cy - rY));
-                                const maxY = Math.min(gridSizeY - 1, Math.ceil(cy + rY));
+                                const minX = Math.max(0, Math.floor(cx - rX - 1));
+                                const maxX = Math.min(gridSizeX - 1, Math.ceil(cx + rX + 1));
+                                const minY = Math.max(0, Math.floor(cy - rY - 1));
+                                const maxY = Math.min(gridSizeY - 1, Math.ceil(cy + rY + 1));
 
                                 const isBig = false // baseRadius > 0.1;
                                 
                                 const r2x = rX * rX;
                                 const r2y = rY * rY;
+                                const subSamples = [
+                                        [-0.25, -0.25],
+                                        [-0.25, 0.25],
+                                        [0.25, -0.25],
+                                        [0.25, 0.25],
+                                ];
                                 for (let y = minY; y <= maxY; y++) {
                                         if (isBig) continue;
                                         for (let x = minX; x <= maxX; x++) {
                                                 if (isBig) continue;
-                                                const dx = x + 0.5 - cx;
-                                                const dy = y + 0.5 - cy;
-                                                const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
-                                                const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
-                                                const dist2 = (ix * ix) / r2x + (iy * iy) / r2y;
-                                                if (dist2 > 1.0) continue;
-                                                const norm = (dx * dx) / r2x + (dy * dy) / r2y;
-                                                const weight = Math.exp(-norm);
-                                                const alphaContrib = weight * opacity; // (opacity * opacity * opacity * opacity * opacity * opacity);
+                                                let weightSum = 0.0;
+                                                for (let s = 0; s < 4; s++) {
+                                                        const dx = x + 0.5 + subSamples[s][0] - cx;
+                                                        const dy = y + 0.5 + subSamples[s][1] - cy;
+                                                        const norm = (dx * dx) / r2x + (dy * dy) / r2y;
+                                                        weightSum += Math.exp(-norm);
+                                                }
+                                                const weight = weightSum * 0.25;
+                                                if (weight <= 1e-6) continue;
+                                                const alphaContrib = weight * opacity;
                                                 totalWeight += alphaContrib;
                                                 occludedWeight += coverage[y * gridSizeX + x] * alphaContrib;
                                         }
@@ -815,19 +822,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (isBig || totalWeight <= 0.0 || stillVisible > 0.001) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
-                                        for (let x = minX; x <= maxX; x++) {
-                                                const dx = x + 0.5 - cx;
-                                                const dy = y + 0.5 - cy;
-                                                const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
-                                                const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
-                                                const dist2 = (ix * ix) / r2x + (iy * iy) / r2y;
-                                                if (dist2 > 1.0) continue;
-                                                const norm = (dx * dx) / r2x + (dy * dy) / r2y;
-                                                const weight = Math.exp(-norm);
-                                                const idx2 = y * gridSizeX + x;
-                                                const alphaContrib = weight * opacity; // (opacity * opacity * opacity * opacity * opacity * opacity);
-                                                coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
-                                        }
+                                                for (let x = minX; x <= maxX; x++) {
+                                                        const idx2 = y * gridSizeX + x;
+                                                        let weightSum = 0.0;
+                                                        for (let s = 0; s < 4; s++) {
+                                                                const dx = x + 0.5 + subSamples[s][0] - cx;
+                                                                const dy = y + 0.5 + subSamples[s][1] - cy;
+                                                                const norm = (dx * dx) / r2x + (dy * dy) / r2y;
+                                                                weightSum += Math.exp(-norm);
+                                                        }
+                                                        const weight = weightSum * 0.25;
+                                                        if (weight <= 1e-6) continue;
+                                                        const alphaContrib = weight * opacity;
+                                                        coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
+                                                }
                                         }
                                 }
                         }
