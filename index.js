@@ -785,9 +785,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
                                 const minX = Math.max(0, Math.floor(cx - rX));
-                                const maxX = Math.min(gridSizeX - 1, Math.ceil(cx + rX));
+                                const maxX = Math.min(gridSizeX, Math.ceil(cx + rX));
                                 const minY = Math.max(0, Math.floor(cy - rY));
-                                const maxY = Math.min(gridSizeY - 1, Math.ceil(cy + rY));
+                                const maxY = Math.min(gridSizeY, Math.ceil(cy + rY));
 
                                 const isBig = false // baseRadius > 0.1;
                                 
@@ -795,7 +795,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         for (let x = minX; x <= maxX; x++) {
                                                 const alphaContrib = opacity ** 4;
                                                 totalWeight += alphaContrib;
-                                                occludedWeight += coverage[x * gridSizeY + y] * alphaContrib;
+                                                occludedWeight += coverage[y * gridSizeX + x] * alphaContrib;
                                         }
                                 }
                                 
@@ -804,7 +804,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
                                                 for (let x = minX; x <= maxX; x++) {
-                                                        const idx2 = x * gridSizeY + y;
+                                                        const idx2 = y * gridSizeX + x;
                                                         const alphaContrib = opacity ** 4;
                                                         coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
                                                 }
