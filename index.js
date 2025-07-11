@@ -775,7 +775,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 
                                 const opacity = matrices[idx * 16 + 11];
-                                const ndcRadius = Math.abs(radius / depth) * 0.5;
+                                const ndcRadius = Math.abs(radius / depth);
                                 
                                 const cx = (ndcX * 0.5 + 0.5) * gridSizeX;
                                 const cy = (ndcY * 0.5 + 0.5) * gridSizeY;
