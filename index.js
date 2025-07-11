@@ -784,7 +784,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
-                                const cellSize = 2.0; // adjust downwards for smaller overlaps
+                                const cellSize = 4.0; // adjust downwards for smaller overlaps
                                 const minX = Math.max(0, Math.floor(cx - rX * cellSize));
                                 const maxX = Math.min(gridSizeX - 1, Math.ceil(cx + rX * cellSize));
                                 const minY = Math.max(0, Math.floor(cy - rY * cellSize));
@@ -801,7 +801,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                 const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
                                                 const dist2 = (ix * ix) / r2x + (iy * iy) / r2y;
-                                                // if (dist2 > 1.0) continue;
+                                                if (dist2 > 1.0) continue;
                                                 const weight = Math.exp(-dist2);
                                                 const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity * opacity);
                                                 totalWeight += alphaContrib;
@@ -810,7 +810,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || totalWeight <= 0.0 || stillVisible > 0.000001) {
+                                if (isBig || totalWeight <= 0.0 || stillVisible > 0.0) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
                                                 for (let x = minX; x <= maxX; x++) {
@@ -819,7 +819,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                         const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
                                                         const dist2 = (ix * ix) / r2x + (iy * iy) / r2y;
-                                                        // if (dist2 > 1.0) continue;
+                                                        if (dist2 > 1.0) continue;
                                                         const weight = Math.exp(-dist2);
                                                         const idx2 = y * gridSizeX + x;
                                                         const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity * opacity);
