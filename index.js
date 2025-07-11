@@ -774,7 +774,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                          continue; // centre is inside the view and too close to the camera
                                 }
                                 
-                                if (depth < 0.01 || baseRadius <= 0.0) {
+                                if (depth <= 0.0 || baseRadius <= 0.0) {
                                         tmpVisible[visibleCount++] = idx;
                                          continue;
                                 }
@@ -824,7 +824,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const stillVisible = 1.0 - (occluded / totalWeight);
                                 
                                 const isBig = false; // baseRadius > 0.1;
-                                if (isBig || stillVisible > 0.0) {
+                                if (isBig || stillVisible > 0.01) {
                                         tmpVisible[visibleCount++] = idx;
                                         rowStart = minY * gridSizeX;
                                         for (let yy = 0; yy < h; yy++, rowStart += gridSizeX) {
