@@ -749,7 +749,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
                                 if (clip_w <= 0.0 || clip_z <= 0.0 || clip_z <= -clip_w) {
-                                        tmpVisible[visibleCount++] = idx;
                                         continue;
                                 }
 
