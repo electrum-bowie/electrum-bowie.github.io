@@ -732,8 +732,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSizeX = 8;
-                        const gridSizeY = 16;
+                        const gridSizeX = 16;
+                        const gridSizeY = 32;
                         const coverage = new Float32Array(gridSizeX * gridSizeY);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
@@ -794,15 +794,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const r2x = rX * rX;
                                 const r2y = rY * rY;
                                 for (let y = minY; y <= maxY; y++) {
-                                        if (isBig) continue;
                                         for (let x = minX; x <= maxX; x++) {
-                                                if (isBig) continue;
                                                 const dx = x + 0.5 - cx;
                                                 const dy = y + 0.5 - cy;
                                                 const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                 const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
                                                 const dist2 = (ix * ix) / r2x + (iy * iy) / r2y;
-                                                if (dist2 > 4.0) continue;
+                                                // if (dist2 > 1.0) continue;
                                                 const norm = (dx * dx) / r2x + (dy * dy) / r2y;
                                                 const weight = Math.exp(-norm);
                                                 const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity * opacity);
@@ -821,7 +819,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                         const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
                                                         const dist2 = (ix * ix) / r2x + (iy * iy) / r2y;
-                                                        if (dist2 > 4.0) continue;
+                                                        // if (dist2 > 1.0) continue;
                                                         const norm = (dx * dx) / r2x + (dy * dy) / r2y;
                                                         const weight = Math.exp(-norm);
                                                         const idx2 = y * gridSizeX + x;
