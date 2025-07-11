@@ -784,10 +784,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
-                                const minX = Math.max(0, Math.floor(cx - rX));
-                                const maxX = Math.min(gridSizeX - 1, Math.ceil(cx + rX));
-                                const minY = Math.max(0, Math.floor(cy - rY));
-                                const maxY = Math.min(gridSizeY - 1, Math.ceil(cy + rY));
+                                const overlapReduction = 0.3; // Reduce this value to lower overlap further, range [0.0 - 1.0]
+
+                                const minX = Math.max(0, Math.floor(cx - rX * overlapReduction));
+                                const maxX = Math.min(gridSizeX - 1, Math.ceil(cx + rX * overlapReduction));
+                                const minY = Math.max(0, Math.floor(cy - rY * overlapReduction));
+                                const maxY = Math.min(gridSizeY - 1, Math.ceil(cy + rY * overlapReduction));
 
                                 const isBig = false // baseRadius > 0.1;
                                 
