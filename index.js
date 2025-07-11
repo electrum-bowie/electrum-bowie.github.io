@@ -800,9 +800,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                 const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
                                                 const dist2 = (ix * ix) / r2x + (iy * iy) / r2y;
-                                                // if (dist2 > 1.0) continue;
-                                                const norm = (dx * dx) / r2x + (dy * dy) / r2y;
-                                                const weight = Math.exp(-norm);
+                                                const weight = Math.exp(-dist2);
                                                 const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity * opacity);
                                                 totalWeight += alphaContrib;
                                                 occludedWeight += coverage[y * gridSizeX + x] * alphaContrib;
@@ -819,9 +817,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         const ix = Math.max(Math.abs(dx) - 0.5, 0.0);
                                                         const iy = Math.max(Math.abs(dy) - 0.5, 0.0);
                                                         const dist2 = (ix * ix) / r2x + (iy * iy) / r2y;
-                                                        // if (dist2 > 1.0) continue;
-                                                        const norm = (dx * dx) / r2x + (dy * dy) / r2y;
-                                                        const weight = Math.exp(-norm);
+                                                        const weight = Math.exp(-dist2);
                                                         const idx2 = y * gridSizeX + x;
                                                         const alphaContrib = weight * (opacity * opacity * opacity * opacity * opacity * opacity);
                                                         coverage[idx2] = coverage[idx2] + (1 - coverage[idx2]) * alphaContrib;
