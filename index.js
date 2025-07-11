@@ -749,6 +749,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
                                 if (clip_w <= 0.0 || clip_z <= 0.0 || clip_z <= -clip_w) {
+                                        tmpVisible[visibleCount++] = idx;
                                         continue;
                                 }
 
@@ -776,36 +777,55 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const opacity = matrices[idx * 16 + 11];
                                 const ndcRadius = Math.abs(baseRadius / depth);
                                 
+                                const alpha = opacity * opacity * opacity * opacity;
+
                                 const cx = (ndcX * 0.5 + 0.5) * gridSizeX;
                                 const cy = (ndcY * 0.5 + 0.5) * gridSizeY;
+                                
                                 const rX = ndcRadius * gridSizeX * 0.5;
                                 const rY = ndcRadius * gridSizeY * 0.5;
-
-                                let totalWeight = 0.0, occludedWeight = 0.0;
                                 
                                 const minX = Math.max(0, Math.floor(cx - rX));
-                                const maxX = Math.min(gridSizeX - 1, Math.ceil(cx + rX));
+                                const maxX = Math.min(gridSizeX - 1, Math.ceil (cx + rX));
                                 const minY = Math.max(0, Math.floor(cy - rY));
-                                const maxY = Math.min(gridSizeY - 1, Math.ceil(cy + rY));
-
-                                const isBig = false // baseRadius > 0.1;
+                                const maxY = Math.min(gridSizeY - 1, Math.ceil (cy + rY));
                                 
-                                for (let y = minY; y <= maxY; y++) {
-                                        for (let x = minX; x <= maxX; x++) {
-                                                const alphaContrib = opacity ** 4;
-                                                totalWeight += alphaContrib;
-                                                occludedWeight += coverage[y * gridSizeX + x] * alphaContrib;
-                                        }
+                                const w = maxX - minX + 1;
+                                const h = maxY - minY + 1;
+                                
+                                if (w <= 0 || h <= 0) {
+                                        tmpVisible[visibleCount++] = idx;
+                                        continue;
                                 }
                                 
-                                const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || totalWeight <= 0.0 || stillVisible > 0.0) {
+                                const totalWeight = alpha * w * h;
+                                
+                                if (totalWeight <= 0.0) {
                                         tmpVisible[visibleCount++] = idx;
-                                        for (let y = minY; y <= maxY; y++) {
-                                                for (let x = minX; x <= maxX; x++) {
-                                                        const idx2 = y * gridSizeX + x;
-                                                        const alphaContrib = opacity ** 4;
-                                                        coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
+                                        continue;
+                                }
+                                
+                                let occluded = 0.0;
+                                let rowStart = minY * gridSizeX;
+                                for (let yy = 0; yy < h; yy++, rowStart += gridSizeX) {
+                                        let base = rowStart + minX;
+                                        for (let xx = 0; xx < w; xx++) {
+                                                occluded += coverage[base + xx];
+                                        }
+                                }
+                                occluded *= alpha;
+                                
+                                const stillVisible = 1.0 - (occluded / totalWeight);
+                                
+                                const isBig = false; // baseRadius > 0.1;
+                                if (isBig || stillVisible > 0.0) {
+                                        tmpVisible[visibleCount++] = idx;
+                                        rowStart = minY * gridSizeX;
+                                        for (let yy = 0; yy < h; yy++, rowStart += gridSizeX) {
+                                                let base = rowStart + minX;
+                                                for (let xx = 0; xx < w; xx++) {
+                                                        const i2 = base + xx;
+                                                        coverage[i2] = Math.min(1.0, coverage[i2] + alpha);
                                                 }
                                         }
                                 }
