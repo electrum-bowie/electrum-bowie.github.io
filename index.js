@@ -776,17 +776,17 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const ndcRadius = Math.abs(baseRadius / depth);
                                 
-                                const cx = (ndcX * 0.5 + 0.5) * gridSizeX;
-                                const cy = (ndcY * 0.5 + 0.5) * gridSizeY;
-                                const rX = ndcRadius * gridSizeX * 0.5;
-                                const rY = ndcRadius * gridSizeY * 0.5;
-
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
-                                const minX = Math.max(0, Math.floor(cx - rX));
-                                const maxX = Math.min(gridSizeX - 1, Math.ceil(cx + rX));
-                                const minY = Math.max(0, Math.floor(cy - rY));
-                                const maxY = Math.min(gridSizeY - 1, Math.ceil(cy + rY));
+                                const cx = Math.floor((ndcX * 0.5 + 0.5) * gridSizeX);
+                                const cy = Math.floor((ndcY * 0.5 + 0.5) * gridSizeY);
+                                const rX = Math.ceil(ndcRadius * gridSizeX * 0.5);
+                                const rY = Math.ceil(ndcRadius * gridSizeY * 0.5);
+                                
+                                const minX = Math.max(0, cx - rX);
+                                const maxX = Math.min(gridSizeX - 1, cx + rX);
+                                const minY = Math.max(0, cy - rY);
+                                const maxY = Math.min(gridSizeY - 1, cy + rY);
 
                                 const isBig = false; // baseRadius > 0.1;
                                 
