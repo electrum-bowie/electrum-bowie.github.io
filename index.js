@@ -799,11 +799,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const w = maxX - minX + 1;
                                 const h = maxY - minY + 1;
                                 
-                                if (w < 1 || h < 1) {
-                                        tmpVisible[visibleCount++] = idx;
-                                        continue;
-                                }
-                                
                                 const totalWeight = alpha * w * h;
                                 
                                 if (totalWeight <= 0.0) {
