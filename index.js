@@ -1,4 +1,4 @@
-opooAFRAME.registerComponent("gaussian_splatting", {
+AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 0.8 },
