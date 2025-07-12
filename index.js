@@ -732,8 +732,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSizeX = 8;
-                        const gridSizeY = 16;
+                        const gridSizeX = 16;
+                        const gridSizeY = 32;
                         const coverage = new Float32Array(gridSizeX * gridSizeY);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
@@ -774,25 +774,37 @@ AFRAME.registerComponent("gaussian_splatting", {
                                          continue; // centre is inside the view and too close to the camera
                                 }
                                 
+                                const ndcRadius = Math.abs(baseRadius / depth);
+                                
+                                const cx = (ndcX * 0.5 + 0.5) * gridSizeX;
+                                const cy = (ndcY * 0.5 + 0.5) * gridSizeY;
+                                const rX = ndcRadius * gridSizeX * 0.5;
+                                const rY = ndcRadius * gridSizeY * 0.5;
+
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
+                                const minX = Math.max(0, Math.floor(cx - rX));
+                                const maxX = Math.min(gridSizeX - 1, Math.ceil(cx + rX));
+                                const minY = Math.max(0, Math.floor(cy - rY));
+                                const maxY = Math.min(gridSizeY - 1, Math.ceil(cy + rY));
+
                                 const isBig = false; // baseRadius > 0.1;
                                 
                                 const opacity = matrices[idx * 16 + 11];
                                 const alphaContrib = opacity ** 4;
                                 
-                                for (let y = 0; y <= gridSizeY; y++) {
-                                        for (let x = 0; x <= gridSizeX; x++) {
+                                for (let y = minY; y <= maxY; y++) {
+                                        for (let x = minX; x <= maxX; x++) {
                                                 totalWeight += alphaContrib;
                                                 occludedWeight += coverage[y * gridSizeX + x] * alphaContrib;
                                         }
                                 }
                                 
-                                const stillVisible = occludedWeight / totalWeight;
-                                if (isBig || stillVisible < 0.99999999) { // || totalWeight === 0.0
+                                const stillVisible = 1 - (occludedWeight / totalWeight);
+                                if (isBig || stillVisible < 0.00000001) { // || totalWeight === 0.0
                                         tmpVisible[visibleCount++] = idx;
-                                        for (let y = 0; y <= gridSizeY; y++) {
-                                                for (let x = 0; x <= gridSizeX; x++) {
+                                        for (let y = minY; y <= maxY; y++) {
+                                                for (let x = minX; x <= maxX; x++) {
                                                         const idx2 = y * gridSizeX + x;
                                                         coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
                                                 }
