@@ -776,15 +776,18 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const ndcRadius    = Math.abs(baseRadius / depth);
                                 
-                                const cx           = (ndcX * 0.5 + 0.5) * (gridSizeX - 1);
-                                const cy           = (ndcY * 0.5 + 0.5) * (gridSizeY - 1);
-                                const cellRadiusX  = ndcRadius * (gridSizeX - 1) * 0.5;
-                                const cellRadiusY  = ndcRadius * (gridSizeY - 1) * 0.5;
+                                const cx = Math.floor((ndcX * 0.5 + 0.5) * (gridSizeX - 1));
+                                const cy = Math.floor((ndcY * 0.5 + 0.5) * (gridSizeY - 1));
+                                const rX = Math.max(1, Math.ceil(ndcRadius * (gridSizeX - 1) * 0.5));
+                                const rY = Math.max(1, Math.ceil(ndcRadius * (gridSizeY - 1) * 0.5));
                                 
-                                const minX = Math.max(0,             Math.floor(cx - cellRadiusX));
-                                const maxX = Math.min(gridSizeX - 1, Math.ceil (cx + cellRadiusX));
-                                const minY = Math.max(0,             Math.floor(cy - cellRadiusY));
-                                const maxY = Math.min(gridSizeY - 1, Math.ceil (cy + cellRadiusY));
+                                const minX = Math.max(0,             cx - rX);
+                                const maxX = Math.min(gridSizeX - 1, cx + rX);
+                                const minY = Math.max(0,             cy - rY);
+                                const maxY = Math.min(gridSizeY - 1, cy + rY);
+                                
+                                const opacity = matrices[idx * 16 + 11];
+                                const alphaContrib = opacity ** 4;
                                 
                                 if (maxX <= minX || maxY <= minY) {
                                         tmpVisible[visibleCount++] = idx;
@@ -793,9 +796,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 
                                 const isBig = false; // baseRadius > 0.1;
-                                
-                                const opacity = matrices[idx * 16 + 11];
-                                const alphaContrib = opacity ** 4;
                                 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
