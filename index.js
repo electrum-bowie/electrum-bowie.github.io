@@ -809,8 +809,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
                                 if (isBig || stillVisible > 0.00000001) { // || totalWeight === 0.0
                                         tmpVisible[visibleCount++] = idx;
-                                        for (let y = minY; y <= maxY; y++) {
-                                                for (let x = minX; x <= maxX; x++) {
+                                        for (let y = minY; y < maxY; y++) {
+                                                for (let x = minX; x < maxX; x++) {
                                                         const idx2 = y * gridSizeX + x;
                                                         coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
                                                 }
