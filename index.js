@@ -708,7 +708,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.5);
                                 const pixelRadius = focal * radiusTransparencyProduct / (-depth);
-                                if ((pixelRadius < 1.0 * edgeMultiplier) && !skipCull) continue;
+                                if ((pixelRadius < 0.85 * edgeMultiplier) && !skipCull) continue;
                                 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
@@ -732,8 +732,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSizeX = 16;
-                        const gridSizeY = 32;
+                        const gridSizeX = 8;
+                        const gridSizeY = 16;
                         const coverage = new Float32Array(gridSizeX * gridSizeY);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
@@ -749,7 +749,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
                                 if (clip_w <= 0.0 || clip_z <= 0.0 || clip_z <= -clip_w) {
-                                        continue;
+                                        tmpVisible[visibleCount++] = idx;
+                                         continue;
                                 }
 
                                 const invW  = 1.0 / clip_w;
@@ -773,8 +774,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                          continue; // centre is inside the view and too close to the camera
                                 }
                                 
-                                const opacity = matrices[idx * 16 + 11];
-                                const ndcRadius = Math.abs(baseRadius / depth);
+                                if (depth <= 0.0 || baseRadius <= 0.0) {
+                                        tmpVisible[visibleCount++] = idx;
+                                         continue;
+                                }
+                        
+                                const ndcRadius = baseRadius / depth;
                                 
                                 const cx = (ndcX * 0.5 + 0.5) * gridSizeX;
                                 const cy = (ndcY * 0.5 + 0.5) * gridSizeY;
@@ -788,11 +793,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const minY = Math.max(0, Math.floor(cy - rY));
                                 const maxY = Math.min(gridSizeY - 1, Math.ceil(cy + rY));
 
-                                const isBig = false // baseRadius > 0.1;
+                                const isBig = false; // baseRadius > 0.1;
+                                
+                                const opacity = matrices[idx * 16 + 11];
+                                const alphaContrib = opacity ** 4;
                                 
                                 for (let y = minY; y <= maxY; y++) {
                                         for (let x = minX; x <= maxX; x++) {
-                                                const alphaContrib = opacity ** 4;
                                                 totalWeight += alphaContrib;
                                                 occludedWeight += coverage[y * gridSizeX + x] * alphaContrib;
                                         }
@@ -804,7 +811,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         for (let y = minY; y <= maxY; y++) {
                                                 for (let x = minX; x <= maxX; x++) {
                                                         const idx2 = y * gridSizeX + x;
-                                                        const alphaContrib = opacity ** 4;
                                                         coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
                                                 }
                                         }
