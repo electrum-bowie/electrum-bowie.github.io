@@ -789,7 +789,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const opacity = matrices[idx * 16 + 11];
                                 const alphaContrib = opacity ** 4;
                                 
-                                if (maxX <= minX || maxY <= minY) {
+                                if (maxX < minX || maxY < minY) {
                                         tmpVisible[visibleCount++] = idx;
                                         coverage[minY * gridSizeX + minX] = Math.min(1.0, coverage[minY * gridSizeX + minX] + alphaContrib);
                                         continue;
