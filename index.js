@@ -659,6 +659,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 			let sizeList = new Int32Array(depthList.buffer);
 			let validIndexList = new Int32Array(vertexCount);
 			let validCount = 0;
+
+			function iround(v) { return Math.floor(v + 0.5); }
+
                         for (let i = 0; i < vertexCount; i++) {
                                 const px = matrices[i * 16 + 12];
                                 const py = matrices[i * 16 + 13];
@@ -774,49 +777,52 @@ AFRAME.registerComponent("gaussian_splatting", {
                                          continue; // centre is inside the view and too close to the camera
                                 }
                                 
-                                const ndcRadius = Math.abs(radius / depth);
-                                
-                                const cx = (ndcX * 0.5 + 0.5) * gridSizeX;
-                                const cy = (ndcY * 0.5 + 0.5) * gridSizeY;
+                                const ndcRadius = radius / -depth;
+                                const ndcRadius2 = ndcRadius * ndcRadius;
+
+                                const cx = (ndcX * 0.5 + 0.5) * (gridSizeX - 1);
+                                const cy = (ndcY * 0.5 + 0.5) * (gridSizeY - 1);
                                 const rX = ndcRadius * gridSizeX * 0.5;
                                 const rY = ndcRadius * gridSizeY * 0.5;
 
-                                const minX = Math.max(0, Math.round(cx - rX));
-                                const maxX = Math.min(gridSizeX - 1, Math.round(cx + rX));
-                                const minY = Math.max(0, Math.round(cy - rY));
-                                const maxY = Math.min(gridSizeY - 1, Math.round(cy + rY));
+				const i0 = iround(cx - rX);
+				const i1 = iround(cx + rX);
+				const j0 = iround(cy - rY);
+				const j1 = iround(cy + rY);
+
+				const minX = Math.max(0, Math.min(gridSizeX-1, i0));
+				const maxX = Math.max(0, Math.min(gridSizeX-1, i1));
+				const minY = Math.max(0, Math.min(gridSizeY-1, j0));
+				const maxY = Math.max(0, Math.min(gridSizeY-1, j1));
 
                                 const opacity = matrices[idx * 16 + 11];
                                 const alphaContrib = opacity ** 4;
-                                
-                                if (maxX < minX || maxY < minY) {
-                                        tmpVisible[visibleCount++] = idx;
-                                        continue;
-                                }
                                 
                                 const isBig = false; // baseRadius > 0.1;
                                 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
-                                for (let y = minY; y < maxY; y++) {
-                                        for (let x = minX; x < maxX; x++) {
+                                for (let y = minY; y <= maxY; y++) {
+                                        for (let x = minX; x <= maxX; x++) {
                                                 totalWeight += alphaContrib;
                                                 occludedWeight += coverage[y * gridSizeX + x] * alphaContrib;
                                         }
                                 }
                                 
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || stillVisible > 0.001) { // || totalWeight === 0.0
+                                if (isBig || stillVisible > 0.0001) { // || totalWeight === 0.0
                                         tmpVisible[visibleCount++] = idx;
-                                        for (let y = minY; y < maxY; y++) {
-                                                for (let x = minX; x < maxX; x++) {
-                                                        const cellCx = (x + 0.5) / gridSizeX * 2 - 1;
-                                                        const cellCy = (y + 0.5) / gridSizeY * 2 - 1;
-                                                        const dx = cellCx - ndcX;
-                                                        const dy = cellCy - ndcY;
-                                                        if (dx*dx + dy*dy <= ndcRadius*ndcRadius) {
-                                                                coverage[y * gridSizeX + x] += alphaContrib;
-                                                        }
+                                        for (let y = minY; y <= maxY; y++) {
+						const cellCenterY = ((y + 0.5) * 2.0 / gridSizeY) - 1.0;
+						const dy2 = (cellCenterY - ndcY) ** 2;
+                                                for (let x = minX; x <= maxX; x++) {
+							const cellCenterX = ((x + 0.5) * 2.0 / gridSizeX) - 1.0;
+							const dx2 = (cellCenterX - ndcX) ** 2;
+
+							if (dx2 + dy2 > ndcRadius2) continue;
+
+							const idx2 = y * gridSizeX + x;
+                                                        coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
                                                 }
                                         }
                                 }
