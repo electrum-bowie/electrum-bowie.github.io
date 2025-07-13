@@ -730,8 +730,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSizeX = 64;
-                        const gridSizeY = 32;
+                        const gridSizeX = 32;
+                        const gridSizeY = 16;
 
 			const cellW = 1.0 / gridSizeX;
 			const cellH = 1.0 / gridSizeY;
@@ -763,11 +763,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcZ  = clip_z * invW;
                                 
                                 const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
-                                
-                                if (depth > 0.0) {
-                                        tmpVisible[visibleCount++] = idx;
-                                         continue;
-                                }
 
                          	if (ndcZ < -1.0 || ndcZ > 1.0 ||
                                     ndcX < -1.0 || ndcX > 1.0 ||
@@ -798,7 +793,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const maxY = Math.max(0, Math.min(gridSizeY, j1));
                                 
                                 const opacity = matrices[idx * 16 + 11];
-                                const alphaContrib = opacity ** 3;
+                                const alphaContrib = opacity ** 2;
                                 
                                 const isBig = false; // baseRadius > 0.01;
 
