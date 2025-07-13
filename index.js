@@ -709,7 +709,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.4);
                                 const pixelRadius = focal * radiusTransparencyProduct / (-depth);
-                                if ((pixelRadius < 0.75 * edgeMultiplier) && !skipCull) continue;
+                                if ((pixelRadius < 0.85 * edgeMultiplier) && !skipCull) continue;
                                 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
@@ -738,7 +738,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 			const cellW = 1.0 / gridSizeX;
 			const cellH = 1.0 / gridSizeY;
-			const cellDiff  = Math.max(cellW, cellH);
+			const cellDiff  = Math.max(cellW, cellH) * 2.5;
 			const cellDiff2 = cellDiff * cellDiff;
                         
                         const coverage = new Float32Array(gridSizeX * gridSizeY);
@@ -769,12 +769,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const baseRadius = matrices[idx * 16 + 15];
                                 const radius = baseRadius * scaleFactor;
-                        
+
+                         	if (ndcZ < -1.0 || ndcZ > 1.0 ||
+                                    ndcX < -1.0 || ndcX > 1.0 ||
+                                    ndcY < -1.0 || ndcY > 0.9) { // 0.9 = prevented line at the top from appearing
+                                    tmpVisible[visibleCount++] = idx;
+                                    continue;
+                                }
+
                                 const ndcRadius = radius / -depth;
                                 const ndcRadius2 = ndcRadius * ndcRadius;
 
-                                const cx = (ndcX * 0.5 + 0.5) * (gridSizeX - 1);
-                                const cy = (ndcY * 0.5 + 0.5) * (gridSizeY - 1);
+                                const cx = (ndcX * 0.5 + 0.5) * gridSizeX;
+                                const cy = (ndcY * 0.5 + 0.5) * gridSizeY;
                                 const rX = ndcRadius * gridSizeX * 0.5;
                                 const rY = ndcRadius * gridSizeY * 0.5;
 
@@ -783,15 +790,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const j0 = Math.round(cy - rY);
 				const j1 = Math.round(cy + rY);
 
-				const minX = Math.max(0, Math.min(gridSizeX - 1, i0));
-				const maxX = Math.max(0, Math.min(gridSizeX - 1, i1));
-				const minY = Math.max(0, Math.min(gridSizeY - 1, j0));
-				const maxY = Math.max(0, Math.min(gridSizeY - 1, j1));
+				const minX = Math.max(0, Math.min(gridSizeX, i0));
+				const maxX = Math.max(0, Math.min(gridSizeX, i1));
+				const minY = Math.max(0, Math.min(gridSizeY, j0));
+				const maxY = Math.max(0, Math.min(gridSizeY, j1));
                                 
                                 const opacity = matrices[idx * 16 + 11];
                                 const alphaContrib = opacity ** 3;
                                 
-                                const isBig = false; // baseRadius > 0.1;
+                                const isBig = baseRadius > 0.01;
 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
@@ -803,7 +810,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || stillVisible > 0.01) { // || totalWeight === 0.0
+                                if (isBig || stillVisible > 0.1) { // || totalWeight === 0.0
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
 						const cellCenterY = ((y + 0.5) * 2.0 / gridSizeY) - 1.0;
