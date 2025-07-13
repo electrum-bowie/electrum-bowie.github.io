@@ -769,9 +769,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                          continue;
                                 }
 
-                                const baseRadius = matrices[idx * 16 + 15];
-                                const radius = baseRadius * scaleFactor;
-
                          	if (ndcZ < -1.0 || ndcZ > 1.0 ||
                                     ndcX < -1.0 || ndcX > 1.0 ||
                                     ndcY < -1.0 || ndcY > 1.0) { // ndcY > 0.9 to prevent line at the top from appearing
@@ -779,6 +776,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                     continue;
                                 }
 
+                                const baseRadius = matrices[idx * 16 + 15];
+                                const radius = baseRadius * scaleFactor;
+                                
                                 const ndcRadius = radius / -depth;
                                 const ndcRadius2 = ndcRadius * ndcRadius;
 
