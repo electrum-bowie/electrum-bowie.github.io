@@ -740,14 +740,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 			const cellH = 1.0 / gridSizeY;
 			const cellDiff  = Math.max(cellW, cellH);
 			const cellDiff2 = cellDiff * cellDiff;
-
-                        const baseRadius = matrices[idx * 16 + 15];
-                        const radius = baseRadius * scaleFactor;
-                        
-                        const isBig = false; // baseRadius > 0.1;
-
-                        const opacity = matrices[idx * 16 + 11];
-                        const alphaContrib = opacity ** 6;
                         
                         const coverage = new Float32Array(gridSizeX * gridSizeY);
                         let tmpVisible = new Uint32Array(validCount);
@@ -786,6 +778,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                          continue; // centre is inside the view and too close to the camera
                                 }
                                 
+                                const baseRadius = matrices[idx * 16 + 15];
+                                const radius = baseRadius * scaleFactor;
+                        
+                                const opacity = matrices[idx * 16 + 11];
+                                const alphaContrib = opacity ** 6;
+                        
                                 const ndcRadius = radius / -depth;
                                 const ndcRadius2 = ndcRadius * ndcRadius;
 
@@ -806,6 +804,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
+                                const isBig = false; // baseRadius > 0.1;
+
                                 for (let y = minY; y <= maxY; y++) {
                                         for (let x = minX; x <= maxX; x++) {
                                                 totalWeight += alphaContrib;
@@ -814,7 +814,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || stillVisible > 0.001 || totalWeight === 0.0) {
+                                if (isBig || stillVisible > 0.001) { // || totalWeight === 0.0
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
 						const cellCenterY = ((y + 0.5) * 2.0 / gridSizeY) - 1.0;
@@ -825,8 +825,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 							if (dx2 + dy2 > ndcRadius2 - cellDiff2) continue;
 
-							const idx2 = y * gridSizeX + x;
-                                                        coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
+							coverage[y * gridSizeX + x] += alphaContrib;
                                                 }
                                         }
                                 }
