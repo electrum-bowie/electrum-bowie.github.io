@@ -733,8 +733,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSizeX = 32;
-                        const gridSizeY = 16;
+                        const gridSizeX = 64;
+                        const gridSizeY = 32;
 
 			const cellW = 1.0 / gridSizeX;
 			const cellH = 1.0 / gridSizeY;
@@ -755,7 +755,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
-                                if (clip_w <= 0.0) {
+                                if (clip_w <= 0.0 || clip_z <= 0.0) {
                                         tmpVisible[visibleCount++] = idx;
                                          continue;
                                 }
@@ -772,7 +772,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                          	if (ndcZ < -1.0 || ndcZ > 1.0 ||
                                     ndcX < -1.0 || ndcX > 1.0 ||
-                                    ndcY < -1.0 || ndcY > 0.9) { // 0.9 = prevented line at the top from appearing
+                                    ndcY < -1.0 || ndcY > 1.0) { // ndcY > 0.9 to prevent line at the top from appearing
                                     tmpVisible[visibleCount++] = idx;
                                     continue;
                                 }
@@ -821,7 +821,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 							if (dx2 + dy2 > ndcRadius2 - cellDiff2) continue;
 
-							coverage[y * gridSizeX + x] += alphaContrib;
+                                                        const idx2 = y * gridSizeX + x;
+							coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
                                                 }
                                         }
                                 }
