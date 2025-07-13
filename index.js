@@ -802,8 +802,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
-                                for (let y = minY; y <= maxY; y++) {
-                                        for (let x = minX; x <= maxX; x++) {
+                                for (let y = minY; y < maxY; y++) {
+                                        for (let x = minX; x < maxX; x++) {
                                                 totalWeight += alphaContrib;
                                                 occludedWeight += coverage[y * gridSizeX + x] * alphaContrib;
                                         }
@@ -812,10 +812,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
                                 if (isBig || stillVisible > 0.0001) { // || totalWeight === 0.0
                                         tmpVisible[visibleCount++] = idx;
-                                        for (let y = minY; y <= maxY; y++) {
+                                        for (let y = minY; y < maxY; y++) {
 						const cellCenterY = ((y + 0.5) * 2.0 / gridSizeY) - 1.0;
 						const dy2 = (cellCenterY - ndcY) ** 2;
-                                                for (let x = minX; x <= maxX; x++) {
+                                                for (let x = minX; x < maxX; x++) {
 							const cellCenterX = ((x + 0.5) * 2.0 / gridSizeX) - 1.0;
 							const dx2 = (cellCenterX - ndcX) ** 2;
 
