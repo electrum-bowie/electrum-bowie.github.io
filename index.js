@@ -767,6 +767,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
                                 
+                                const baseRadius = matrices[idx * 16 + 15];
+                                const radius = baseRadius * scaleFactor;
+                        
                                 if (ndcZ < -1.0 || ndcZ > 1.0 ||
                                     ndcX < -1.0 || ndcX > 1.0 ||
                                     ndcY < -1.0 || ndcY > 1.0) {
@@ -778,12 +781,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                          continue; // centre is inside the view and too close to the camera
                                 }
                                 
-                                const baseRadius = matrices[idx * 16 + 15];
-                                const radius = baseRadius * scaleFactor;
-                        
-                                const opacity = matrices[idx * 16 + 11];
-                                const alphaContrib = opacity ** 6;
-                        
                                 const ndcRadius = radius / -depth;
                                 const ndcRadius2 = ndcRadius * ndcRadius;
 
@@ -802,10 +799,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const minY = Math.max(0, Math.min(gridSizeY - 1, j0));
 				const maxY = Math.max(0, Math.min(gridSizeY - 1, j1));
                                 
-                                let totalWeight = 0.0, occludedWeight = 0.0;
+                                const opacity = matrices[idx * 16 + 11];
+                                const alphaContrib = opacity ** 6;
                                 
                                 const isBig = false; // baseRadius > 0.1;
 
+                                let totalWeight = 0.0, occludedWeight = 0.0;
+                                
                                 for (let y = minY; y <= maxY; y++) {
                                         for (let x = minX; x <= maxX; x++) {
                                                 totalWeight += alphaContrib;
