@@ -813,10 +813,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (isBig || stillVisible > 0.0001) { // || totalWeight === 0.0
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
-						const cellCenterY = ((y + 0.5) * 2.0 / gridSizeY) - 1.0;
+						const cellCenterY = ((y + 0.5) * 2.0 / gridSizeY);
 						const dy2 = (cellCenterY - ndcY) ** 2;
                                                 for (let x = minX; x <= maxX; x++) {
-							const cellCenterX = ((x + 0.5) * 2.0 / gridSizeX) - 1.0;
+							const cellCenterX = ((x + 0.5) * 2.0 / gridSizeX);
 							const dx2 = (cellCenterX - ndcX) ** 2;
 
 							if (dx2 + dy2 > ndcRadius2) continue;
