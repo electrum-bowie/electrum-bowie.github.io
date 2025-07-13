@@ -660,8 +660,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 			let validIndexList = new Int32Array(vertexCount);
 			let validCount = 0;
 
-			function iround(v) { return Math.floor(v + 0.5); }
-
                         for (let i = 0; i < vertexCount; i++) {
                                 const px = matrices[i * 16 + 12];
                                 const py = matrices[i * 16 + 13];
@@ -736,7 +734,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         // Occlusion-based discarding
                         const gridSizeX = 16;
-                        const gridSizeY = 32;
+                        const gridSizeY = 8;
+
+			const cellW = 1.0 / gridSizeX;
+			const cellH = 1.0 / gridSizeY;
+			const cellDiff  = Math.max(cellW, cellH);
+			const cellDiff2 = cellDiff * cellDiff;
+
                         const coverage = new Float32Array(gridSizeX * gridSizeY);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
@@ -785,10 +789,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const rX = ndcRadius * gridSizeX * 0.5;
                                 const rY = ndcRadius * gridSizeY * 0.5;
 
-				const i0 = iround(cx - rX);
-				const i1 = iround(cx + rX);
-				const j0 = iround(cy - rY);
-				const j1 = iround(cy + rY);
+				const i0 = Math.round(cx - rX);
+				const i1 = Math.round(cx + rX);
+				const j0 = Math.round(cy - rY);
+				const j1 = Math.round(cy + rY);
 
 				const minX = Math.max(0, Math.min(gridSizeX - 1, i0));
 				const maxX = Math.max(0, Math.min(gridSizeX - 1, i1));
@@ -810,7 +814,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || stillVisible > 0.000000001 || totalWeight === 0.0) {
+                                if (isBig || stillVisible > 0.001 || totalWeight === 0.0) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
 						const cellCenterY = ((y + 0.5) * 2.0 / gridSizeY) - 1.0;
@@ -819,7 +823,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 							const cellCenterX = ((x + 0.5) * 2.0 / gridSizeX) - 1.0;
 							const dx2 = (cellCenterX - ndcX) ** 2;
 
-							if (dx2 + dy2 > ndcRadius2 * 2) continue;
+							if (dx2 + dy2 > ndcRadius2 - cellDiff2) continue;
 
 							const idx2 = y * gridSizeX + x;
                                                         coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
