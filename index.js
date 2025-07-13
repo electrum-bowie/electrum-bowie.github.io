@@ -815,7 +815,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         const dx = cellCx - ndcX;
                                                         const dy = cellCy - ndcY;
                                                         if (dx*dx + dy*dy <= ndcRadius*ndcRadius) {
-                                                                coverage[y * gridSizeX + x] = Math.min(1.0, coverage[idx2] + alphaContrib);
+                                                                coverage[y * gridSizeX + x] += alphaContrib;
                                                 }
                                         }
                                 }
