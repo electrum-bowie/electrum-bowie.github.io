@@ -741,6 +741,14 @@ AFRAME.registerComponent("gaussian_splatting", {
 			const cellDiff  = Math.max(cellW, cellH);
 			const cellDiff2 = cellDiff * cellDiff;
 
+                        const baseRadius = matrices[idx * 16 + 15];
+                        const radius = baseRadius * scaleFactor;
+                        
+                        const isBig = false; // baseRadius > 0.1;
+
+                        const opacity = matrices[idx * 16 + 11];
+                        const alphaContrib = opacity ** 6;
+                        
                         const coverage = new Float32Array(gridSizeX * gridSizeY);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
@@ -764,9 +772,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
-
-                                const baseRadius = matrices[idx * 16 + 15];
-                                const radius = baseRadius * scaleFactor;
                                 
                                 const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
                                 
@@ -798,11 +803,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const maxX = Math.max(0, Math.min(gridSizeX - 1, i1));
 				const minY = Math.max(0, Math.min(gridSizeY - 1, j0));
 				const maxY = Math.max(0, Math.min(gridSizeY - 1, j1));
-
-                                const opacity = matrices[idx * 16 + 11];
-                                const alphaContrib = opacity ** 6;
-                                
-                                const isBig = false; // baseRadius > 0.1;
                                 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
