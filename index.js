@@ -733,7 +733,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         // Occlusion-based discarding
                         const gridSizeX = 16;
-                        const gridSizeY = 16;
+                        const gridSizeY = 32;
                         const coverage = new Float32Array(gridSizeX * gridSizeY);
                         let tmpVisible = new Uint32Array(validCount);
                         let visibleCount = 0;
@@ -791,7 +791,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 if (maxX < minX || maxY < minY) {
                                         tmpVisible[visibleCount++] = idx;
-                                        coverage[minY * gridSizeX + minX] = Math.min(1.0, coverage[minY * gridSizeX + minX] + alphaContrib);
                                         continue;
                                 }
                                 
