@@ -787,10 +787,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const j0 = Math.round(cy - rY);
 				const j1 = Math.round(cy + rY);
 
-				const minX = Math.max(0, Math.min(gridSizeX - 1, i0));
-				const maxX = Math.max(0, Math.min(gridSizeX - 1, i1));
-				const minY = Math.max(0, Math.min(gridSizeY - 1, j0));
-				const maxY = Math.max(0, Math.min(gridSizeY - 1, j1));
+				const minX = Math.max(0, Math.min(gridSizeX, i0));
+				const maxX = Math.max(0, Math.min(gridSizeX, i1));
+				const minY = Math.max(0, Math.min(gridSizeY, j0));
+				const maxY = Math.max(0, Math.min(gridSizeY, j1));
                                 
                                 const opacity = matrices[idx * 16 + 11];
                                 const alphaContrib = opacity ** 2;
