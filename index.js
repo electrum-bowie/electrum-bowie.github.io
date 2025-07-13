@@ -770,17 +770,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const baseRadius = matrices[idx * 16 + 15];
                                 const radius = baseRadius * scaleFactor;
                         
-                                // if (ndcZ < -1.0 || ndcZ > 1.0 ||
-                                    // ndcX < -1.0 || ndcX > 1.0 ||
-                                    // ndcY < -1.0 || ndcY > 1.0) {
-                                    // tmpVisible[visibleCount++] = idx;
-                                    // continue;
-                                // }
-                                // else if (depth + radius > -0.2) {
-                                         // tmpVisible[visibleCount++] = idx;
-                                         // continue; // centre is inside the view and too close to the camera
-                                // }
-                                
                                 const ndcRadius = radius / -depth;
                                 const ndcRadius2 = ndcRadius * ndcRadius;
 
@@ -800,7 +789,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const maxY = Math.max(0, Math.min(gridSizeY - 1, j1));
                                 
                                 const opacity = matrices[idx * 16 + 11];
-                                const alphaContrib = opacity ** 6;
+                                const alphaContrib = opacity ** 3;
                                 
                                 const isBig = false; // baseRadius > 0.1;
 
