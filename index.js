@@ -733,8 +733,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const gridSizeX = 32;
                         const gridSizeY = 16;
 
-			const cellW = 1.0 / gridSizeX;
-			const cellH = 1.0 / gridSizeY;
+			const cellW = 2.0 / gridSizeX;
+			const cellH = 2.0 / gridSizeY;
 			const cellDiff  = Math.max(cellW, cellH) * 2.5;
 			const cellDiff2 = cellDiff * cellDiff;
                         
@@ -752,7 +752,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
                                 const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
 
-                                if (clip_w <= 0.0 || clip_z <= 0.0) {
+                                if (clip_w <= 0.0) {
                                         tmpVisible[visibleCount++] = idx;
                                          continue;
                                 }
@@ -816,7 +816,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 							const cellCenterX = ((x + 0.5) * 2.0 / gridSizeX) - 1.0;
 							const dx2 = (cellCenterX - ndcX) ** 2;
 
-							if (dx2 + dy2 >= ndcRadius2 - cellDiff2) continue;
+							if (dx2 + dy2 > ndcRadius2 - cellDiff2) continue;
 
                                                         const idx2 = y * gridSizeX + x;
 							coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
