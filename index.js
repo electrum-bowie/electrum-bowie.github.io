@@ -810,8 +810,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y < maxY; y++) {
                                                 for (let x = minX; x < maxX; x++) {
-                                                        const idx2 = y * gridSizeX + x;
-                                                        coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
+                                                        const cellCx = (x + 0.5) / gridSizeX * 2 - 1;
+                                                        const cellCy = (y + 0.5) / gridSizeY * 2 - 1;
+                                                        const dx = cellCx - ndcX;
+                                                        const dy = cellCy - ndcY;
+                                                        if (dx*dx + dy*dy <= ndcRadius*ndcRadius) {
+                                                                coverage[y * gridSizeX + x] = Math.min(1.0, coverage[idx2] + alphaContrib);
                                                 }
                                         }
                                 }
