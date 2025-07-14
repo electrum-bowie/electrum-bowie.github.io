@@ -733,8 +733,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSizeX = 64;
-                        const gridSizeY = 32;
+                        const gridSizeX = 70;
+                        const gridSizeY = 35;
 
 			const cellW = 2.0 / gridSizeX;
 			const cellH = 2.0 / gridSizeY;
