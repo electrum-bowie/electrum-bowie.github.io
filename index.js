@@ -797,7 +797,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const opacity = matrices[idx * 16 + 11];
                                 const alphaContrib = opacity ** 2;
                                 
-                                const isBig = false: // baseRadius > 0.05;
+                                const isBig = false; // baseRadius > 0.05;
 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
