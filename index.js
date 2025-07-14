@@ -709,7 +709,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.4);
                                 const pixelRadius = focal * radiusTransparencyProduct / (-depth);
-                                if ((pixelRadius < 0.8 * edgeMultiplier) && !skipCull) continue;
+                                if ((pixelRadius < 0.7 * edgeMultiplier) && !skipCull) continue;
                                 
                                 if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
                                         depthList[validCount] = depth;
@@ -733,8 +733,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion-based discarding
-                        const gridSizeX = 70;
-                        const gridSizeY = 35;
+                        const gridSizeX = 64;
+                        const gridSizeY = 32;
 
 			const cellW = 2.0 / gridSizeX;
 			const cellH = 2.0 / gridSizeY;
@@ -797,7 +797,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const opacity = matrices[idx * 16 + 11];
                                 const alphaContrib = opacity ** 2;
                                 
-                                const isBig = baseRadius > 0.04; // baseRadius > 0.01;
+                                const isBig = baseRadius > 0.05; // false; // baseRadius > 0.01;
 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
@@ -811,7 +811,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 
                                 const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || stillVisible > 0.00001) {
+                                if (isBig || stillVisible > 0.000001) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
 						const cellCenterY = ((y+0.5)*cellH) - 1.0;
