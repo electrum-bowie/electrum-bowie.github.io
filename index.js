@@ -738,7 +738,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 			const cellW = 2.0 / gridSizeX;
 			const cellH = 2.0 / gridSizeY;
-                        const cellDiag2 = (cellW*cellW + cellH*cellH) * 0.5;
+                        const cellDiag2 = (cellW*cellW + cellH*cellH) * 0.1;
                         
                         const coverage = new Float32Array(gridSizeX * gridSizeY);
                         let tmpVisible = new Uint32Array(validCount);
