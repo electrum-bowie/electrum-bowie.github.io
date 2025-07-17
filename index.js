@@ -229,7 +229,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 			`,
 			blending: THREE.CustomBlending,
 			blendSrcAlpha: THREE.OneFactor,
-			depthTest: true,
+			depthTest: false,
         		depthWrite: false,
                         transparent: true
                 });
