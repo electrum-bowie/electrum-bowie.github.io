@@ -789,7 +789,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
                                 if (clip_w <= 0.0) {
-                                        tmpVisible[visibleCount++] = idx;
                                          continue;
                                 }
 
@@ -802,7 +801,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                          	if (ndcZ < -1.0 || ndcZ > 1.0 ||
                                     ndcX < -1.0 || ndcX > 1.0 ||
-                                    ndcY < -1.0 || ndcY > 1.0) { // ndcY > 0.9 to prevent line at the top from appearing
+                                    ndcY < -1.0 || ndcY > 1.0) {
                                     tmpVisible[visibleCount++] = idx;
                                     continue;
                                 }
