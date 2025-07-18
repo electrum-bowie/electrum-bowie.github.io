@@ -688,15 +688,23 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let validIndexList = cache.validIndexList;
                         let validCount = 0;
 
-                        for (let i = 0; i < vertexCount; i++) {
-                                const px = matrices[i * 16 + 12];
-                                const py = matrices[i * 16 + 13];
-                                const pz = matrices[i * 16 + 14];
+                        // cache matrix values locally for speed
+                        const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
+                        const m0 = mvp[0],  m1 = mvp[1],  m2 = mvp[2],  m3 = mvp[3];
+                        const m4 = mvp[4],  m5 = mvp[5],  m6 = mvp[6],  m7 = mvp[7];
+                        const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
+                        const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
-                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
-                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
-                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+                        for (let i = 0; i < vertexCount; i++) {
+                                const base = i * 16;
+                                const px = matrices[base + 12];
+                                const py = matrices[base + 13];
+                                const pz = matrices[base + 14];
+
+                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
                                 const radius = matrices[i * 16 + 15] * scaleFactor;
                                 const transparency = matrices[i * 16 + 11]; // 0-1
@@ -720,7 +728,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         continue;                       // centre is outside — skip splat
                                 }
 
-                                let depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+                                let depth = v0 * px + v1 * py + v2 * pz + v3;
 
                                 if (radiusTransparencyProduct < sizeThreshold) continue;
                                 
@@ -739,7 +747,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const pixelRadius = focal * radiusTransparencyProduct / (-depth);
                                 if ((pixelRadius < 0.65 * edgeMultiplier) && !skipCull) continue;
                                 
-                                if (matrices[i * 16 + 15] * scaleFactor > threshold * depth) {
+                                if (radius > threshold * depth) {
                                         depthList[validCount] = depth;
                                         validIndexList[validCount] = i;
                                         validCount++;
@@ -763,21 +771,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                         // Occlusion-based discarding
                         const cellW = 2.0 / gridSizeX;
                         const cellH = 2.0 / gridSizeY;
-                        const cellDiag2 = (cellW*cellW + cellH*cellH) * 0.5;
+                        const cellDiag2 = (cellW * cellW + cellH * cellH) * 0.5;
 
                         coverage.fill(0);
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
                         for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-                                const px = matrices[idx * 16 + 12];
-                                const py = matrices[idx * 16 + 13];
-                                const pz = matrices[idx * 16 + 14];
+                                const base = idx * 16;
+                                const px = matrices[base + 12];
+                                const py = matrices[base + 13];
+                                const pz = matrices[base + 14];
 
-                                const clip_x = mvp[0] * px + mvp[4] * py + mvp[8] * pz + mvp[12];
-                                const clip_y = mvp[1] * px + mvp[5] * py + mvp[9] * pz + mvp[13];
-                                const clip_z = mvp[2] * px + mvp[6] * py + mvp[10] * pz + mvp[14];
-                                const clip_w = mvp[3] * px + mvp[7] * py + mvp[11] * pz + mvp[15];
+                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
                                 if (clip_w <= 0.0) {
                                         tmpVisible[visibleCount++] = idx;
@@ -789,7 +798,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
                                 
-                                const depth = view[0] * px + view[1] * py + view[2] * pz + view[3];
+                                const depth = v0 * px + v1 * py + v2 * pz + v3;
 
                          	if (ndcZ < -1.0 || ndcZ > 1.0 ||
                                     ndcX < -1.0 || ndcX > 1.0 ||
@@ -814,24 +823,25 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const j0 = Math.floor(cy - rY);
 				const j1 = Math.ceil(cy + rY);
 
-                        const minX = Math.max(0, Math.min(gridSizeX-1, i0));
-                        const maxX = Math.max(0, Math.min(gridSizeX-1, i1));
-                        const minY = Math.max(0, Math.min(gridSizeY-1, j0));
-                        const maxY = Math.max(0, Math.min(gridSizeY-1, j1));
+                        const minX = Math.max(0, Math.min(gridSizeX - 1, i0));
+                        const maxX = Math.max(0, Math.min(gridSizeX - 1, i1));
+                        const minY = Math.max(0, Math.min(gridSizeY - 1, j0));
+                        const maxY = Math.max(0, Math.min(gridSizeY - 1, j1));
                                 
                                 const opacity = matrices[idx * 16 + 11];
-                                const alphaContrib = opacity ** 2;
+                                const alphaContrib = opacity * opacity;
                                 
                                 const isBig = false; // baseRadius > 0.05;
 
                                 let totalWeight = 0.0, occludedWeight = 0.0;
                                 
                                 for (let y = minY; y <= maxY; y++) {
-					if (isBig) continue;
+                                        if (isBig) continue;
+                                        const rowOff = y * gridSizeX;
                                         for (let x = minX; x <= maxX; x++) {
-						if (isBig) continue;
+                                                if (isBig) continue;
                                                 totalWeight += alphaContrib;
-                                                occludedWeight += coverage[y * gridSizeX + x] * alphaContrib;
+                                                occludedWeight += coverage[rowOff + x] * alphaContrib;
                                         }
                                 }
                                 
@@ -839,16 +849,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (isBig || stillVisible > 0.000001) {
                                         tmpVisible[visibleCount++] = idx;
                                         for (let y = minY; y <= maxY; y++) {
-						const cellCenterY = ((y+0.5)*cellH) - 1.0;
-						const dy2 = (cellCenterY-ndcY)**2;
+                                                const cellCenterY = ((y + 0.5) * cellH) - 1.0;
+                                                const dy = cellCenterY - ndcY;
+                                                const dy2 = dy * dy;
+                                                const rowOff = y * gridSizeX;
                                                 for (let x = minX; x <= maxX; x++) {
-							const cellCenterX = ((x+0.5)*cellW) - 1.0;
-							const dx2 = (cellCenterX-ndcX)**2;
+                                                        const cellCenterX = ((x + 0.5) * cellW) - 1.0;
+                                                        const dx = cellCenterX - ndcX;
+                                                        const dx2 = dx * dx;
 
-							if (dx2 + dy2 + cellDiag2 > ndcRadius2) continue;
+                                                        if (dx2 + dy2 + cellDiag2 > ndcRadius2) continue;
 
-                                                        const idx2 = y * gridSizeX + x;
-							coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
+                                                        const idx2 = rowOff + x;
+                                                        coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
                                                 }
                                         }
                                 }
