@@ -745,7 +745,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.4);
                                 const pixelRadius = focal * radiusTransparencyProduct / (-depth);
-                                if ((pixelRadius < 0.85 * edgeMultiplier) && !skipCull) continue;
+                                if ((pixelRadius < 0.9 * edgeMultiplier) && !skipCull) continue;
                                 
                                 if (radius > threshold * depth) {
                                         depthList[validCount] = depth;
@@ -771,7 +771,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         // Occlusion-based discarding
                         const cellW = 2.0 / gridSizeX;
                         const cellH = 2.0 / gridSizeY;
-                        const cellDiag2 = (cellW * cellW + cellH * cellH) * 0.0;
+                        const cellDiag2 = (cellW * cellW + cellH * cellH) * 1.0;
 
                         coverage.fill(0);
                         let tmpVisible = cache.tmpVisible;
