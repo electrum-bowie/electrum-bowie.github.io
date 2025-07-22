@@ -771,7 +771,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         // Occlusion-based discarding
                         const cellW = 2.0 / gridSizeX;
                         const cellH = 2.0 / gridSizeY;
-                        const cellDiag2 = (cellW * cellW + cellH * cellH) * 1.0;
 
                         coverage.fill(0);
                         let tmpVisible = cache.tmpVisible;
@@ -857,7 +856,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         const dx = cellCenterX - ndcX;
                                                         const dx2 = dx * dx;
 
-                                                        if (dx2 + dy2 + cellDiag2 > ndcRadius2) continue;
+                                                        if (dx2 + dy2 + 0.05 > ndcRadius2) continue;
 
                                                         const idx2 = rowOff + x;
                                                         coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
