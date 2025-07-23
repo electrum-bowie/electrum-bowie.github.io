@@ -108,13 +108,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 		const positionsArray = new Float32Array(6 * 3);
 		const positions = new THREE.BufferAttribute(positionsArray, 3);
 		baseGeometry.setAttribute('position', positions);
-		positions.setXYZ(2, -2.0, 2.0, 0.0);
-		positions.setXYZ(1, 2.0, 2.0, 0.0);
-		positions.setXYZ(0, -2.0, -2.0, 0.0);
-		positions.setXYZ(5, -2.0, -2.0, 0.0);
-		positions.setXYZ(4, 2.0, 2.0, 0.0);
-		positions.setXYZ(3, 2.0, -2.0, 0.0);
-                positions.needsUpdate = true;
+		positions.setXYZ(2, -2.2, 2.2, 0.0);
+		positions.setXYZ(1, 2.2, 2.2, 0.0);
+		positions.setXYZ(0, 0.0, -5.0, 0.0);
+
+                positions.needsUpdate = false;
 
 		const geometry = new THREE.InstancedBufferGeometry().copy(baseGeometry);
 		geometry.setAttribute('splatIndex', splatIndexes);
@@ -132,88 +130,82 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 viewRotationMatrix: { value: new THREE.Matrix3() },
                         },
 			vertexShader: `
-                                precision highp usampler2D;
+                                precision lowp usampler2D;
 
-                                out vec4 vColor;
-                                out vec2 vPosition;
-                                uniform vec2 viewport;
-                                uniform vec2 viewportInv;
+				out vec4 vColor;
+				out vec2 vPosition;
+				uniform vec2 viewportInv;
 				uniform float focal;
 				uniform mat4 gsProjectionMatrix;
-                                uniform mat4 gsModelViewMatrix;
-                                uniform mat3 viewRotationMatrix;
+				uniform mat4 gsModelViewMatrix;
+				uniform mat3 viewRotationMatrix;
 
 				attribute uint splatIndex;
 				uniform sampler2D centerAndScaleTexture;
 				uniform usampler2D covAndColorTexture;
 
-				vec2 unpackInt16(in uint value) {
-					int v = int(value);
-					int v0 = v >> 16;
-					int v1 = (v & 0xFFFF);
-					if((v & 0x8000) != 0)
-						v1 |= 0xFFFF0000;
+				vec2 unpackInt16(uint value) {
+					int v0 = int(value) >> 16;
+					int v1 = int(value << 16) >> 16;
 					return vec2(float(v1), float(v0));
 				}
 
-                                void main () {
-                                        ivec2 texPos = ivec2(int(splatIndex & 4095u), int(splatIndex >> 12));
+				void main() {
+					ivec2 texPos = ivec2(int(splatIndex & 4095u), int(splatIndex >> 12));
 					vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
-
-					vec4 center = vec4(centerAndScaleData.xyz, 1);
-					vec4 camspace = gsModelViewMatrix * center;
+	
+					vec4 camspace = gsModelViewMatrix * vec4(centerAndScaleData.xyz, 1);
 					vec4 pos2d = gsProjectionMatrix * camspace;
 
 					uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
-					vec2 cov3D_M11_M12 = unpackInt16(covAndColorData.x) * centerAndScaleData.w;
-					vec2 cov3D_M13_M22 = unpackInt16(covAndColorData.y) * centerAndScaleData.w;
-					vec2 cov3D_M23_M33 = unpackInt16(covAndColorData.z) * centerAndScaleData.w;
+					float scale = centerAndScaleData.w;
+
+					vec2 cov3D_M11_M12 = unpackInt16(covAndColorData.x) * scale;
+					vec2 cov3D_M13_M22 = unpackInt16(covAndColorData.y) * scale;
+					vec2 cov3D_M23_M33 = unpackInt16(covAndColorData.z) * scale;
+
 					mat3 Vrk = mat3(
 						cov3D_M11_M12.x, cov3D_M11_M12.y, cov3D_M13_M22.x,
 						cov3D_M11_M12.y, cov3D_M13_M22.y, cov3D_M23_M33.x,
 						cov3D_M13_M22.x, cov3D_M23_M33.x, cov3D_M23_M33.y
 					);
 
-                                        float invZ = 1.0 / camspace.z;
-                                        float invZ2 = invZ * invZ;
-                                        mat3 J = mat3(
-                                                focal * invZ, 0., -focal * camspace.x * invZ2,
-                                                0., -focal * invZ, focal * camspace.y * invZ2,
-                                                0., 0., 0.
-                                        );
+					float invZ = 1.0 / camspace.z;
+					float invZ2 = invZ * invZ;
 
-                                        mat3 W = viewRotationMatrix;
-					mat3 T = W * J;
-					mat3 cov = transpose(T) * Vrk * T;
+					mat3 J = mat3(
+						focal * invZ, 0.0, -focal * camspace.x * invZ2,
+						0.0, -focal * invZ, focal * camspace.y * invZ2,
+						0.0, 0.0, 0.0
+					);
 
-                                        float invPosW = 1.0 / pos2d.w;
-                                        vec2 vCenter = pos2d.xy * invPosW;
+					mat3 cov = transpose(viewRotationMatrix * J) * Vrk * (viewRotationMatrix * J);
 
-					float diagonal1 = cov[0][0] + 0.3;
-					float offDiagonal = cov[0][1];
-					float diagonal2 = cov[1][1] + 0.3;
+					vec2 vCenter = pos2d.xy / pos2d.w;
 
-					float mid = 0.5 * (diagonal1 + diagonal2);
-					float radius = length(vec2((diagonal1 - diagonal2) / 2.0, offDiagonal));
+					float diag1 = cov[0][0] + 0.3;
+					float offDiag = cov[0][1];
+					float diag2 = cov[1][1] + 0.3;
+
+					float mid = 0.5 * (diag1 + diag2);
+					float radius = length(vec2((diag1 - diag2) * 0.5, offDiag));
+
 					float lambda1 = mid + radius;
 					float lambda2 = max(mid - radius, 0.1);
-					vec2 diagonalVector = normalize(vec2(offDiagonal, lambda1 - diagonal1));
-					vec2 v1 = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector;
-					vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
 
-                                        uint colorUint = covAndColorData.w;
-                                        const vec4 inv255 = vec4(0.003921569);
-                                        vColor = vec4(
-                                                float(colorUint & 0xFFu),
-                                                float((colorUint >> 8) & 0xFFu),
-                                                float((colorUint >> 16) & 0xFFu),
-                                                float(colorUint >> 24)
-                                        ) * inv255;
+					vec2 diagVec = normalize(vec2(offDiag, lambda1 - diag1));
+					vec2 v1 = min(sqrt(2.0 * lambda1), 1024.0) * diagVec;
+					vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagVec.y, -diagVec.x);
+
+					uint colorUint = covAndColorData.w;
+					vColor = vec4(
+						vec3(colorUint & 0xFFu, (colorUint >> 8) & 0xFFu, (colorUint >> 16) & 0xFFu),
+						colorUint >> 24
+					) * 0.003921569;
+
 					vPosition = position.xy;
 
-                                        gl_Position = vec4(
-                                                vCenter + (position.x * v2 + position.y * v1) * viewportInv,
-                                                pos2d.z * invPosW, 1.0);
+					gl_Position = vec4(vCenter + (position.x * v2 + position.y * v1) * viewportInv, pos2d.z / pos2d.w, 1.0);
 				}
 				`,
 			fragmentShader: `
@@ -222,7 +214,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 void main () {
                                         float len2 = dot(vPosition, vPosition);
-                                        if (len2 > 4.5) discard;
+                                        if (len2 > 4.0) discard;
                                         float B = exp(-len2) * vColor.a;
                                         gl_FragColor = vec4(vColor.rgb, B);
                                 }
@@ -649,8 +641,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let matrices = undefined;
 
                 const COUNT_SIZE = 256 * 256;
-                const gridSizeX = 16;
-                const gridSizeY = 8;
 
                 let cache = {
                         capacity: 0,
@@ -660,9 +650,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthIndex: null,
                         tmpVisible: null,
                 };
+
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
-                const coverage = new Float32Array(gridSizeX * gridSizeY);
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -768,70 +758,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = cache.depthIndex;
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        // Occlusion-based discarding
-                        coverage.fill(0);
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
-                        for (let j = validCount - 1; j >= 0; j--) {
+
+			for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-                                const base = idx * 16;
-                                const px = matrices[base + 12];
-                                const py = matrices[base + 13];
-                                const pz = matrices[base + 14];
-
-                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
-                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
-                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
-                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-
-                                if (clip_w <= 0.0) {
-                                         continue;
-                                }
-
-                                const invW  = 1.0 / clip_w;
-                                const ndcX  = clip_x * invW;
-                                const ndcY  = clip_y * invW;
-                                const ndcZ  = clip_z * invW;
-                                
-                                const depth = v0 * px + v1 * py + v2 * pz + v3;
-
-                         	if (ndcZ < -1.0 || ndcZ > 1.0 ||
-                                    ndcX < -1.0 || ndcX > 1.0 ||
-                                    ndcY < -1.0 || ndcY > 1.0) {
-                                    tmpVisible[visibleCount++] = idx;
-                                    continue;
-                                }
-
-                        	const cx = Math.floor((ndcX * 0.5 + 0.5) * gridSizeX);
-                        	const cy = Math.floor((ndcY * 0.5 + 0.5) * gridSizeY);
-
-                                const opacity = matrices[idx * 16 + 11];
-                                const alphaContrib = opacity * opacity * opacity * opacity * opacity;
-
-                                const baseRadius = matrices[idx * 16 + 15];
-
-                                const isBig = false; // baseRadius > 0.05;
-				
-				const rowOff = cy * gridSizeX;
-
-                                let totalWeight = 0.0, occludedWeight = 0.0;
-                                
-                                totalWeight += alphaContrib;
-                                occludedWeight += coverage[rowOff + cx] * alphaContrib;
-
-                                const stillVisible = 1 - (occludedWeight / totalWeight);
-                                if (isBig || stillVisible > 0.001) {
-					tmpVisible[visibleCount++] = idx;
-                                        
-                                        const idx2 = rowOff + cx;
-                                        coverage[idx2] = Math.min(1.0, coverage[idx2] + alphaContrib);
-                                }
-                        }
+				tmpVisible[visibleCount++] = idx;
+			}
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
                                 result[i] = tmpVisible[j];
                         }
+
                         return result;
                 };
 
