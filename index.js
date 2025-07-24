@@ -670,7 +670,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
 
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
-                        const sizeThreshold = 0.00001;
                         const vertexCount = matrices.length / 16;
                         let threshold = -0.001;
 
@@ -726,8 +725,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 
-                                if (radiusTransparencyProduct < sizeThreshold) continue;
-                                
                                 const nearPlaneClip = -0.18;
                                 
                                 if (!skipCull && (depth + radius > nearPlaneClip)) continue;
@@ -740,8 +737,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.4);
-                                const pixelRadius = focal * radius / -depth;
-                                if ((pixelRadius * transparency < 1.0 * edgeMultiplier) && !skipCull) continue;
+                                const pixelRadius = (focal * radiusTransparencyProduct) / -depth;
+                                if ((pixelRadius < 1.0 * edgeMultiplier) && !skipCull) continue;
                                 
                                 if (radius > threshold * depth) {
                                         depthList[validCount] = depth;
