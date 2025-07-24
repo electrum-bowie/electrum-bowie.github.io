@@ -108,9 +108,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 		const positionsArray = new Float32Array(6 * 3);
 		const positions = new THREE.BufferAttribute(positionsArray, 3);
 		baseGeometry.setAttribute('position', positions);
-		positions.setXYZ(2, -2.5, 2.5, 0.0);
-		positions.setXYZ(1, 2.5, 2.5, 0.0);
-		positions.setXYZ(0, 0.0, -5.0, 0.0);
+		positions.setXYZ(2, -2.0, 2.0, 0.0);
+		positions.setXYZ(1, 2.0, 2.0, 0.0);
+		positions.setXYZ(0, 0.0, -6.0, 0.0);
 
                 positions.needsUpdate = false;
 
