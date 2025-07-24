@@ -671,7 +671,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
-                        let threshold = -0.001;
+                        let threshold = -0.01;
 
                         ensureCapacity(vertexCount);
 
@@ -704,7 +704,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const transparency = matrices[i * 16 + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
                                 
-                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.8;
+                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.75;
 
                                 if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
                                         continue;
@@ -734,12 +734,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         continue; // centre is inside the view and too close to the camera
                                 }
                                 
-                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                                const edgeMultiplier = 1.0 + (edgeDist * 0.4);
-                                const pixelRadius = (focal * radiusTransparencyProduct) / -depth;
-                                if ((pixelRadius < 1.0 * edgeMultiplier) && !skipCull) continue;
-                                
-                                if (radius > threshold * depth) {
+                                if (radiusTransparencyProduct > threshold * depth) {
                                         depthList[validCount] = depth;
                                         validIndexList[validCount] = i;
                                         validCount++;
