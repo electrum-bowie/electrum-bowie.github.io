@@ -108,11 +108,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 		const positionsArray = new Float32Array(6 * 3);
 		const positions = new THREE.BufferAttribute(positionsArray, 3);
 		baseGeometry.setAttribute('position', positions);
-		positions.setXYZ(2, -2.0, 2.0, 0.0);
-		positions.setXYZ(1, 2.0, 2.0, 0.0);
-		positions.setXYZ(0, 0.0, -8.0, 0.0);
+		positions.setXYZ(3, -2.0, 2.0, 0.0);
+		positions.setXYZ(2, 2.0, 2.0, 0.0);
+		positions.setXYZ(1, 2.0, -2.0, 0.0);
+                positions.setXYZ(0, -2.0, -2.0, 0.0);
 
-                positions.needsUpdate = false;
+                positions.needsUpdate = true;
 
 		const geometry = new THREE.InstancedBufferGeometry().copy(baseGeometry);
 		geometry.setAttribute('splatIndex', splatIndexes);
