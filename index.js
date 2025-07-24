@@ -105,15 +105,19 @@ AFRAME.registerComponent("gaussian_splatting", {
 		splatIndexes.setUsage(THREE.DynamicDrawUsage);
 
 		const baseGeometry = new THREE.BufferGeometry();
-		const positionsArray = new Float32Array(6 * 3);
-		const positions = new THREE.BufferAttribute(positionsArray, 3);
-		baseGeometry.setAttribute('position', positions);
-		positions.setXYZ(3, -2.0, 2.0, 0.0);
-		positions.setXYZ(2, 2.0, 2.0, 0.0);
-		positions.setXYZ(1, 2.0, -2.0, 0.0);
-                positions.setXYZ(0, -2.0, -2.0, 0.0);
+		const pos = new Float32Array([
+  			-2.0, -2.0, 0.0,  // 0
+   			 2.0, -2.0, 0.0,  // 1
+   			 2.0,  2.0, 0.0,  // 2
+  			-2.0,  2.0, 0.0   // 3
+		]);
+		baseGeometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
 
-                positions.needsUpdate = true;
+		const idx = new Uint16Array([
+			0, 1, 2,
+  			0, 2, 3
+		]);
+		baseGeometry.setIndex(new THREE.BufferAttribute(idx, 1));
 
 		const geometry = new THREE.InstancedBufferGeometry().copy(baseGeometry);
 		geometry.setAttribute('splatIndex', splatIndexes);
