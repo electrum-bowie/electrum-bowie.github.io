@@ -671,8 +671,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
-                        let threshold = -0.01;
-
+                        
                         ensureCapacity(vertexCount);
 
                         let maxDepth = -Infinity;
@@ -734,13 +733,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         continue; // centre is inside the view and too close to the camera
                                 }
                                 
-                                if (radiusTransparencyProduct > threshold * depth) {
-                                        depthList[validCount] = depth;
-                                        validIndexList[validCount] = i;
-                                        validCount++;
-                                        if (depth > maxDepth) maxDepth = depth;
-                                        if (depth < minDepth) minDepth = depth;
-                                }
+                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.4);
+                                const pixelRadius = (focal * radiusTransparencyProduct) / -depth;
+                                if ((pixelRadius < 1.0 * edgeMultiplier) && !skipCull) continue;
+                                
+                                depthList[validCount] = depth;
+                                validIndexList[validCount] = i;
+                                validCount++;
+                                if (depth > maxDepth) maxDepth = depth;
+                                if (depth < minDepth) minDepth = depth;
                         }
 
                         // This is a 16 bit single-pass counting sort
