@@ -594,6 +594,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         mvp: mvp.buffer,
                         scale: globalScale,
                         focal: focal,
+                        width: viewport.z,
+                        height: viewport.w,
                 }, [view.buffer, mvp.buffer]);
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
                 this.lastObjectMatrix.copy(this.object.matrixWorld);
@@ -654,6 +656,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         validIndexList: null,
                         depthIndex: null,
                         tmpVisible: null,
+                        ndcXList: null,
+                        ndcYList: null,
+                        pixelRadiusList: null,
+                        transparencyList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -667,9 +673,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                         cache.depthIndex = new Uint32Array(n);
                         cache.tmpVisible = new Uint32Array(n);
+                        cache.ndcXList = new Float32Array(n);
+                        cache.ndcYList = new Float32Array(n);
+                        cache.pixelRadiusList = new Float32Array(n);
+                        cache.transparencyList = new Float32Array(n);
                 };
 
-                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
+                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0, width = 1.0, height = 1.0) {
                         const vertexCount = matrices.length / 16;
                         
                         ensureCapacity(vertexCount);
@@ -737,8 +747,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.7);
                                 const pixelRadius = (focal * radiusTransparencyProduct) / -depth;
                                 if ((pixelRadius < 0.9 * edgeMultiplier) && !skipCull) continue;
-                                
+
                                 depthList[validCount] = depth;
+                                cache.ndcXList[validCount] = ndcX;
+                                cache.ndcYList[validCount] = ndcY;
+                                cache.pixelRadiusList[validCount] = pixelRadius;
+                                cache.transparencyList[validCount] = transparency;
                                 validIndexList[validCount] = i;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
@@ -755,19 +769,70 @@ AFRAME.registerComponent("gaussian_splatting", {
                         starts0[0] = 0;
                         for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
                         let depthIndex = cache.depthIndex;
-                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
+                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = i;
 
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-			for (let j = validCount - 1; j >= 0; j--) {
-                                const idx = depthIndex[j];
-				tmpVisible[visibleCount++] = idx;
-			}
+                        for (let j = validCount - 1; j >= 0; j--) {
+                                const vIdx = depthIndex[j];
+                                tmpVisible[visibleCount++] = vIdx;
+                        }
 
-                        let result = new Uint32Array(visibleCount);
-                        for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
-                                result[i] = tmpVisible[j];
+                        const GRID_RES = 64;
+                        const coverage = new Float32Array(GRID_RES * GRID_RES);
+                        const widthFactor = GRID_RES / width;
+
+                        let final = new Uint32Array(visibleCount);
+                        let finalCount = 0;
+
+                        for (let i = 0; i < visibleCount; i++) {
+                                const vIdx = tmpVisible[i];
+                                const alpha = cache.transparencyList[vIdx];
+                                const ndcX = cache.ndcXList[vIdx];
+                                const ndcY = cache.ndcYList[vIdx];
+                                const pixelRadius = cache.pixelRadiusList[vIdx];
+
+                                let cellX = ((ndcX + 1) * 0.5 * GRID_RES) | 0;
+                                let cellY = ((ndcY + 1) * 0.5 * GRID_RES) | 0;
+                                let cellRadius = Math.ceil(pixelRadius * widthFactor);
+                                if (cellRadius < 1) cellRadius = 1;
+
+                                if (cellX < 0 || cellX >= GRID_RES || cellY < 0 || cellY >= GRID_RES) continue;
+
+                                let occl = 0.0;
+                                for (let dy = -cellRadius; dy <= cellRadius; dy++) {
+                                        const y = cellY + dy;
+                                        if (y < 0 || y >= GRID_RES) continue;
+                                        for (let dx = -cellRadius; dx <= cellRadius; dx++) {
+                                                const x = cellX + dx;
+                                                if (x < 0 || x >= GRID_RES) continue;
+                                                const cov = coverage[y * GRID_RES + x];
+                                                if (cov > occl) occl = cov;
+                                        }
+                                }
+
+                                const perceived = alpha * (1.0 - occl);
+                                if (perceived < 0.01) continue;
+
+                                final[finalCount++] = validIndexList[vIdx];
+
+                                for (let dy = -cellRadius; dy <= cellRadius; dy++) {
+                                        const y = cellY + dy;
+                                        if (y < 0 || y >= GRID_RES) continue;
+                                        for (let dx = -cellRadius; dx <= cellRadius; dx++) {
+                                                const x = cellX + dx;
+                                                if (x < 0 || x >= GRID_RES) continue;
+                                                const index = y * GRID_RES + x;
+                                                const prev = coverage[index];
+                                                coverage[index] = prev + (1.0 - prev) * alpha;
+                                        }
+                                }
+                        }
+
+                        let result = new Uint32Array(finalCount);
+                        for (let i = 0, j = finalCount - 1; i < finalCount; i++, j--) {
+                                result[i] = final[j];
                         }
 
                         return result;
@@ -797,7 +862,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, focal);
+                                        const width = typeof e.data.width === 'number' ? e.data.width : 1.0;
+                                        const height = typeof e.data.height === 'number' ? e.data.height : 1.0;
+                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, focal, width, height);
                                         self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
