@@ -647,6 +647,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const COUNT_SIZE = 256 * 256;
 
+                const OCCLUSION_GRID_SIZE = 64;
                 let cache = {
                         capacity: 0,
                         depthList: null,
@@ -654,6 +655,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         validIndexList: null,
                         depthIndex: null,
                         tmpVisible: null,
+                        occlusionGrid: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -667,6 +669,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                         cache.depthIndex = new Uint32Array(n);
                         cache.tmpVisible = new Uint32Array(n);
+                        cache.occlusionGrid = new Float32Array(OCCLUSION_GRID_SIZE * OCCLUSION_GRID_SIZE);
                 };
 
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -760,10 +763,59 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-			for (let j = validCount - 1; j >= 0; j--) {
+                        const gridSize = OCCLUSION_GRID_SIZE;
+                        const grid = cache.occlusionGrid;
+                        grid.fill(0);
+
+                        for (let j = validCount - 1; j >= 0; j--) { // near to far
                                 const idx = depthIndex[j];
-				tmpVisible[visibleCount++] = idx;
-			}
+                                const base = idx * 16;
+                                const px = matrices[base + 12];
+                                const py = matrices[base + 13];
+                                const pz = matrices[base + 14];
+
+                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+
+                                const invW  = 1.0 / clip_w;
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+                                let depth   = v0 * px + v1 * py + v2 * pz + v3;
+
+                                const radius = matrices[idx * 16 + 15] * scaleFactor;
+                                const transparency = matrices[idx * 16 + 11];
+                                const pixelRadius = (focal * radius * transparency) / -depth;
+
+                                const gx = ((ndcX + 1.0) * 0.5) * gridSize;
+                                const gy = ((ndcY + 1.0) * 0.5) * gridSize;
+                                const r  = Math.max(1, Math.floor((pixelRadius / focal) * gridSize));
+
+                                let occlusion = 0.0;
+                                for (let yy = gy - r; yy <= gy + r; yy++) {
+                                        if (yy < 0 || yy >= gridSize) continue;
+                                        for (let xx = gx - r; xx <= gx + r; xx++) {
+                                                if (xx < 0 || xx >= gridSize) continue;
+                                                const cell = yy * gridSize + xx;
+                                                if (grid[cell] > occlusion) occlusion = grid[cell];
+                                        }
+                                }
+
+                                const finalTransparency = transparency * (1.0 - occlusion);
+                                if (finalTransparency < 0.01) continue;
+
+                                for (let yy = gy - r; yy <= gy + r; yy++) {
+                                        if (yy < 0 || yy >= gridSize) continue;
+                                        for (let xx = gx - r; xx <= gx + r; xx++) {
+                                                if (xx < 0 || xx >= gridSize) continue;
+                                                const cell = yy * gridSize + xx;
+                                                grid[cell] = Math.min(1.0, grid[cell] + finalTransparency);
+                                        }
+                                }
+
+                                tmpVisible[visibleCount++] = idx;
+                        }
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
