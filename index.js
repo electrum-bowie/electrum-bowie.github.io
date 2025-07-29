@@ -661,6 +661,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         validIndexList: null,
                         depthIndex: null,
                         tmpVisible: null,
+                        occX: null,
+                        occY: null,
+                        occR: null,
+                        occA: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -674,6 +678,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                         cache.depthIndex = new Uint32Array(n);
                         cache.tmpVisible = new Uint32Array(n);
+                        cache.occX = new Float32Array(n);
+                        cache.occY = new Float32Array(n);
+                        cache.occR = new Float32Array(n);
+                        cache.occA = new Float32Array(n);
                 };
 
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -766,10 +774,60 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-			for (let j = validCount - 1; j >= 0; j--) {
+                        let occX = cache.occX,
+                            occY = cache.occY,
+                            occR = cache.occR,
+                            occA = cache.occA;
+                        let occCount = 0;
+
+                        for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-				tmpVisible[visibleCount++] = idx;
-			}
+
+                                const base = idx * 16;
+                                const px = matrices[base + 12];
+                                const py = matrices[base + 13];
+                                const pz = matrices[base + 14];
+
+                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+                                const invW  = 1.0 / clip_w;
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+
+                                const depth = v0 * px + v1 * py + v2 * pz + v3;
+                                const radius = matrices[idx * 16 + 15] * scaleFactor;
+                                const transparency = matrices[idx * 16 + 11];
+
+                                const screenRadius = (focal * radius) / -depth;
+
+                                let occlusion = 0.0;
+                                for (let k = 0; k < occCount; k++) {
+                                        const dx = ndcX - occX[k];
+                                        const dy = ndcY - occY[k];
+                                        const dist = Math.hypot(dx, dy);
+                                        const overlap = occR[k] + screenRadius - dist;
+                                        if (overlap > 0) {
+                                                const coverage = overlap / screenRadius;
+                                                occlusion += occA[k] * coverage;
+                                                if (occlusion >= 1.0) break;
+                                        }
+                                }
+
+                                const perceived = transparency * (1.0 - Math.min(occlusion, 1.0));
+
+                                if (perceived < 0.05) {
+                                        continue;
+                                }
+
+                                occX[occCount] = ndcX;
+                                occY[occCount] = ndcY;
+                                occR[occCount] = screenRadius;
+                                occA[occCount] = perceived;
+                                occCount++;
+
+                                tmpVisible[visibleCount++] = idx;
+                        }
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
