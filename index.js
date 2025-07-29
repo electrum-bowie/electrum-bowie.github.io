@@ -705,9 +705,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const skipCull = (radiusTransparencyProduct / scaleFactor) > 1.0;
 
-                                if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
-                                        continue;
-                                }
+                                // if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
+                                        // continue;
+                                // }
                                 
                                 const invW  = 1.0 / clip_w;
 
@@ -715,11 +715,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
 
-                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
-                                                  ndcX < -1.0 || ndcX > 1.0 ||
-                                                  ndcY < -1.0 || ndcY > 1.0)) {
-                                        continue; // centre is outside — skip splat
-                                }
+                                // if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                  // ndcX < -1.0 || ndcX > 1.0 ||
+                                                  // ndcY < -1.0 || ndcY > 1.0)) {
+                                        // continue; // centre is outside — skip splat
+                                // }
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 
