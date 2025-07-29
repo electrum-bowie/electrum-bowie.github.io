@@ -763,71 +763,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = cache.depthIndex;
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        const GRID_SIZE = 64;
-                        const OCCLUSION_THRESHOLD = 0.01;
-                        const occlusionBuffer = new Float32Array(GRID_SIZE * GRID_SIZE);
-
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-                        for (let j = validCount - 1; j >= 0; j--) {
+			for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-
-                                const base = idx * 16;
-                                const px = matrices[base + 12];
-                                const py = matrices[base + 13];
-                                const pz = matrices[base + 14];
-
-                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
-                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
-                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
-                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-
-                                const invW  = 1.0 / clip_w;
-                                const ndcX  = clip_x * invW;
-                                const ndcY  = clip_y * invW;
-
-                                const radius = matrices[idx * 16 + 15] * scaleFactor;
-                                const transparency = matrices[idx * 16 + 11];
-
-                                const clip_x_off = m0 * (px + radius) + m4 * py + m8 * pz + m12;
-                                const clip_y_off = m1 * (px + radius) + m5 * py + m9 * pz + m13;
-                                const clip_w_off = m3 * (px + radius) + m7 * py + m11 * pz + m15;
-                                const ndcX_off = clip_x_off / clip_w_off;
-                                const ndcY_off = clip_y_off / clip_w_off;
-                                const ndcRad = Math.max(Math.abs(ndcX_off - ndcX), Math.abs(ndcY_off - ndcY));
-
-                                const cx = Math.floor((ndcX * 0.5 + 0.5) * GRID_SIZE);
-                                const cy = Math.floor((ndcY * 0.5 + 0.5) * GRID_SIZE);
-                                const radCells = Math.max(1, Math.ceil(ndcRad * 0.5 * GRID_SIZE));
-
-                                let occlusionSum = 0, sampleCount = 0;
-                                for (let yy = cy - radCells; yy <= cy + radCells; yy++) {
-                                        if (yy < 0 || yy >= GRID_SIZE) continue;
-                                        for (let xx = cx - radCells; xx <= cx + radCells; xx++) {
-                                                if (xx < 0 || xx >= GRID_SIZE) continue;
-                                                occlusionSum += occlusionBuffer[yy * GRID_SIZE + xx];
-                                                sampleCount++;
-                                        }
-                                }
-                                const occlusion = sampleCount > 0 ? occlusionSum / sampleCount : 0;
-                                const perceivedTransparency = transparency * (1.0 - occlusion);
-                                if (perceivedTransparency < OCCLUSION_THRESHOLD) {
-                                        continue;
-                                }
-
-                                tmpVisible[visibleCount++] = idx;
-
-                                for (let yy = cy - radCells; yy <= cy + radCells; yy++) {
-                                        if (yy < 0 || yy >= GRID_SIZE) continue;
-                                        for (let xx = cx - radCells; xx <= cx + radCells; xx++) {
-                                                if (xx < 0 || xx >= GRID_SIZE) continue;
-                                                const bufferIdx = yy * GRID_SIZE + xx;
-                                                const current = occlusionBuffer[bufferIdx];
-                                                occlusionBuffer[bufferIdx] = current + (1.0 - current) * transparency;
-                                        }
-                                }
-                        }
+				tmpVisible[visibleCount++] = idx;
+			}
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
