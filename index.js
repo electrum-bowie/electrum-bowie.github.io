@@ -674,10 +674,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                         cache.depthIndex = new Uint32Array(n);
                         cache.tmpVisible = new Uint32Array(n);
-                        cache.ndcX = new Float32Array(n);
-                        cache.ndcY = new Float32Array(n);
-                        cache.radiusNdc = new Float32Array(n);
-                        cache.alpha = new Float32Array(n);
                 };
 
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -726,9 +722,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
 
-                                cache.ndcX[i] = ndcX;
-                                cache.ndcY[i] = ndcY;
-
                                 if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
                                                   ndcX < -1.0 || ndcX > 1.0 ||
                                                   ndcY < -1.0 || ndcY > 1.0)) {
@@ -750,10 +743,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 if ((pixelThreshold < 1.0 * edgeMultiplier) && !skipCull) continue;
-
-                                cache.radiusNdc[i] = Math.abs(radius / depth);
-                                cache.alpha[i] = transparency;
-
+                                
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
                                 validCount++;
@@ -773,69 +763,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = cache.depthIndex;
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        const GRID_SIZE = 64;
-                        const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
-
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-                        const cellScale = GRID_SIZE / 2.0;
-
-                        for (let j = validCount - 1; j >= 0; j--) {
+			for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-
-                                let ndcX = cache.ndcX[idx];
-                                let ndcY = cache.ndcY[idx];
-                                let radiusNdc = cache.radiusNdc[idx];
-                                let alpha = cache.alpha[idx];
-
-                                let gx = Math.floor((ndcX + 1.0) * 0.5 * GRID_SIZE);
-                                let gy = Math.floor((ndcY + 1.0) * 0.5 * GRID_SIZE);
-
-                                let gr = Math.max(1, Math.floor(radiusNdc * cellScale));
-                                if (gx < -gr || gx >= GRID_SIZE + gr || gy < -gr || gy >= GRID_SIZE + gr) continue;
-
-                                let minX = Math.max(0, gx - gr);
-                                let maxX = Math.min(GRID_SIZE - 1, gx + gr);
-                                let minY = Math.max(0, gy - gr);
-                                let maxY = Math.min(GRID_SIZE - 1, gy + gr);
-
-                                let occSum = 0.0;
-                                let count = 0;
-                                for (let yy = minY; yy <= maxY; yy++) {
-                                        const row = yy * GRID_SIZE;
-                                        for (let xx = minX; xx <= maxX; xx++) {
-                                                const dx = xx - gx;
-                                                const dy = yy - gy;
-                                                if (dx * dx + dy * dy <= gr * gr) {
-                                                        occSum += grid[row + xx];
-                                                        count++;
-                                                }
-                                        }
-                                }
-
-                                const occlusion = count ? occSum / count : 0.0;
-                                const perceived = alpha * (1.0 - occlusion);
-
-                                if (perceived <= 0.05) {
-                                        continue;
-                                }
-
-                                tmpVisible[visibleCount++] = idx;
-
-                                for (let yy = minY; yy <= maxY; yy++) {
-                                        const row = yy * GRID_SIZE;
-                                        for (let xx = minX; xx <= maxX; xx++) {
-                                                const dx = xx - gx;
-                                                const dy = yy - gy;
-                                                if (dx * dx + dy * dy <= gr * gr) {
-                                                        const id = row + xx;
-                                                        const cellAlpha = grid[id];
-                                                        grid[id] = cellAlpha + perceived * (1.0 - cellAlpha);
-                                                }
-                                        }
-                                }
-                        }
+				tmpVisible[visibleCount++] = idx;
+			}
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
