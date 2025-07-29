@@ -58,7 +58,7 @@
     </style>
 </head>
 <body>
-    <a-scene renderer="antialias: false; highRefreshRate: true; multiviewStereo: true; dithering: false" webxr="optionalFeatures: hand-tracking, multiview, layers">
+    <a-scene renderer="antialias: false; highRefreshRate: true; webgl2: true; multiviewStereo: true; dithering: false" webxr="optionalFeatures: hand-tracking, multiview, layers">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
             <a-entity id="rightController" oculus-touch-controls="hand: right"></a-entity>
