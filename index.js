@@ -162,6 +162,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 					vec4 camspace = gsModelViewMatrix * vec4(centerAndScaleData.xyz, 1);
 					vec4 pos2d = gsProjectionMatrix * camspace;
 
+                                        float bounds = 2.0 * pos2d.w;
+
+                                        if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
+                                                gl_Position = vec4(0.0, 0.0, 99, 1.0); // push off-screen
+                                                return;
+                                        }
+                                        
 					uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
 					float scale = centerAndScaleData.w;
 
@@ -703,7 +710,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const transparency = matrices[i * 16 + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
                                 
-                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 1.0;
+                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.1;
 
                                 if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
                                         continue;
