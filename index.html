@@ -4,7 +4,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="aframe-v1.7.1.min.js"></script>
     <script src="index.js"></script>
-    <script src="multiview-debug.js"></script>
     <script src="dist/jszip.js"></script>
     <script src="input.js"></script>
     <script src="two-hand-manipulation.js"></script>
@@ -56,19 +55,10 @@
             background-color: #00008b !important;
         }
 
-        #logMultiview {
-            position: absolute;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 1;
-        }
-
     </style>
 </head>
 <body>
-    <div id="logMultiview">multiview on VR</div>
-    <a-scene  multiview-debug renderer="antialias: false; highRefreshRate: true; webgl2: true; multiviewStereo: true; dithering: false" webxr="optionalFeatures: hand-tracking, multiview, layers">
+    <a-scene renderer="antialias: false; highRefreshRate: true; webgl2: true; multiviewStereo: true; dithering: false" webxr="optionalFeatures: hand-tracking, multiview, layers">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
             <a-entity id="rightController" oculus-touch-controls="hand: right"></a-entity>
