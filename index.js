@@ -654,6 +654,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const COUNT_SIZE = 256 * 256;
 
+                const OCCLUSION_SIZE = 64;
+
                 let cache = {
                         capacity: 0,
                         depthList: null,
@@ -661,6 +663,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         validIndexList: null,
                         depthIndex: null,
                         tmpVisible: null,
+                        occlusionMap: new Float32Array(OCCLUSION_SIZE * OCCLUSION_SIZE),
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -766,10 +769,69 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-			for (let j = validCount - 1; j >= 0; j--) {
+                        const mapSize = OCCLUSION_SIZE;
+                        let occMap = cache.occlusionMap;
+                        occMap.fill(0);
+
+                        for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-				tmpVisible[visibleCount++] = idx;
-			}
+
+                                const base = idx * 16;
+                                const px = matrices[base + 12];
+                                const py = matrices[base + 13];
+                                const pz = matrices[base + 14];
+
+                                const clip_x2 = m0 * px + m4 * py + m8 * pz + m12;
+                                const clip_y2 = m1 * px + m5 * py + m9 * pz + m13;
+                                const clip_w2 = m3 * px + m7 * py + m11 * pz + m15;
+
+                                const invW2 = 1.0 / clip_w2;
+                                const ndcX = clip_x2 * invW2;
+                                const ndcY = clip_y2 * invW2;
+
+                                const depth = v0 * px + v1 * py + v2 * pz + v3;
+                                const radius = matrices[base + 15] * scaleFactor;
+                                const transparency = matrices[base + 11];
+
+                                const radiusNDC = Math.abs(radius / -depth);
+                                const cx = Math.floor((ndcX * 0.5 + 0.5) * mapSize);
+                                const cy = Math.floor((ndcY * 0.5 + 0.5) * mapSize);
+                                const r = Math.max(1, Math.ceil(radiusNDC * (mapSize / 2)));
+
+                                let occlusionSum = 0;
+                                let sampleCount = 0;
+                                for (let oy = -r; oy <= r; oy++) {
+                                        const y = cy + oy;
+                                        if (y < 0 || y >= mapSize) continue;
+                                        for (let ox = -r; ox <= r; ox++) {
+                                                if (ox * ox + oy * oy > r * r) continue;
+                                                const x = cx + ox;
+                                                if (x < 0 || x >= mapSize) continue;
+                                                const idc = y * mapSize + x;
+                                                occlusionSum += occMap[idc];
+                                                sampleCount++;
+                                        }
+                                }
+                                const occlusionAvg = sampleCount ? occlusionSum / sampleCount : 0.0;
+                                const perceived = transparency * (1.0 - occlusionAvg);
+                                if (perceived < 0.01) {
+                                        continue;
+                                }
+                                for (let oy = -r; oy <= r; oy++) {
+                                        const y = cy + oy;
+                                        if (y < 0 || y >= mapSize) continue;
+                                        for (let ox = -r; ox <= r; ox++) {
+                                                if (ox * ox + oy * oy > r * r) continue;
+                                                const x = cx + ox;
+                                                if (x < 0 || x >= mapSize) continue;
+                                                const idc = y * mapSize + x;
+                                                const prev = occMap[idc];
+                                                occMap[idc] = prev + transparency * (1.0 - prev);
+                                        }
+                                }
+
+                                tmpVisible[visibleCount++] = idx;
+                        }
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
