@@ -663,6 +663,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         tmpVisible: null,
                 };
 
+                const OCCLUSION_GRID_SIZE = 64;
+                const occlusionMap = new Float32Array(OCCLUSION_GRID_SIZE * OCCLUSION_GRID_SIZE);
+
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
@@ -766,10 +769,41 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-			for (let j = validCount - 1; j >= 0; j--) {
+                        occlusionMap.fill(0);
+
+                        for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-				tmpVisible[visibleCount++] = idx;
-			}
+
+                                const base = idx * 16;
+                                const px = matrices[base + 12];
+                                const py = matrices[base + 13];
+                                const pz = matrices[base + 14];
+                                const radius = matrices[base + 15] * scaleFactor;
+                                const transparency = matrices[base + 11];
+
+                                const clip_x = m0 * px + m4 * py + m8 * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9 * pz + m13;
+                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+
+                                const invW = 1.0 / clip_w;
+                                const ndcX = clip_x * invW;
+                                const ndcY = clip_y * invW;
+
+                                const gx = Math.min(OCCLUSION_GRID_SIZE - 1, Math.max(0, ((ndcX + 1) * 0.5 * OCCLUSION_GRID_SIZE) | 0));
+                                const gy = Math.min(OCCLUSION_GRID_SIZE - 1, Math.max(0, ((ndcY + 1) * 0.5 * OCCLUSION_GRID_SIZE) | 0));
+                                const cellIndex = gy * OCCLUSION_GRID_SIZE + gx;
+                                const occluded = occlusionMap[cellIndex];
+
+                                const perceived = transparency * (1.0 - occluded);
+
+                                if (perceived <= 0.01) continue;
+
+                                tmpVisible[visibleCount++] = idx;
+
+                                const newOcc = Math.min(1.0, occluded + transparency);
+                                occlusionMap[cellIndex] = newOcc;
+                        }
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
