@@ -765,11 +765,22 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
+                        let remainingVisibility = 1.0;
+                        const PERCEIVED_THRESHOLD = 0.01;
 
-			for (let j = validCount - 1; j >= 0; j--) {
+                        for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-				tmpVisible[visibleCount++] = idx;
-			}
+                                const alpha = matrices[idx * 16 + 11];
+                                const perceived = alpha * remainingVisibility;
+                                if (perceived <= PERCEIVED_THRESHOLD) {
+                                        continue;
+                                }
+                                tmpVisible[visibleCount++] = idx;
+                                remainingVisibility -= perceived;
+                                if (remainingVisibility <= PERCEIVED_THRESHOLD) {
+                                        break;
+                                }
+                        }
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
