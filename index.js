@@ -156,12 +156,20 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 
 				void main() {
-					ivec2 texPos = ivec2(int(splatIndex & 4095u), int(splatIndex >> 12));
-					vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
-	
-					vec4 camspace = gsModelViewMatrix * vec4(centerAndScaleData.xyz, 1);
-					vec4 pos2d = gsProjectionMatrix * camspace;
+					ivec2 texPos = ivec2(splatIndex % uint(4096), splatIndex / uint(4096));
+                                        vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
+                                        
+                                        vec4 center = vec4(centerAndScaleData.xyz, 1.0);
+                                        vec4 camspace = gsModelViewMatrix * center;
+                                        vec4 pos2d = gsProjectionMatrix * camspace;
 
+                                        float bounds = 2.0 * pos2d.w;
+
+                                        if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
+                                                gl_Position = vec4(0.0, 0.0, 99, 1.0); // push off-screen
+                                                return;
+                                        }
+                                        
 					uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
 					float scale = centerAndScaleData.w;
 
