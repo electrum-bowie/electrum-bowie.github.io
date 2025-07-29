@@ -156,19 +156,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 
 				void main() {
-                                        ivec2 texPos = ivec2(int(splatIndex & 4095u), int(splatIndex >> 12));
+					ivec2 texPos = ivec2(int(splatIndex & 4095u), int(splatIndex >> 12));
 					vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
 	
 					vec4 camspace = gsModelViewMatrix * vec4(centerAndScaleData.xyz, 1);
 					vec4 pos2d = gsProjectionMatrix * camspace;
-                                        
-                                        float bounds = 2.0 * pos2d.w;
 
-                                        if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
-                                                gl_Position = vec4(0.0, 0.0, 99, 1.0); // push off-screen
-                                                return;
-                                        }
-                                        
 					uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
 					float scale = centerAndScaleData.w;
 
@@ -710,11 +703,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const transparency = matrices[i * 16 + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
                                 
-                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.2;
+                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 1.0;
 
-                                // if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
-                                        // continue;
-                                // }
+                                if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
+                                        continue;
+                                }
                                 
                                 const invW  = 1.0 / clip_w;
 
@@ -722,11 +715,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
 
-                                // if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
-                                                  // ndcX < -1.0 || ndcX > 1.0 ||
-                                                  // ndcY < -1.0 || ndcY > 1.0)) {
-                                        // continue; // centre is outside — skip splat
-                                // }
+                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                  ndcX < -1.0 || ndcX > 1.0 ||
+                                                  ndcY < -1.0 || ndcY > 1.0)) {
+                                        continue; // centre is outside — skip splat
+                                }
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 
