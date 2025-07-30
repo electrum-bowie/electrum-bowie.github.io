@@ -676,6 +676,103 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.tmpVisible = new Uint32Array(n);
                 };
 
+                const applyOcclusion = (
+                        sorted,
+                        matrices,
+                        mvp,
+                        view,
+                        scaleFactor = 1.0,
+                        focal = 1.0,
+                        threshold = 0.05,
+                ) => {
+                        const GRID = 64;
+                        const coverage = new Float32Array(GRID * GRID);
+                        const result = [];
+
+                        const m0 = mvp[0],  m1 = mvp[1],  m2 = mvp[2],  m3 = mvp[3];
+                        const m4 = mvp[4],  m5 = mvp[5],  m6 = mvp[6],  m7 = mvp[7];
+                        const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
+                        const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
+                        const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
+
+                        const addCoverage = (cx, cy, rad, alpha) => {
+                                const r2 = rad * rad;
+                                const minX = Math.max(0, Math.floor(cx - rad));
+                                const maxX = Math.min(GRID - 1, Math.ceil(cx + rad));
+                                const minY = Math.max(0, Math.floor(cy - rad));
+                                const maxY = Math.min(GRID - 1, Math.ceil(cy + rad));
+                                for (let y = minY; y <= maxY; y++) {
+                                        const dy = y - cy;
+                                        for (let x = minX; x <= maxX; x++) {
+                                                const dx = x - cx;
+                                                if (dx * dx + dy * dy > r2) continue;
+                                                const off = y * GRID + x;
+                                                coverage[off] += (1 - coverage[off]) * alpha;
+                                                if (coverage[off] > 1.0) coverage[off] = 1.0;
+                                        }
+                                }
+                        };
+
+                        const computeOcclusion = (cx, cy, rad) => {
+                                const r2 = rad * rad;
+                                const minX = Math.max(0, Math.floor(cx - rad));
+                                const maxX = Math.min(GRID - 1, Math.ceil(cx + rad));
+                                const minY = Math.max(0, Math.floor(cy - rad));
+                                const maxY = Math.min(GRID - 1, Math.ceil(cy + rad));
+                                let sum = 0.0;
+                                let count = 0;
+                                for (let y = minY; y <= maxY; y++) {
+                                        const dy = y - cy;
+                                        for (let x = minX; x <= maxX; x++) {
+                                                const dx = x - cx;
+                                                if (dx * dx + dy * dy > r2) continue;
+                                                sum += coverage[y * GRID + x];
+                                                count++;
+                                        }
+                                }
+                                return count ? sum / count : 0.0;
+                        };
+
+                        for (let s = sorted.length - 1; s >= 0; s--) {
+                                const idx = sorted[s];
+                                const base = idx * 16;
+                                const px = matrices[base + 12];
+                                const py = matrices[base + 13];
+                                const pz = matrices[base + 14];
+
+                                const clip_x = m0 * px + m4 * py + m8 * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9 * pz + m13;
+                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+
+                                const invW = 1.0 / clip_w;
+                                const ndcX = clip_x * invW;
+                                const ndcY = clip_y * invW;
+
+                                if (ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0) continue;
+
+                                const depth = v0 * px + v1 * py + v2 * pz + v3;
+                                const radius = matrices[base + 15] * scaleFactor;
+                                const alpha = matrices[base + 11];
+                                const r = (radius * alpha) / Math.max(-depth, 1e-2);
+
+                                const gx = (ndcX * 0.5 + 0.5) * GRID;
+                                const gy = (ndcY * 0.5 + 0.5) * GRID;
+                                const occlusion = computeOcclusion(gx, gy, r * GRID);
+                                const perceived = alpha * (1.0 - occlusion);
+                                if (perceived < threshold) continue;
+
+                                result.push(idx);
+                                addCoverage(gx, gy, r * GRID, alpha);
+                        }
+
+                        const final = new Uint32Array(result.length);
+                        for (let i = 0, j = result.length - 1; i < result.length; i++, j--) {
+                                final[i] = result[j];
+                        }
+                        return final;
+                };
+
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
                         
@@ -775,6 +872,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
                                 result[i] = tmpVisible[j];
                         }
+                        result = applyOcclusion(result, matrices, mvp, view, scaleFactor, focal);
 
                         return result;
                 };
