@@ -654,9 +654,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const COUNT_SIZE = 256 * 256;
 
-                const GRID_SIZE = 64;
-                const OCCLUSION_THRESHOLD = 0.02;
-
                 let cache = {
                         capacity: 0,
                         depthList: null,
@@ -664,11 +661,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         validIndexList: null,
                         depthIndex: null,
                         tmpVisible: null,
-                        ndcX: null,
-                        ndcY: null,
-                        alpha: null,
-                        gridIndex: null,
-                        origIndex: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -682,11 +674,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                         cache.depthIndex = new Uint32Array(n);
                         cache.tmpVisible = new Uint32Array(n);
-                        cache.ndcX = new Float32Array(n);
-                        cache.ndcY = new Float32Array(n);
-                        cache.alpha = new Float32Array(n);
-                        cache.gridIndex = new Uint32Array(n);
-                        cache.origIndex = new Uint32Array(n);
                 };
 
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -759,15 +746,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
-                                cache.ndcX[validCount] = ndcX;
-                                cache.ndcY[validCount] = ndcY;
-                                cache.alpha[validCount] = transparency;
-                                let gx = Math.floor((ndcX * 0.5 + 0.5) * GRID_SIZE);
-                                let gy = Math.floor((ndcY * 0.5 + 0.5) * GRID_SIZE);
-                                gx = Math.min(Math.max(gx, 0), GRID_SIZE - 1);
-                                gy = Math.min(Math.max(gy, 0), GRID_SIZE - 1);
-                                cache.gridIndex[validCount] = gy * GRID_SIZE + gx;
-                                cache.origIndex[validCount] = i;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
@@ -783,27 +761,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                         starts0[0] = 0;
                         for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
                         let depthIndex = cache.depthIndex;
-                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = i;
+                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-                        const occlusionGrid = new Float32Array(GRID_SIZE * GRID_SIZE);
-
-                        for (let j = validCount - 1; j >= 0; j--) { // near to far
-                                const vIdx = depthIndex[j];
-                                const cell = cache.gridIndex[vIdx];
-                                const alpha = cache.alpha[vIdx];
-                                const occl = occlusionGrid[cell];
-                                const perceived = alpha * (1.0 - occl);
-                                if (perceived <= OCCLUSION_THRESHOLD) continue;
-                                occlusionGrid[cell] = 1.0 - (1.0 - occl) * (1.0 - alpha);
-                                tmpVisible[visibleCount++] = vIdx;
-                        }
+			for (let j = validCount - 1; j >= 0; j--) {
+                                const idx = depthIndex[j];
+				tmpVisible[visibleCount++] = idx;
+			}
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
-                                result[i] = cache.origIndex[tmpVisible[j]];
+                                result[i] = tmpVisible[j];
                         }
 
                         return result;
