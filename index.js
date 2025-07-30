@@ -100,14 +100,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.covAndColorTexture.internalFormat = "RGBA32UI";
 		this.covAndColorTexture.needsUpdate = true;
 
-               let splatIndexArray = new Uint32Array(4096 * 4096);
-               const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
-               splatIndexes.setUsage(THREE.DynamicDrawUsage);
-
-               let visibilityArray = new Float32Array(4096 * 4096);
-               visibilityArray.fill(1.0);
-               const visibilityAttr = new THREE.InstancedBufferAttribute(visibilityArray, 1, false);
-               visibilityAttr.setUsage(THREE.DynamicDrawUsage);
+		let splatIndexArray = new Uint32Array(4096 * 4096);
+		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
+		splatIndexes.setUsage(THREE.DynamicDrawUsage);
 
 		const baseGeometry = new THREE.BufferGeometry();
 		const pos = new Float32Array([
@@ -124,10 +119,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 		]);
 		baseGeometry.setIndex(new THREE.BufferAttribute(idx, 1));
 
-               const geometry = new THREE.InstancedBufferGeometry().copy(baseGeometry);
-               geometry.setAttribute('splatIndex', splatIndexes);
-               geometry.setAttribute('visibility', visibilityAttr);
-               geometry.instanceCount = 1;
+		const geometry = new THREE.InstancedBufferGeometry().copy(baseGeometry);
+		geometry.setAttribute('splatIndex', splatIndexes);
+		geometry.instanceCount = 1;
 
                 const material = new THREE.ShaderMaterial({
                         uniforms: {
@@ -144,18 +138,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 precision lowp usampler2D;
 
 				out vec4 vColor;
-                               out vec2 vPosition;
-                               flat out float vVisibility;
+				out vec2 vPosition;
 				uniform vec2 viewportInv;
 				uniform float focal;
 				uniform mat4 gsProjectionMatrix;
 				uniform mat4 gsModelViewMatrix;
 				uniform mat3 viewRotationMatrix;
 
-                               attribute uint splatIndex;
-                               attribute float visibility;
-                               uniform sampler2D centerAndScaleTexture;
-                               uniform usampler2D covAndColorTexture;
+				attribute uint splatIndex;
+				uniform sampler2D centerAndScaleTexture;
+				uniform usampler2D covAndColorTexture;
 
 				vec2 unpackInt16(uint value) {
 					int v0 = int(value) >> 16;
@@ -223,24 +215,21 @@ AFRAME.registerComponent("gaussian_splatting", {
 						colorUint >> 24
 					) * 0.003921569;
 
-                                       vPosition = position.xy;
-                                       vVisibility = visibility;
+					vPosition = position.xy;
 
-                                       gl_Position = vec4(vCenter + (position.x * v2 + position.y * v1) * viewportInv, pos2d.z / pos2d.w, 1.0);
+					gl_Position = vec4(vCenter + (position.x * v2 + position.y * v1) * viewportInv, pos2d.z / pos2d.w, 1.0);
 				}
 				`,
 			fragmentShader: `
-                               in vec4 vColor;
-                               in vec2 vPosition;
-                               flat in float vVisibility;
+				in vec4 vColor;
+				in vec2 vPosition;
 
                                 void main () {
-                                       float len2 = dot(vPosition, vPosition);
-                                       if (len2 > 4.0) discard;
-                                       float B = exp(-len2) * vColor.a * vVisibility;
-                                       if (B < 0.01) discard;
-                                       gl_FragColor = vec4(vColor.rgb, B);
-                               }
+                                        float len2 = dot(vPosition, vPosition);
+                                        if (len2 > 4.0) discard;
+                                        float B = exp(-len2) * vColor.a;
+                                        gl_FragColor = vec4(vColor.rgb, B);
+                                }
 			`,
 			blending: THREE.CustomBlending,
 			blendSrcAlpha: THREE.OneFactor,
@@ -283,16 +272,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 			),
 		);
 
-               this.worker.onmessage = (e) => {
-                       let indexes = new Uint32Array(e.data.sortedIndexes);
-                       let visibilities = new Float32Array(e.data.visibilities);
-                       mesh.geometry.attributes.splatIndex.set(indexes);
-                       mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                       mesh.geometry.attributes.visibility.set(visibilities);
-                       mesh.geometry.attributes.visibility.needsUpdate = true;
-                       mesh.geometry.instanceCount = indexes.length;
-                       this.sortReady = true;
-               };
+		this.worker.onmessage = (e) => {
+			let indexes = new Uint32Array(e.data.sortedIndexes);
+			mesh.geometry.attributes.splatIndex.set(indexes);
+			mesh.geometry.attributes.splatIndex.needsUpdate = true;
+			mesh.geometry.instanceCount = indexes.length;
+			this.sortReady = true;
+		};
 		this.sortReady = true;
 	},
         loadData: function (src) {
@@ -667,17 +653,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let matrices = undefined;
 
                 const COUNT_SIZE = 256 * 256;
-                const GRID_SIZE = 64;
-                const ALPHA_THRESHOLD = 0.01;
 
                 let cache = {
                         capacity: 0,
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
-                       depthIndex: null,
-                       tmpVisible: null,
-                       tmpVisibility: null,
+                        depthIndex: null,
+                        tmpVisible: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -690,8 +673,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
                         cache.depthIndex = new Uint32Array(n);
-                       cache.tmpVisible = new Uint32Array(n);
-                       cache.tmpVisibility = new Float32Array(n);
+                        cache.tmpVisible = new Uint32Array(n);
                 };
 
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -781,51 +763,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = cache.depthIndex;
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                       let tmpVisible = cache.tmpVisible;
-                       let tmpVisibility = cache.tmpVisibility;
-                       let visibleCount = 0;
-                       const coverage = new Float32Array(GRID_SIZE * GRID_SIZE);
-                       coverage.fill(0);
+                        let tmpVisible = cache.tmpVisible;
+                        let visibleCount = 0;
 
-                       for (let j = validCount - 1; j >= 0; j--) {
-                               const idx = depthIndex[j];
-                               const base = idx * 16;
-                               const px = matrices[base + 12];
-                               const py = matrices[base + 13];
-                               const pz = matrices[base + 14];
+			for (let j = validCount - 1; j >= 0; j--) {
+                                const idx = depthIndex[j];
+				tmpVisible[visibleCount++] = idx;
+			}
 
-                               const clip_x = m0 * px + m4 * py + m8 * pz + m12;
-                               const clip_y = m1 * px + m5 * py + m9 * pz + m13;
-                               const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+                        let result = new Uint32Array(visibleCount);
+                        for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
+                                result[i] = tmpVisible[j];
+                        }
 
-                               const ndcX = clip_x / clip_w;
-                               const ndcY = clip_y / clip_w;
-
-                               const cx = ((ndcX + 1) * 0.5 * GRID_SIZE) | 0;
-                               const cy = ((1 - (ndcY + 1) * 0.5) * GRID_SIZE) | 0;
-                               if (cx < 0 || cx >= GRID_SIZE || cy < 0 || cy >= GRID_SIZE) continue;
-
-                               const cIdx = cy * GRID_SIZE + cx;
-                               const occ = coverage[cIdx];
-                               const alpha = matrices[base + 11];
-                               const vis = alpha * (1 - occ);
-                               if (vis < ALPHA_THRESHOLD) continue;
-
-                               tmpVisible[visibleCount] = idx;
-                               tmpVisibility[visibleCount] = vis;
-                               visibleCount++;
-
-                               coverage[cIdx] = Math.min(1, occ + alpha);
-                       }
-
-                       let resultIndexes = new Uint32Array(visibleCount);
-                       let resultVisibility = new Float32Array(visibleCount);
-                       for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
-                               resultIndexes[i] = tmpVisible[j];
-                               resultVisibility[i] = tmpVisibility[j];
-                       }
-
-                       return { indexes: resultIndexes, visibility: resultVisibility };
+                        return result;
                 };
 
 		self.onmessage = (e) => {
@@ -844,17 +795,16 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 			}
                         if (e.data.method == "sort") {
-                               if (matrices === undefined) {
-                                       const sortedIndexes = new Uint32Array(1);
-                                       const visibilities = new Float32Array(1);
-                                       self.postMessage({ sortedIndexes, visibilities }, [sortedIndexes.buffer, visibilities.buffer]);
+                                if (matrices === undefined) {
+                                        const sortedIndexes = new Uint32Array(1);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 } else {
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                       const result = sortSplats(matrices, view, mvp, scaleFactor, focal);
-                                       self.postMessage({ sortedIndexes: result.indexes, visibilities: result.visibility }, [result.indexes.buffer, result.visibility.buffer]);
+                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, focal);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
 		};

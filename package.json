@@ -23,6 +23,6 @@
   },
   "homepage": "",
   "dependencies": {
-    "uglify-js": "^3.19.3"
+    "uglify-js": "^3.17.4"
   }
 }
