@@ -653,8 +653,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let matrices = undefined;
 
                 const COUNT_SIZE = 256 * 256;
-                const OCCLUSION_GRID_SIZE = 32;
-                const OCCLUSION_THRESHOLD = 0.02;
 
                 let cache = {
                         capacity: 0,
@@ -768,40 +766,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-                        const occGrid = new Float32Array(OCCLUSION_GRID_SIZE * OCCLUSION_GRID_SIZE);
-
-                        for (let j = validCount - 1; j >= 0; j--) {
+			for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-
-                                const base = idx * 16;
-                                const px = matrices[base + 12];
-                                const py = matrices[base + 13];
-                                const pz = matrices[base + 14];
-
-                                const clip_x = m0 * px + m4 * py + m8 * pz + m12;
-                                const clip_y = m1 * px + m5 * py + m9 * pz + m13;
-                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-
-                                const ndcX = clip_x / clip_w;
-                                const ndcY = clip_y / clip_w;
-
-                                const gx = Math.floor((ndcX * 0.5 + 0.5) * OCCLUSION_GRID_SIZE);
-                                const gy = Math.floor((ndcY * 0.5 + 0.5) * OCCLUSION_GRID_SIZE);
-
-                                if (gx < 0 || gx >= OCCLUSION_GRID_SIZE || gy < 0 || gy >= OCCLUSION_GRID_SIZE) {
-                                        continue;
-                                }
-
-                                const cell = gy * OCCLUSION_GRID_SIZE + gx;
-                                const transparency = matrices[base + 11];
-                                const perceived = transparency * (1.0 - occGrid[cell]);
-
-                                if (perceived < OCCLUSION_THRESHOLD) continue;
-
-                                occGrid[cell] = Math.min(1.0, occGrid[cell] + perceived);
-
-                                tmpVisible[visibleCount++] = idx;
-                        }
+				tmpVisible[visibleCount++] = idx;
+			}
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
