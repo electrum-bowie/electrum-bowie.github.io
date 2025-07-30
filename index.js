@@ -707,7 +707,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const vertexCount = matrices.length / 16;
                         if (!fadeOpacities || fadeOpacities.length < vertexCount) {
                                 const tmp = new Float32Array(vertexCount);
-                                tmp.fill(1.0);
+                                tmp.fill(0.0);
                                 if (fadeOpacities) tmp.set(fadeOpacities.subarray(0, Math.min(fadeOpacities.length, vertexCount)));
                                 fadeOpacities = tmp;
                         }
@@ -831,7 +831,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method == "push") {
                                 new_matrices = new Float32Array(e.data.matrices);
                                 const newFade = new Float32Array(new_matrices.length / 16);
-                                newFade.fill(1.0);
+                                newFade.fill(0.0);
                                 if (matrices === undefined) {
                                         matrices = new_matrices;
                                         fadeOpacities = newFade;
@@ -851,7 +851,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (matrices === undefined) {
                                         const sortedIndexes = new Uint32Array(1);
                                         const fadeCopy = new Float32Array(1);
-                                        fadeCopy[0] = 0.0;
+                                        fadeCopy[0] = 1.0;
                                         self.postMessage({ sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
                                 } else {
                                         const view = new Float32Array(e.data.view);
