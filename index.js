@@ -786,7 +786,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 fadeOpacities[i] = f;
 
-                                if (tooSmall && f <= 0.02) continue;
+                                if (tooSmall && f <= 0.05) continue;
                                 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
