@@ -756,9 +756,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
 
-                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
-                                                  ndcX < -1.0 || ndcX > 1.0 ||
-                                                  ndcY < -1.0 || ndcY > 1.0)) {
+                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) {
                                         continue; // centre is outside — skip splat
                                 }
 
