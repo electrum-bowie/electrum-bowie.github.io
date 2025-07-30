@@ -766,63 +766,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-                        const GRID_SIZE = 64;
-                        const OCCLUSION_THRESHOLD = 0.01;
-                        const occlusion = new Float32Array(GRID_SIZE * GRID_SIZE);
-
-                        const toGrid = (n) => Math.floor((n + 1) * 0.5 * GRID_SIZE);
-
-                        for (let j = validCount - 1; j >= 0; j--) {
+			for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-
-                                const base = idx * 16;
-                                const px = matrices[base + 12];
-                                const py = matrices[base + 13];
-                                const pz = matrices[base + 14];
-
-                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
-                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
-                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
-                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-
-                                const invW  = 1.0 / clip_w;
-
-                                const ndcX  = clip_x * invW;
-                                const ndcY  = clip_y * invW;
-
-                                let depth = v0 * px + v1 * py + v2 * pz + v3;
-                                const radius = matrices[idx * 16 + 15] * scaleFactor;
-                                const transparency = matrices[idx * 16 + 11];
-
-                                const ndcRadius = Math.abs(radius / depth);
-                                const gx = toGrid(ndcX);
-                                const gy = toGrid(ndcY);
-                                const gr = Math.max(1, Math.ceil(ndcRadius * GRID_SIZE * 0.5));
-
-                                let occ = 0.0;
-                                for (let xx = gx - gr; xx <= gx + gr; xx++) {
-                                        if (xx < 0 || xx >= GRID_SIZE) continue;
-                                        for (let yy = gy - gr; yy <= gy + gr; yy++) {
-                                                if (yy < 0 || yy >= GRID_SIZE) continue;
-                                                const cell = yy * GRID_SIZE + xx;
-                                                if (occlusion[cell] > occ) occ = occlusion[cell];
-                                        }
-                                }
-
-                                const perceived = transparency * (1.0 - occ);
-                                if (perceived < OCCLUSION_THRESHOLD) continue;
-
-                                for (let xx = gx - gr; xx <= gx + gr; xx++) {
-                                        if (xx < 0 || xx >= GRID_SIZE) continue;
-                                        for (let yy = gy - gr; yy <= gy + gr; yy++) {
-                                                if (yy < 0 || yy >= GRID_SIZE) continue;
-                                                const cell = yy * GRID_SIZE + xx;
-                                                occlusion[cell] = Math.min(1.0, occlusion[cell] + transparency);
-                                        }
-                                }
-
-                                tmpVisible[visibleCount++] = idx;
-                        }
+				tmpVisible[visibleCount++] = idx;
+			}
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
