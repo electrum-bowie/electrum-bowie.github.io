@@ -766,10 +766,69 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-			for (let j = validCount - 1; j >= 0; j--) {
+                        const OCCLUSION_SIZE = 64;
+                        const occlusion = new Float32Array(OCCLUSION_SIZE * OCCLUSION_SIZE);
+
+                        for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-				tmpVisible[visibleCount++] = idx;
-			}
+
+                                const base = idx * 16;
+                                const px = matrices[base + 12];
+                                const py = matrices[base + 13];
+                                const pz = matrices[base + 14];
+
+                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+
+                                const radius = matrices[idx * 16 + 15] * scaleFactor;
+                                const transparency = matrices[idx * 16 + 11];
+                                const radiusTransparencyProduct = radius * transparency;
+
+                                const invW  = 1.0 / clip_w;
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+
+                                const depth = v0 * px + v1 * py + v2 * pz + v3;
+                                const pixelRadius = (focal * radiusTransparencyProduct) / -depth;
+
+                                const cx = Math.floor((ndcX + 1.0) * 0.5 * OCCLUSION_SIZE);
+                                const cy = Math.floor((ndcY + 1.0) * 0.5 * OCCLUSION_SIZE);
+                                const r  = Math.max(1, Math.floor(pixelRadius / 16));
+
+                                let occluded = 0.0;
+                                let cells = 0;
+                                for (let yy = -r; yy <= r; yy++) {
+                                        const y = cy + yy;
+                                        if (y < 0 || y >= OCCLUSION_SIZE) continue;
+                                        for (let xx = -r; xx <= r; xx++) {
+                                                const x = cx + xx;
+                                                if (x < 0 || x >= OCCLUSION_SIZE) continue;
+                                                occluded += occlusion[y * OCCLUSION_SIZE + x];
+                                                cells++;
+                                        }
+                                }
+                                occluded = cells > 0 ? occluded / cells : 0.0;
+                                const perceived = transparency * (1.0 - occluded);
+                                if (perceived <= 0.05) {
+                                        continue;
+                                }
+
+                                for (let yy = -r; yy <= r; yy++) {
+                                        const y = cy + yy;
+                                        if (y < 0 || y >= OCCLUSION_SIZE) continue;
+                                        for (let xx = -r; xx <= r; xx++) {
+                                                const x = cx + xx;
+                                                if (x < 0 || x >= OCCLUSION_SIZE) continue;
+                                                const id = y * OCCLUSION_SIZE + x;
+                                                occlusion[id] += (1.0 - occlusion[id]) * transparency;
+                                                if (occlusion[id] > 1.0) occlusion[id] = 1.0;
+                                        }
+                                }
+
+                                tmpVisible[visibleCount++] = idx;
+                        }
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
