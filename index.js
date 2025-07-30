@@ -763,13 +763,68 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = cache.depthIndex;
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
+                        const GRID_SIZE = 32;
+                        const CELL_SIZE = 8;
+                        let occlusionGrid = new Float32Array(GRID_SIZE * GRID_SIZE);
+                        occlusionGrid.fill(0);
+
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-			for (let j = validCount - 1; j >= 0; j--) {
+                        for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-				tmpVisible[visibleCount++] = idx;
-			}
+
+                                const base = idx * 16;
+                                const px = matrices[base + 12];
+                                const py = matrices[base + 13];
+                                const pz = matrices[base + 14];
+
+                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+
+                                const invW = 1.0 / clip_w;
+                                const ndcX = clip_x * invW;
+                                const ndcY = clip_y * invW;
+
+                                const depth = v0 * px + v1 * py + v2 * pz + v3;
+                                const radius = matrices[idx * 16 + 15] * scaleFactor;
+                                const transparency = matrices[idx * 16 + 11];
+                                const radiusTransparencyProduct = radius * transparency;
+                                const pixelRadius = (focal * radiusTransparencyProduct) / -depth;
+
+                                const gx = (ndcX + 1) * 0.5 * GRID_SIZE;
+                                const gy = (ndcY + 1) * 0.5 * GRID_SIZE;
+                                const gr = Math.ceil(pixelRadius / CELL_SIZE);
+
+                                let totalCells = 0, occluded = 0;
+                                const x0 = Math.max(0, Math.floor(gx - gr));
+                                const y0 = Math.max(0, Math.floor(gy - gr));
+                                const x1 = Math.min(GRID_SIZE - 1, Math.floor(gx + gr));
+                                const y1 = Math.min(GRID_SIZE - 1, Math.floor(gy + gr));
+
+                                for (let yy = y0; yy <= y1; yy++) {
+                                        for (let xx = x0; xx <= x1; xx++) {
+                                                const cidx = yy * GRID_SIZE + xx;
+                                                totalCells++;
+                                                occluded += occlusionGrid[cidx];
+                                        }
+                                }
+
+                                const occlusionFraction = totalCells ? occluded / totalCells : 0.0;
+                                const perceived = transparency * (1.0 - occlusionFraction);
+
+                                if (perceived > 0.01) {
+                                        tmpVisible[visibleCount++] = idx;
+                                        for (let yy = y0; yy <= y1; yy++) {
+                                                for (let xx = x0; xx <= x1; xx++) {
+                                                        const cidx = yy * GRID_SIZE + xx;
+                                                        occlusionGrid[cidx] = Math.min(1.0, occlusionGrid[cidx] + perceived);
+                                                }
+                                        }
+                                }
+                        }
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
