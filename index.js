@@ -653,8 +653,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let matrices = undefined;
 
                 const COUNT_SIZE = 256 * 256;
-                const GRID_SIZE = 64;
-                const OCCLUSION_THRESHOLD = 0.01;
 
                 let cache = {
                         capacity: 0,
@@ -663,11 +661,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         validIndexList: null,
                         depthIndex: null,
                         tmpVisible: null,
-                        screenX: null,
-                        screenY: null,
                 };
-
-                const occlusionGrid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
@@ -680,8 +674,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                         cache.depthIndex = new Uint32Array(n);
                         cache.tmpVisible = new Uint32Array(n);
-                        cache.screenX = new Float32Array(n);
-                        cache.screenY = new Float32Array(n);
                 };
 
                 const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -729,8 +721,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
-                                cache.screenX[i] = ndcX;
-                                cache.screenY[i] = ndcY;
 
                                 if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
                                                   ndcX < -1.0 || ndcX > 1.0 ||
@@ -776,25 +766,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-                        occlusionGrid.fill(0);
-
-                        for (let j = validCount - 1; j >= 0; j--) {
+			for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-                                const alpha = matrices[idx * 16 + 11];
-                                const ndcX = cache.screenX[idx];
-                                const ndcY = cache.screenY[idx];
-
-                                const gx = Math.min(GRID_SIZE - 1, Math.max(0, ((ndcX * 0.5 + 0.5) * GRID_SIZE) | 0));
-                                const gy = Math.min(GRID_SIZE - 1, Math.max(0, ((ndcY * 0.5 + 0.5) * GRID_SIZE) | 0));
-                                const cell = gy * GRID_SIZE + gx;
-
-                                const remaining = 1.0 - occlusionGrid[cell];
-                                const perceived = alpha * remaining;
-                                if (perceived > OCCLUSION_THRESHOLD) {
-                                        occlusionGrid[cell] = Math.min(1.0, occlusionGrid[cell] + alpha);
-                                        tmpVisible[visibleCount++] = idx;
-                                }
-                        }
+				tmpVisible[visibleCount++] = idx;
+			}
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
