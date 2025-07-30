@@ -779,59 +779,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         return result;
                 };
 
-                const applyOcclusion = function applyOcclusion(sorted, matrices, view, mvp, scaleFactor = 1.0) {
-                        const gridSize = 64;
-                        const coverage = new Float32Array(gridSize * gridSize);
-
-                        // cache matrix values locally
-                        const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
-                        const m0 = mvp[0],  m1 = mvp[1],  m2 = mvp[2],  m3 = mvp[3];
-                        const m4 = mvp[4],  m5 = mvp[5],  m6 = mvp[6],  m7 = mvp[7];
-                        const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
-                        const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
-
-                        const filtered = [];
-
-                        for (let r = sorted.length - 1; r >= 0; r--) {
-                                const i = sorted[r];
-                                const base = i * 16;
-                                const px = matrices[base + 12];
-                                const py = matrices[base + 13];
-                                const pz = matrices[base + 14];
-
-                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
-                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
-                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-
-                                const invW  = 1.0 / clip_w;
-
-                                const ndcX  = clip_x * invW;
-                                const ndcY  = clip_y * invW;
-
-                                let depth = v0 * px + v1 * py + v2 * pz + v3;
-                                const dist = -depth;
-
-                                const x = Math.min(gridSize - 1, Math.max(0, Math.floor((ndcX * 0.5 + 0.5) * gridSize)));
-                                const y = Math.min(gridSize - 1, Math.max(0, Math.floor((ndcY * 0.5 + 0.5) * gridSize)));
-                                const id = y * gridSize + x;
-
-                                const current = coverage[id];
-                                const transparency = matrices[base + 11];
-                                const perceived = transparency * (1.0 - current);
-
-                                if (perceived > 0.05) {
-                                        filtered.push(i);
-                                        coverage[id] = current + perceived * (1.0 - current);
-                                }
-                        }
-
-                        const result = new Uint32Array(filtered.length);
-                        for (let j = 0, i = filtered.length - 1; i >= 0; i--, j++) {
-                                result[j] = filtered[i];
-                        }
-                        return result;
-                };
-
 		self.onmessage = (e) => {
 			if (e.data.method == "clear") {
 				matrices = undefined;
@@ -856,9 +803,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                       const sorted = sortSplats(matrices, view, mvp, scaleFactor, focal);
-                                       const sortedIndexes = applyOcclusion(sorted, matrices, view, mvp, scaleFactor);
-                                       self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, focal);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
                                 }
                         }
 		};
