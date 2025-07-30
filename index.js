@@ -745,10 +745,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const radiusTransparencyProduct = radius * transparency;
                                 
                                 const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.1;
-
-                                if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
-                                        continue;
-                                }
                                 
                                 const invW  = 1.0 / clip_w;
 
@@ -756,27 +752,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
 
-                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
-                                                  ndcX < -1.0 || ndcX > 1.0 ||
-                                                  ndcY < -1.0 || ndcY > 1.0)) {
-                                        continue; // centre is outside — skip splat
-                                }
-
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 
-                                const nearPlaneClip = -0.18;
-                                
-                                if (!skipCull && (depth + radius > nearPlaneClip)) continue;
-                                
-                                if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) {
-                                        continue; // centre is inside the view and too close to the camera
-                                }
-                                
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                let tooSmall = (pixelThreshold < 1.0 * edgeMultiplier) && !skipCull;
+                                const tooSmall = (pixelThreshold < 1.0 * edgeMultiplier) && !skipCull;
 
                                 let f = fadeOpacities[i];
                                 if (tooSmall) {
@@ -787,6 +769,24 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 fadeOpacities[i] = f;
 
                                 if (tooSmall && f <= 0.05) continue;
+
+                                if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
+                                        continue;
+                                }
+                                
+                                if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 ||
+                                                  ndcX < -1.0 || ndcX > 1.0 ||
+                                                  ndcY < -1.0 || ndcY > 1.0)) {
+                                        continue; // centre is outside — skip splat
+                                }
+
+                                const nearPlaneClip = -0.15;
+                                
+                                if (!skipCull && (depth + radius > nearPlaneClip)) continue;
+                                
+                                if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) {
+                                        continue; // centre is inside the view and too close to the camera
+                                }
                                 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
