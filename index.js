@@ -766,51 +766,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-                        for (let j = validCount - 1; j >= 0; j--) {
+			for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-                                tmpVisible[visibleCount++] = idx;
-                        }
-
-                        const OCC_RES = 64;
-                        const occlusion = new Float32Array(OCC_RES * OCC_RES);
-                        let filteredCount = 0;
-
-                        for (let i = 0; i < visibleCount; i++) {
-                                const idx = tmpVisible[i];
-
-                                const base = idx * 16;
-                                const px = matrices[base + 12];
-                                const py = matrices[base + 13];
-                                const pz = matrices[base + 14];
-
-                                const clip_x = m0 * px + m4 * py + m8 * pz + m12;
-                                const clip_y = m1 * px + m5 * py + m9 * pz + m13;
-                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-
-                                const ndcX = clip_x / clip_w;
-                                const ndcY = clip_y / clip_w;
-
-                                let cx = Math.floor(((ndcX + 1) * 0.5) * OCC_RES);
-                                let cy = Math.floor(((ndcY + 1) * 0.5) * OCC_RES);
-
-                                if (cx < 0 || cx >= OCC_RES || cy < 0 || cy >= OCC_RES) {
-                                        continue;
-                                }
-
-                                const occIdx = cy * OCC_RES + cx;
-                                const baseAlpha = matrices[base + 11];
-                                const current = occlusion[occIdx];
-                                const perceived = baseAlpha * (1.0 - current);
-
-                                if (perceived < 0.05) {
-                                        continue;
-                                }
-
-                                occlusion[occIdx] = Math.min(1.0, current + perceived);
-                                tmpVisible[filteredCount++] = idx;
-                        }
-
-                        visibleCount = filteredCount;
+				tmpVisible[visibleCount++] = idx;
+			}
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
