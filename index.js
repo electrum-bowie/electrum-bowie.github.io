@@ -693,7 +693,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
-                        depthIndex: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -706,7 +705,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
-                        cache.depthIndex = new Uint32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
