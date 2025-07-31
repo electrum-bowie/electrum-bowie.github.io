@@ -2,7 +2,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 0.8 },
-                xrPixelRatio: { type: 'number', default: 0.8 },
+                xrPixelRatio: { type: 'number', default: 1.0 },
                 // Fixed foveation level. Set to 0 to disable foveated rendering
                 foveation: { type: 'number', default: 1.0 },
         },
@@ -776,7 +776,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = (pixelThreshold < 1.0 * edgeMultiplier) && !skipCull;
+                                const tooSmall = (pixelThreshold < 1.1 * edgeMultiplier) && !skipCull;
 
                                 let f = fadeOpacities[i];
 
@@ -789,7 +789,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 fadeOpacities[i] = f;
 
-                                if (tooSmall && f <= 0.05) continue;
+                                if (tooSmall && f < 0.1) continue;
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
