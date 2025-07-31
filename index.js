@@ -746,7 +746,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const vertexCount = matrices.length / 16;
                         if (!fadeOpacities || fadeOpacities.length < vertexCount) {
                                 const tmp = new Float32Array(vertexCount);
-                                tmp.fill(2.0);
+                                tmp.fill(-1.0);
                                 if (fadeOpacities) tmp.set(fadeOpacities.subarray(0, Math.min(fadeOpacities.length, vertexCount)));
                                 fadeOpacities = tmp;
                         }
@@ -816,10 +816,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let f = fadeOpacities[i];
 
                                 if (tooSmall) {
-                                        if (f === 2.0) f = 0.0; // default unset value is 2.0
+                                        if (f === -1.0) f = 0.0; // default unset value is -1.0
                                         f = Math.max(0, f - fadeStep);
                                 } else {
-                                        if (f === 2.0) f = 1.0; // default unset value is 2.0
+                                        if (f === -1.0) f = 1.0; // default unset value is -1.0
                                         f = Math.min(1, f + fadeStep);
                                 }
                                 fadeOpacities[i] = f;
@@ -847,7 +847,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method == "push") {
                                 new_matrices = new Float32Array(e.data.matrices);
                                 const newFade = new Float32Array(new_matrices.length / 16);
-                                newFade.fill(2.0);
+                                newFade.fill(-1.0);
                                 if (matrices === undefined) {
                                         matrices = new_matrices;
                                         fadeOpacities = newFade;
