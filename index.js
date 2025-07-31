@@ -172,7 +172,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 					vec4 camspace = gsModelViewMatrix * vec4(centerAndScaleData.xyz, 1);
 					vec4 pos2d = gsProjectionMatrix * camspace;
 
-                                        float bounds = pos2d.w * 1.1;
+                                        float bounds = pos2d.w;
 
                                         if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
                                                 return;
@@ -237,7 +237,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 void main () {
                                         float len2 = dot(vPosition, vPosition);
-                                        if (len2 > 4.1) discard;
+                                        if (len2 > 4.0) discard;
                                         float B = exp(-len2) * vColor.a;
                                         gl_FragColor = vec4(vColor.rgb, B);
                                 }
@@ -750,7 +750,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const transparency = matrices[i * 16 + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
 
-                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.05;
+                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.5;
 
                                 if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
                                         continue;
