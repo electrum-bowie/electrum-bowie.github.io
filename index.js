@@ -285,18 +285,21 @@ AFRAME.registerComponent("gaussian_splatting", {
 		);
 
                 this.worker.onmessage = (e) => {
-                        let indexes = new Uint32Array(e.data.sortedIndexes);
-                        mesh.geometry.attributes.splatIndex.set(indexes);
-                        mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                        mesh.geometry.instanceCount = indexes.length;
                         if (e.data.fadeOpacities) {
                                 const fades = new Float32Array(e.data.fadeOpacities);
                                 this.fadeOpacityData.set(fades);
                                 this.fadeOpacityTexture.needsUpdate = true;
                         }
-                        this.sortReady = true;
+
+                        if (e.data.sortedIndexes) {
+                                let indexes = new Uint32Array(e.data.sortedIndexes);
+                                mesh.geometry.attributes.splatIndex.set(indexes);
+                                mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                                mesh.geometry.instanceCount = indexes.length;
+                                this.sortReady = true;
+                        }
                 };
-		this.sortReady = true;
+                this.sortReady = true;
 	},
         loadData: function (src) {
                 this.loadedVertexCount = 0;
@@ -622,12 +625,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
                 this.worker.postMessage({
-                        method: "sort",
+                        method: "filter",
                         view: view.buffer,
                         mvp: mvp.buffer,
                         scale: globalScale,
                         focal: focal,
                 }, [view.buffer, mvp.buffer]);
+                this.worker.postMessage({ method: "sort" });
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
                 this.lastObjectMatrix.copy(this.object.matrixWorld);
                 this.lastScale.copy(this.object.scale);
@@ -688,6 +692,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         validIndexList: null,
                         depthIndex: null,
                         tmpVisible: null,
+                        visibleCount: 0,
+                        maxDepth: -Infinity,
+                        minDepth: Infinity,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -703,7 +710,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.tmpVisible = new Uint32Array(n);
                 };
 
-                const sortSplats = function sortSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
+                const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
                         if (!fadeOpacities || fadeOpacities.length < vertexCount) {
                                 const tmp = new Float32Array(vertexCount);
@@ -711,13 +718,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (fadeOpacities) tmp.set(fadeOpacities.subarray(0, Math.min(fadeOpacities.length, vertexCount)));
                                 fadeOpacities = tmp;
                         }
-                        
+
                         ensureCapacity(vertexCount);
 
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
                         let depthList = cache.depthList;
-                        let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
                         let validCount = 0;
 
@@ -743,13 +749,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const radius = matrices[i * 16 + 15] * scaleFactor;
                                 const transparency = matrices[i * 16 + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
-                                
+
                                 const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.2;
 
                                 if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
                                         continue;
                                 }
-                                
+
                                 const invW  = 1.0 / clip_w;
 
                                 const ndcX  = clip_x * invW;
@@ -763,40 +769,58 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 
                                 const nearPlaneClip = -0.15;
-                                
+
                                 if (!skipCull && (depth + radius > nearPlaneClip)) continue;
-                                
+
                                 if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) {
                                         continue; // centre is inside the view and too close to the camera
                                 }
-                                
+
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
-                                
+
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 const tooSmall = (pixelThreshold < 1.0 * edgeMultiplier) && !skipCull;
 
                                 let f = fadeOpacities[i];
-                                
+
                                 if (tooSmall) {
                                         if (f === 2.0) f = 0.0; // default unset value is 2.0
 
                                         f = Math.max(0, f - fadeStep);
                                 } else {
                                         if (f === 2.0) f = 1.0; // default unset value is 2.0
-                                                
+
                                         f = Math.min(1, f + fadeStep);
                                 }
                                 fadeOpacities[i] = f;
 
                                 if (tooSmall && f <= 0.05) continue;
-                                
+
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
                         }
+
+                        cache.visibleCount = validCount;
+                        cache.maxDepth = maxDepth;
+                        cache.minDepth = minDepth;
+                };
+
+                const sortSplats = function sortSplats() {
+                        const validCount = cache.visibleCount;
+                        if (validCount === 0) {
+                                return new Uint32Array(0);
+                        }
+
+                        let depthList = cache.depthList;
+                        let sizeList = cache.sizeList;
+                        let validIndexList = cache.validIndexList;
+
+                        let maxDepth = cache.maxDepth;
+                        let minDepth = cache.minDepth;
 
                         // This is a 16 bit single-pass counting sort
                         let depthInv = (COUNT_SIZE - 1) / (maxDepth - minDepth);
@@ -813,10 +837,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let tmpVisible = cache.tmpVisible;
                         let visibleCount = 0;
 
-			for (let j = validCount - 1; j >= 0; j--) {
+                        for (let j = validCount - 1; j >= 0; j--) {
                                 const idx = depthIndex[j];
-				tmpVisible[visibleCount++] = idx;
-			}
+                                tmpVisible[visibleCount++] = idx;
+                        }
 
                         let result = new Uint32Array(visibleCount);
                         for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
@@ -850,23 +874,27 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         fadeOpacities = fadeResized;
                                 }
 			}
-                        if (e.data.method == "sort") {
-                                if (matrices === undefined) {
-                                        const sortedIndexes = new Uint32Array(1);
-                                        const fadeCopy = new Float32Array(1);
-                                        fadeCopy[0] = 2.0;
-                                        self.postMessage({ sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
-                                } else {
+                        if (e.data.method == "filter") {
+                                if (matrices !== undefined) {
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const sortedIndexes = sortSplats(matrices, view, mvp, scaleFactor, focal);
+                                        filterSplats(matrices, view, mvp, scaleFactor, focal);
                                         const fadeCopy = new Float32Array(fadeOpacities);
-                                        self.postMessage({ sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
+                                        self.postMessage({ fadeOpacities: fadeCopy }, [fadeCopy.buffer]);
                                 }
                         }
-		};
+                        if (e.data.method == "sort") {
+                                if (matrices === undefined) {
+                                        const sortedIndexes = new Uint32Array(1);
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                } else {
+                                        const sortedIndexes = sortSplats();
+                                        self.postMessage({ sortedIndexes }, [sortedIndexes.buffer]);
+                                }
+                        }
+                };
 	},
 	processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
