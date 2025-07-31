@@ -539,10 +539,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 0.001;
                 const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.008;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 0.001;
-		
-		if (this.filterReady) this.filterSplatsNow();
 
-                if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged) {
+
+                if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged) {		
+			if (this.filterReady) this.filterSplatsNow();
 			if (this.sortReady) this.sortSplatsNow();
                 }
         },
