@@ -753,8 +753,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const transparency = matrices[offset + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
                                 
-                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.01;
-                                
                                 const invW  = 1.0 / clip_w;
 
                                 const ndcX  = clip_x * invW;
@@ -762,8 +760,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcZ  = clip_z * invW;
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
-
-                                if (!skipCull && (depth + radius > nearPlaneClip)) continue;
 
                                 if (depth + radius > nearPlaneClip && (ndcZ > -1.0 || ndcZ < 1.0 || ndcX > -1.0 || ndcX < 1.0 || ndcY > -1.0 || ndcY < 1.0)) {
                                         continue; // centre is inside the view and too close to the camera
