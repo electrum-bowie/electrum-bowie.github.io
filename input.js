@@ -22,7 +22,9 @@ document.addEventListener("DOMContentLoaded", function () {
     function convertSplatToPlyBuffer(arrayBuffer) {
         const recordBytes = 32; // bytes per splat record
         const vertexCount = arrayBuffer.byteLength / recordBytes;
-        const view = new DataView(arrayBuffer);
+        const floatView = new Float32Array(arrayBuffer);
+        const byteView = new Uint8Array(arrayBuffer);
+        const invSH_C0 = 1.0 / SH_C0;
 
         const header = [
             'ply',
@@ -54,28 +56,28 @@ document.addEventListener("DOMContentLoaded", function () {
 
         for (let i = 0; i < vertexCount; i++) {
             const base = i * recordBytes;
-            const x = view.getFloat32(base, true);
-            const y = view.getFloat32(base + 4, true);
-            const z = view.getFloat32(base + 8, true);
-            const sx = view.getFloat32(base + 12, true);
-            const sy = view.getFloat32(base + 16, true);
-            const sz = view.getFloat32(base + 20, true);
-            const r = view.getUint8(base + 24);
-            const g = view.getUint8(base + 25);
-            const b = view.getUint8(base + 26);
-            const a = view.getUint8(base + 27);
-            let q0 = (view.getUint8(base + 28) - 128) / 128.0;
-            let q1 = (view.getUint8(base + 29) - 128) / 128.0;
-            let q2 = (view.getUint8(base + 30) - 128) / 128.0;
-            let q3 = (view.getUint8(base + 31) - 128) / 128.0;
+            const floatIdx = (base >> 2); // divide by 4
+            const x = floatView[floatIdx];
+            const y = floatView[floatIdx + 1];
+            const z = floatView[floatIdx + 2];
+            const sx = floatView[floatIdx + 3];
+            const sy = floatView[floatIdx + 4];
+            const sz = floatView[floatIdx + 5];
+            const r = byteView[base + 24];
+            const g = byteView[base + 25];
+            const b = byteView[base + 26];
+            const a = byteView[base + 27];
+            let q0 = (byteView[base + 28] - 128) / 128.0;
+            let q1 = (byteView[base + 29] - 128) / 128.0;
+            let q2 = (byteView[base + 30] - 128) / 128.0;
+            let q3 = (byteView[base + 31] - 128) / 128.0;
             const qlen = Math.hypot(q0, q1, q2, q3) + 1e-8;
             q0 /= qlen; q1 /= qlen; q2 /= qlen; q3 /= qlen;
-            const rgba = [r / 255, g / 255, b / 255, a / 255];
-            const alpha = Math.min(Math.max(rgba[3], 1e-6), 1 - 1e-6);
-            const opacity = -Math.log(1 / alpha - 1);
-            const fdc0 = (rgba[0] - 0.5) / SH_C0;
-            const fdc1 = (rgba[1] - 0.5) / SH_C0;
-            const fdc2 = (rgba[2] - 0.5) / SH_C0;
+            const alpha = Math.min(Math.max(a / 255, 1e-6), 1 - 1e-6);
+            const opacity = Math.log(alpha / (1 - alpha));
+            const fdc0 = (r / 255 - 0.5) * invSH_C0;
+            const fdc1 = (g / 255 - 0.5) * invSH_C0;
+            const fdc2 = (b / 255 - 0.5) * invSH_C0;
 
             let off = i * plyRowBytes;
             outView.setFloat32(off, x, true); off += 4;
