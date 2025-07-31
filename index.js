@@ -292,6 +292,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 mesh.geometry.instanceCount = indexes.length;
                                 this.sortReady = true;
                         } else if (e.data.method === "filter") {
+                                if (e.data.indexes) {
+                                        let indexes = new Uint32Array(e.data.indexes);
+                                        mesh.geometry.attributes.splatIndex.set(indexes);
+                                        mesh.geometry.attributes.splatIndex.needsUpdate = true;
+                                        mesh.geometry.instanceCount = indexes.length;
+                                }
                                 this.filterReady = true;
                         }
                         if (e.data.fadeOpacities) {
@@ -885,7 +891,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         filterSplats(matrices, view, mvp, scaleFactor, focal);
                                 }
                                 const fadeCopy = fadeOpacities ? new Float32Array(fadeOpacities) : new Float32Array(1).fill(2.0);
-                                self.postMessage({ method: "filter", fadeOpacities: fadeCopy }, [fadeCopy.buffer]);
+                                const indexCopy = new Uint32Array(filterResult.count);
+                                indexCopy.set(cache.validIndexList.subarray(0, filterResult.count));
+                                self.postMessage(
+                                        { method: "filter", fadeOpacities: fadeCopy, indexes: indexCopy },
+                                        [fadeCopy.buffer, indexCopy.buffer]
+                                );
                         }
                         if (e.data.method == "sort") {
                                 if (matrices === undefined) {
