@@ -753,7 +753,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
                                 const radius = matrices[i * 16 + 15] * scaleFactor;
-                                const transparency = matrices[i * 16 + 11];
+                                const transparency = matrices[i * 16 + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
 
                                 const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.2;
@@ -769,17 +769,17 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcZ  = clip_z * invW;
 
                                 if (!skipCull && (ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) {
-                                        continue;
+                                        continue; // centre is outside — skip splat
                                 }
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 
-                                const nearPlaneClip = -0.15;
+                                const nearPlaneClip = -0.16;
 
                                 if (!skipCull && (depth + radius > nearPlaneClip)) continue;
 
                                 if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) {
-                                        continue;
+                                        continue; // centre is inside the view and too close to the camera
                                 }
 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
@@ -791,10 +791,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let f = fadeOpacities[i];
 
                                 if (tooSmall) {
-                                        if (f === 2.0) f = 0.0;
+                                        if (f === 2.0) f = 0.0; // default unset value is 2.0
                                         f = Math.max(0, f - fadeStep);
                                 } else {
-                                        if (f === 2.0) f = 1.0;
+                                        if (f === 2.0) f = 1.0; // default unset value is 2.0
                                         f = Math.min(1, f + fadeStep);
                                 }
                                 fadeOpacities[i] = f;
