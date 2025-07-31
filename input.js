@@ -22,10 +22,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function convertSplatToPlyBuffer(arrayBuffer) {
         const recordBytes = 32; // bytes per splat record
         const vertexCount = arrayBuffer.byteLength / recordBytes;
-
-        // Typed array views are faster than repeated DataView accesses.
-        const floatView = new Float32Array(arrayBuffer, 0, vertexCount * 6);
-        const byteView = new Uint8Array(arrayBuffer);
+        const view = new DataView(arrayBuffer);
 
         const header = [
             'ply',
@@ -53,27 +50,25 @@ document.addEventListener("DOMContentLoaded", function () {
         const outBuffer = new ArrayBuffer(headerBytes.length + vertexCount * plyRowBytes);
         const outUint8 = new Uint8Array(outBuffer);
         outUint8.set(headerBytes, 0);
-        const outFloats = new Float32Array(outBuffer, headerBytes.length);
+        const outView = new DataView(outBuffer, headerBytes.length);
 
-        const floatsPerRow = plyRowBytes / 4;
         for (let i = 0; i < vertexCount; i++) {
-            const fBase = i * 6;
-            const bBase = i * recordBytes;
-            const x = floatView[fBase];
-            const y = floatView[fBase + 1];
-            const z = floatView[fBase + 2];
-            const sx = floatView[fBase + 3];
-            const sy = floatView[fBase + 4];
-            const sz = floatView[fBase + 5];
-            const r = byteView[bBase + 24];
-            const g = byteView[bBase + 25];
-            const b = byteView[bBase + 26];
-            const a = byteView[bBase + 27];
-            let q0 = (byteView[bBase + 28] - 128) / 128.0;
-            let q1 = (byteView[bBase + 29] - 128) / 128.0;
-            let q2 = (byteView[bBase + 30] - 128) / 128.0;
-            let q3 = (byteView[bBase + 31] - 128) / 128.0;
-            const qlen = Math.sqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3) + 1e-8;
+            const base = i * recordBytes;
+            const x = view.getFloat32(base, true);
+            const y = view.getFloat32(base + 4, true);
+            const z = view.getFloat32(base + 8, true);
+            const sx = view.getFloat32(base + 12, true);
+            const sy = view.getFloat32(base + 16, true);
+            const sz = view.getFloat32(base + 20, true);
+            const r = view.getUint8(base + 24);
+            const g = view.getUint8(base + 25);
+            const b = view.getUint8(base + 26);
+            const a = view.getUint8(base + 27);
+            let q0 = (view.getUint8(base + 28) - 128) / 128.0;
+            let q1 = (view.getUint8(base + 29) - 128) / 128.0;
+            let q2 = (view.getUint8(base + 30) - 128) / 128.0;
+            let q3 = (view.getUint8(base + 31) - 128) / 128.0;
+            const qlen = Math.hypot(q0, q1, q2, q3) + 1e-8;
             q0 /= qlen; q1 /= qlen; q2 /= qlen; q3 /= qlen;
             const rgba = [r / 255, g / 255, b / 255, a / 255];
             const alpha = Math.min(Math.max(rgba[3], 1e-6), 1 - 1e-6);
@@ -82,21 +77,21 @@ document.addEventListener("DOMContentLoaded", function () {
             const fdc1 = (rgba[1] - 0.5) / SH_C0;
             const fdc2 = (rgba[2] - 0.5) / SH_C0;
 
-            let off = i * floatsPerRow;
-            outFloats[off++] = x;
-            outFloats[off++] = y;
-            outFloats[off++] = z;
-            outFloats[off++] = Math.log(sx);
-            outFloats[off++] = Math.log(sy);
-            outFloats[off++] = Math.log(sz);
-            outFloats[off++] = q0;
-            outFloats[off++] = q1;
-            outFloats[off++] = q2;
-            outFloats[off++] = q3;
-            outFloats[off++] = fdc0;
-            outFloats[off++] = fdc1;
-            outFloats[off++] = fdc2;
-            outFloats[off++] = opacity;
+            let off = i * plyRowBytes;
+            outView.setFloat32(off, x, true); off += 4;
+            outView.setFloat32(off, y, true); off += 4;
+            outView.setFloat32(off, z, true); off += 4;
+            outView.setFloat32(off, Math.log(sx), true); off += 4;
+            outView.setFloat32(off, Math.log(sy), true); off += 4;
+            outView.setFloat32(off, Math.log(sz), true); off += 4;
+            outView.setFloat32(off, q0, true); off += 4;
+            outView.setFloat32(off, q1, true); off += 4;
+            outView.setFloat32(off, q2, true); off += 4;
+            outView.setFloat32(off, q3, true); off += 4;
+            outView.setFloat32(off, fdc0, true); off += 4;
+            outView.setFloat32(off, fdc1, true); off += 4;
+            outView.setFloat32(off, fdc2, true); off += 4;
+            outView.setFloat32(off, opacity, true); off += 4;
         }
 
         return outBuffer;
