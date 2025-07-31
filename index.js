@@ -174,7 +174,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                         float bounds = pos2d.w;
 
-                                        if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
+                                        if (pos2d.z < -bounds || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
                                                 return;
                                         }
                                         
@@ -832,11 +832,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
                         let depthIndex = cache.depthIndex;
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
-
-                        const result = new Uint32Array(validCount);
-                        result.set(depthIndex.subarray(0, validCount));
-
-                        return result;
+			
+                        return depthIndex;
                 };
 
 		self.onmessage = (e) => {
