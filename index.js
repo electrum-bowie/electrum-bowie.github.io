@@ -694,6 +694,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         sizeList: null,
                         validIndexList: null,
                         depthIndex: null,
+                        tmpVisible: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -707,6 +708,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
                         cache.depthIndex = new Uint32Array(n);
+                        cache.tmpVisible = new Uint32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -768,11 +770,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         continue; // centre is inside the view and too close to the camera
                                 }
 
-                                const ax = ndcX < 0 ? -ndcX : ndcX;
-                                const ay = ndcY < 0 ? -ndcY : ndcY;
-                                const edgeDist = ax > ay ? ax : ay;
-                                const edgeMultiplier = 1.0 + edgeDist * 0.6;
-
+                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.6);
+                                
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 const tooSmall = (pixelThreshold < 1.1 * edgeMultiplier);
 
@@ -824,8 +824,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = cache.depthIndex;
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        const result = new Uint32Array(validCount);
-                        result.set(depthIndex.subarray(0, validCount));
+                        let tmpVisible = cache.tmpVisible;
+                        let visibleCount = 0;
+
+                        for (let j = validCount - 1; j >= 0; j--) {
+                                const idx = depthIndex[j];
+                                tmpVisible[visibleCount++] = idx;
+                        }
+
+                        let result = new Uint32Array(visibleCount);
+                        for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
+                                result[i] = tmpVisible[j];
+                        }
+
                         return result;
                 };
 
