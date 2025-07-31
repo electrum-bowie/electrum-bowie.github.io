@@ -694,7 +694,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         sizeList: null,
                         validIndexList: null,
                         depthIndex: null,
-                        tmpVisible: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -708,7 +707,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
                         cache.depthIndex = new Uint32Array(n);
-                        cache.tmpVisible = new Uint32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -735,19 +733,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
                         const fadeStep = 0.3;
-                        for (let i = 0; i < vertexCount; i++) {
-                                const base = i * 16;
-                                const px = matrices[base + 12];
-                                const py = matrices[base + 13];
-                                const pz = matrices[base + 14];
+                        const nearPlaneClip = -0.16;
+                        for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
+                                const px = matrices[offset + 12];
+                                const py = matrices[offset + 13];
+                                const pz = matrices[offset + 14];
 
                                 const clip_x = m0 * px + m4 * py + m8  * pz + m12;
                                 const clip_y = m1 * px + m5 * py + m9  * pz + m13;
                                 const clip_z = m2 * px + m6 * py + m10 * pz + m14;
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
-                                const radius = matrices[i * 16 + 15] * scaleFactor;
-                                const transparency = matrices[i * 16 + 11]; // 0-1
+                                const radius = matrices[offset + 15] * scaleFactor;
+                                const transparency = matrices[offset + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
 
                                 const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.01;
@@ -764,16 +762,16 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 
-                                const nearPlaneClip = -0.16;
-
                                 if (!skipCull && (depth + radius > nearPlaneClip)) continue;
 
                                 if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) {
                                         continue; // centre is inside the view and too close to the camera
                                 }
 
-                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                                const edgeMultiplier = 1.0 + (edgeDist * 0.6);
+                                const ax = ndcX < 0 ? -ndcX : ndcX;
+                                const ay = ndcY < 0 ? -ndcY : ndcY;
+                                const edgeDist = ax > ay ? ax : ay;
+                                const edgeMultiplier = 1.0 + edgeDist * 0.6;
 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 const tooSmall = (pixelThreshold < 1.1 * edgeMultiplier) && !skipCull;
@@ -826,19 +824,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = cache.depthIndex;
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        let tmpVisible = cache.tmpVisible;
-                        let visibleCount = 0;
-
-                        for (let j = validCount - 1; j >= 0; j--) {
-                                const idx = depthIndex[j];
-                                tmpVisible[visibleCount++] = idx;
-                        }
-
-                        let result = new Uint32Array(visibleCount);
-                        for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
-                                result[i] = tmpVisible[j];
-                        }
-
+                        const result = new Uint32Array(validCount);
+                        result.set(depthIndex.subarray(0, validCount));
                         return result;
                 };
 
