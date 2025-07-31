@@ -746,6 +746,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
                                 
 				if (clip_w <= 0.0 || clip_z <= -clip_w) {
+					depthList[validCount] = depth;
+					validIndexList[validCount] = i;
+					validCount++;
+					if (depth > maxDepth) maxDepth = depth;
+					if (depth < minDepth) minDepth = depth;
                                         continue;
                                 }
 
