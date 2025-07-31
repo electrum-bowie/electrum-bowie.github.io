@@ -529,9 +529,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.camera.getWorldQuaternion(this.tmpCameraQuat);
                 
                 const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.008;
-                const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 1e-6;
-                const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
-                const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
+                const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 0.001;
+                const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.008;
+                const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 0.001;
 
                 if (this.sortReady && (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged)) {
                         this.sortSplatsNow();
