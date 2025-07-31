@@ -830,7 +830,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         starts0[0] = 0;
                         for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-                        let depthIndex = cache.depthIndex;
+                        let depthIndex = new Uint32Array(validCount);
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 			
                         return depthIndex;
