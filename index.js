@@ -694,6 +694,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         sizeList: null,
                         validIndexList: null,
                         depthIndex: null,
+                        tmpVisible: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -707,13 +708,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
                         cache.depthIndex = new Uint32Array(n);
+                        cache.tmpVisible = new Uint32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
                         if (!fadeOpacities || fadeOpacities.length < vertexCount) {
                                 const tmp = new Float32Array(vertexCount);
-                                tmp.fill(2.0);
+                                tmp.fill(-1.0);
                                 if (fadeOpacities) tmp.set(fadeOpacities.subarray(0, Math.min(fadeOpacities.length, vertexCount)));
                                 fadeOpacities = tmp;
                         }
@@ -726,13 +728,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let validIndexList = cache.validIndexList;
                         let validCount = 0;
 
+                        // cache matrix values locally for speed
                         const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
                         const m0 = mvp[0],  m1 = mvp[1],  m2 = mvp[2],  m3 = mvp[3];
                         const m4 = mvp[4],  m5 = mvp[5],  m6 = mvp[6],  m7 = mvp[7];
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        const fadeStep = 0.3;
+                        const fadeStep = 0.2;
                         const nearPlaneClip = -0.16;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
                                 const px = matrices[offset + 12];
@@ -747,13 +750,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const radius = matrices[offset + 15] * scaleFactor;
                                 const transparency = matrices[offset + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
-
-                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.01;
-
-                                if (!skipCull && (clip_w <= 0.0 || clip_z <= -clip_w)) {
-                                        continue;
-                                }
-
+                                
+                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.1;
+                                
                                 const invW  = 1.0 / clip_w;
 
                                 const ndcX  = clip_x * invW;
@@ -764,28 +763,40 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 if (!skipCull && (depth + radius > nearPlaneClip)) continue;
 
-                                if (depth + radius > nearPlaneClip && !(ndcZ < -1.0 || ndcZ > 1.0 || ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)) {
+                                if (depth + radius > nearPlaneClip && (ndcZ > -1.0 || ndcZ < 1.0 || ndcX > -1.0 || ndcX < 1.0 || ndcY > -1.0 || ndcY < 1.0)) {
                                         continue; // centre is inside the view and too close to the camera
                                 }
-
-                                const ax = ndcX < 0 ? -ndcX : ndcX;
-                                const ay = ndcY < 0 ? -ndcY : ndcY;
-                                const edgeDist = ax > ay ? ax : ay;
-                                const edgeMultiplier = 1.0 + edgeDist * 0.6;
-
+                                
+                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.6);
+                                
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = (pixelThreshold < 1.0 * edgeMultiplier);
+                                const tooSmall = pixelThreshold < 1.0 * edgeMultiplier;
 
-                                let f = fadeOpacities[i];
+	                        let f = fadeOpacities[i];
 
-                                if (tooSmall) {
-                                        if (f === 2.0) f = 0.0; // default unset value is 2.0
-                                        f = Math.max(0, f - fadeStep);
-                                } else {
-                                        if (f === 2.0) f = 1.0; // default unset value is 2.0
-                                        f = Math.min(1, f + fadeStep);
+				if (ndcZ > -1.0 || ndcZ < 1.0 || ndcX > -1.0 || ndcX < 1.0 || ndcY > -1.0 || ndcY < 1.0)
+				{
+                                	if (tooSmall) {
+                                        	if (f === -1.0) f = 0.0; // default unset value is -1.0
+
+                                        	f = Math.max(0, f - fadeStep);
+                                	} else {
+                                       		if (f === -1.0) f = 1.0; // default unset value is -1.0
+                                                
+                                        	f = Math.min(1, f + fadeStep);
+                                	}
+
+                                	fadeOpacities[i] = f;
                                 }
-                                fadeOpacities[i] = f;
+				else
+				{
+                                	if (tooSmall) f = 0.0;
+
+                                	else f = 1.0;
+
+                                	fadeOpacities[i] = f;
+                                }
 
                                 if (tooSmall && f < 0.1) continue;
 
@@ -824,8 +835,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = cache.depthIndex;
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        const result = new Uint32Array(validCount);
-                        result.set(depthIndex.subarray(0, validCount));
+			let tmpVisible = cache.tmpVisible;
+                        let visibleCount = 0;
+
+                        for (let j = validCount - 1; j >= 0; j--) {
+                                const idx = depthIndex[j];
+                                tmpVisible[visibleCount++] = idx;
+                        }
+
+                        let result = new Uint32Array(visibleCount);
+                        for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
+                                result[i] = tmpVisible[j];
+                        }
+
                         return result;
                 };
 
@@ -837,7 +859,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method == "push") {
                                 new_matrices = new Float32Array(e.data.matrices);
                                 const newFade = new Float32Array(new_matrices.length / 16);
-                                newFade.fill(2.0);
+                                newFade.fill(-1.0);
                                 if (matrices === undefined) {
                                         matrices = new_matrices;
                                         fadeOpacities = newFade;
@@ -861,14 +883,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
                                         filterSplats(matrices, view, mvp, scaleFactor, focal);
                                 }
-                                const fadeCopy = fadeOpacities ? new Float32Array(fadeOpacities) : new Float32Array(1).fill(2.0);
+                                const fadeCopy = fadeOpacities ? new Float32Array(fadeOpacities) : new Float32Array(1).fill(-1.0);
                                 self.postMessage({ method: "filter", fadeOpacities: fadeCopy }, [fadeCopy.buffer]);
                         }
                         if (e.data.method == "sort") {
                                 if (matrices === undefined) {
                                         const sortedIndexes = new Uint32Array(1);
                                         const fadeCopy = new Float32Array(1);
-                                        fadeCopy[0] = 2.0;
+                                        fadeCopy[0] = -1.0;
                                         self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
                                 } else {
                                         const sortedIndexes = sortSplats();
