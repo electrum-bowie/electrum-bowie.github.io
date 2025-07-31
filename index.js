@@ -629,19 +629,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                this.worker.postMessage({
-                        method: "filter",
-                        view: view.buffer,
-                        mvp: mvp.buffer,
-                        scale: globalScale,
-                        focal: focal,
-                }, [view.buffer, mvp.buffer]);
+                this.worker.postMessage({ method: "filter", view: view.buffer, mvp: mvp.buffer, scale: globalScale, focal: focal, }, [view.buffer, mvp.buffer]);
         },
 
         sortSplatsNow: function () {
                 if (!this.sortReady) return;
                 this.sortReady = false;
-                this.worker.postMessage({ method: "sort" });
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
                 this.lastObjectMatrix.copy(this.object.matrixWorld);
                 this.lastScale.copy(this.object.scale);
@@ -649,6 +642,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.camera.getWorldQuaternion(this.lastCameraQuat);
                 this.lastObjectPos.copy(this.object.position);
                 this.lastObjectQuat.copy(this.object.quaternion);
+                this.worker.postMessage({ method: "sort" });
         },
         getProjectionMatrix: function (camera) {
                 if (!camera) {
