@@ -276,56 +276,37 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.object.add(mesh);
                 this.mesh = mesh;
 
-                this.filterWorker = new Worker(
-                        URL.createObjectURL(
-                                new Blob(["(", this.createFilterWorker.toString(), ")(self)"], {
-                                        type: "application/javascript",
-                                }),
-                        ),
-                );
-                this.sortWorker = new Worker(
-                        URL.createObjectURL(
-                                new Blob(["(", this.createSortWorker.toString(), ")(self)"], {
-                                        type: "application/javascript",
-                                }),
-                        ),
-                );
+		this.worker = new Worker(
+			URL.createObjectURL(
+				new Blob(["(", this.createWorker.toString(), ")(self)"], {
+					type: "application/javascript",
+				}),
+			),
+		);
 
-                this.filterWorker.onmessage = (e) => {
-                        if (e.data.method === "filter") {
-                                this.filterReady = true;
-                                if (e.data.fadeOpacities) {
-                                        const fades = new Float32Array(e.data.fadeOpacities);
-                                        this.fadeOpacityData.set(fades);
-                                        this.fadeOpacityTexture.needsUpdate = true;
-                                }
-                                this.latestFilterData = {
-                                        depthList: e.data.depthList ? new Float32Array(e.data.depthList) : null,
-                                        validIndexList: e.data.validIndexList ? new Int32Array(e.data.validIndexList) : null,
-                                        count: e.data.count,
-                                        minDepth: e.data.minDepth,
-                                        maxDepth: e.data.maxDepth,
-                                };
-                        }
-                };
-
-                this.sortWorker.onmessage = (e) => {
+                this.worker.onmessage = (e) => {
                         if (e.data.method === "sort") {
                                 let indexes = new Uint32Array(e.data.sortedIndexes);
                                 mesh.geometry.attributes.splatIndex.set(indexes);
                                 mesh.geometry.attributes.splatIndex.needsUpdate = true;
                                 mesh.geometry.instanceCount = indexes.length;
                                 this.sortReady = true;
+                        } else if (e.data.method === "filter") {
+                                this.filterReady = true;
+                        }
+                        if (e.data.fadeOpacities) {
+                                const fades = new Float32Array(e.data.fadeOpacities);
+                                this.fadeOpacityData.set(fades);
+                                this.fadeOpacityTexture.needsUpdate = true;
                         }
                 };
                 this.sortReady = true;
                 this.filterReady = true;
-                this.latestFilterData = null;
-        },
+	},
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-                this.filterWorker.postMessage({ method: "clear" });
+                this.worker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
                 this.isCaching = true;
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -542,10 +523,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 			vertexCount -= width * height;
 		}
 
-                this.filterWorker.postMessage({
-                        method: "push",
-                        matrices: matrices.buffer
-                }, [matrices.buffer]);
+		this.worker.postMessage({
+			method: "push",
+			matrices: matrices.buffer
+		}, [matrices.buffer]);
 	},
         tick: function (time, timeDelta) {
                 this.camera.getWorldPosition(this.tmpCameraPos);
@@ -576,7 +557,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (this.mesh && this.mesh.geometry) {
                         this.mesh.geometry.instanceCount = 0;
                 }
-                this.filterWorker.postMessage({ method: "clear" });
+                this.worker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
                 this.fadeOpacityTexture.needsUpdate = true;
@@ -647,7 +628,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                this.filterWorker.postMessage({
+                this.worker.postMessage({
                         method: "filter",
                         view: view.buffer,
                         mvp: mvp.buffer,
@@ -657,18 +638,9 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
 
         sortSplatsNow: function () {
-                if (!this.sortReady || !this.latestFilterData) return;
+                if (!this.sortReady) return;
                 this.sortReady = false;
-                const d = this.latestFilterData;
-                this.latestFilterData = null;
-                this.sortWorker.postMessage({
-                        method: "sort",
-                        depthList: d.depthList.buffer,
-                        validIndexList: d.validIndexList.buffer,
-                        count: d.count,
-                        minDepth: d.minDepth,
-                        maxDepth: d.maxDepth,
-                }, [d.depthList.buffer, d.validIndexList.buffer]);
+                this.worker.postMessage({ method: "sort" });
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
                 this.lastObjectMatrix.copy(this.object.matrixWorld);
                 this.lastScale.copy(this.object.scale);
@@ -716,7 +688,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
                 return true;
         },
-        createFilterWorker: function (self) {
+        createWorker: function (self) {
                 let matrices = undefined;
                 let fadeOpacities = undefined;
 
@@ -731,6 +703,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         tmpVisible: null,
                 };
 
+                const counts0 = new Uint32Array(COUNT_SIZE);
+                const starts0 = new Uint32Array(COUNT_SIZE);
                 let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
 
                 const ensureCapacity = (n) => {
@@ -839,6 +813,44 @@ AFRAME.registerComponent("gaussian_splatting", {
                         filterResult.maxDepth = maxDepth;
                 };
 
+                const sortSplats = function sortSplats() {
+                        const validCount = filterResult.count;
+                        let depthList = cache.depthList;
+                        let sizeList = cache.sizeList;
+                        let validIndexList = cache.validIndexList;
+                        if (validCount === 0) {
+                                return new Uint32Array(0);
+                        }
+
+                        let maxDepth = filterResult.maxDepth;
+                        let minDepth = filterResult.minDepth;
+
+                        let depthInv = (COUNT_SIZE - 1) / (maxDepth - minDepth);
+                        counts0.fill(0);
+                        for (let i = 0; i < validCount; i++) {
+                                sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+                                counts0[sizeList[i]]++;
+                        }
+                        starts0[0] = 0;
+                        for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+                        let depthIndex = cache.depthIndex;
+                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
+
+                        let tmpVisible = cache.tmpVisible;
+                        let visibleCount = 0;
+
+                        for (let j = validCount - 1; j >= 0; j--) {
+                                const idx = depthIndex[j];
+                                tmpVisible[visibleCount++] = idx;
+                        }
+
+                        let result = new Uint32Array(visibleCount);
+                        for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) {
+                                result[i] = tmpVisible[j];
+                        }
+
+                        return result;
+                };
 
 		self.onmessage = (e) => {
                         if (e.data.method == "clear") {
@@ -873,73 +885,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         filterSplats(matrices, view, mvp, scaleFactor, focal);
                                 }
                                 const fadeCopy = fadeOpacities ? new Float32Array(fadeOpacities) : new Float32Array(1).fill(2.0);
-                                const depthCopy = cache.depthList.slice(0, filterResult.count);
-                                const indexCopy = cache.validIndexList.slice(0, filterResult.count);
-                self.postMessage({
-                        method: "filter",
-                        fadeOpacities: fadeCopy.buffer,
-                        depthList: depthCopy.buffer,
-                        validIndexList: indexCopy.buffer,
-                        count: filterResult.count,
-                        minDepth: filterResult.minDepth,
-                        maxDepth: filterResult.maxDepth
-                }, [fadeCopy.buffer, depthCopy.buffer, indexCopy.buffer]);
-                }
-                };
-        },
-
-        createSortWorker: function (self) {
-                const COUNT_SIZE = 256 * 256;
-                const counts0 = new Uint32Array(COUNT_SIZE);
-                const starts0 = new Uint32Array(COUNT_SIZE);
-                let cache = { capacity: 0, sizeList: null, depthIndex: null, tmpVisible: null };
-
-                const ensureCapacity = (n) => {
-                        if (cache.capacity >= n) return;
-                        cache.capacity = n;
-                        cache.sizeList = new Int32Array(n);
-                        cache.depthIndex = new Uint32Array(n);
-                        cache.tmpVisible = new Uint32Array(n);
-                };
-
-                const sortSplats = function sortSplats(depthList, validIndexList, count, minDepth, maxDepth) {
-                        ensureCapacity(count);
-                        if (count === 0) return new Uint32Array(0);
-
-                        let sizeList = cache.sizeList;
-                        let depthIndex = cache.depthIndex;
-                        let tmpVisible = cache.tmpVisible;
-
-                        let depthInv = (COUNT_SIZE - 1) / (maxDepth - minDepth);
-                        counts0.fill(0);
-                        for (let i = 0; i < count; i++) {
-                                sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
-                                counts0[sizeList[i]]++;
+                                self.postMessage({ method: "filter", fadeOpacities: fadeCopy }, [fadeCopy.buffer]);
                         }
-                        starts0[0] = 0;
-                        for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-                        for (let i = 0; i < count; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
-
-                        let visibleCount = 0;
-                        for (let j = count - 1; j >= 0; j--) tmpVisible[visibleCount++] = depthIndex[j];
-
-                        let result = new Uint32Array(visibleCount);
-                        for (let i = 0, j = visibleCount - 1; i < visibleCount; i++, j--) result[i] = tmpVisible[j];
-                        return result;
-                };
-
-                self.onmessage = (e) => {
-                        if (e.data.method == 'sort') {
-                                const depthList = new Float32Array(e.data.depthList);
-                                const validIndexList = new Int32Array(e.data.validIndexList);
-                                const count = e.data.count || 0;
-                                const minDepth = e.data.minDepth;
-                                const maxDepth = e.data.maxDepth;
-                                const sorted = sortSplats(depthList, validIndexList, count, minDepth, maxDepth);
-                                self.postMessage({ method: 'sort', sortedIndexes: sorted.buffer }, [sorted.buffer]);
+                        if (e.data.method == "sort") {
+                                if (matrices === undefined) {
+                                        const sortedIndexes = new Uint32Array(1);
+                                        const fadeCopy = new Float32Array(1);
+                                        fadeCopy[0] = 2.0;
+                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
+                                } else {
+                                        const sortedIndexes = sortSplats();
+                                        const fadeCopy = new Float32Array(fadeOpacities);
+                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
+                                }
                         }
                 };
-        },
+	},
 	processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
 		// 10KB ought to be enough for a header...
