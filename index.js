@@ -529,6 +529,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 		}, [matrices.buffer]);
 	},
         tick: function (time, timeDelta) {
+		if (this.filterReady) this.filterSplatsNow();
+
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 
                 const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 0.001;
@@ -541,8 +543,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 1e-6;
 
                 if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged) {
-                        if (this.filterReady) this.filterSplatsNow();
-                        if (this.sortReady) this.sortSplatsNow();
+			if (this.sortReady) this.sortSplatsNow();
                 }
         },
         updateQuality: function () {
