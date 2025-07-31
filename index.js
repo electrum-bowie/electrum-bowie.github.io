@@ -174,7 +174,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                         float bounds = pos2d.w;
 
-                                        if (pos2d.z < -bounds || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
+                                        if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
                                                 return;
                                         }
                                         
@@ -745,14 +745,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = m2 * px + m6 * py + m10 * pz + m14;
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
                                 
-				if (clip_w <= 0.0 || clip_z <= -clip_w) {
-					depthList[validCount] = depth;
-					validIndexList[validCount] = i;
-					validCount++;
-					if (depth > maxDepth) maxDepth = depth;
-					if (depth < minDepth) minDepth = depth;
-                                        continue;
-                                }
+				// if (clip_w <= 0.0 || clip_z <= -clip_w) {
+                                        // continue;
+                                // }
 
                                 const radius = matrices[offset + 15] * scaleFactor;
                                 const transparency = matrices[offset + 11]; // 0-1
