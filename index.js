@@ -174,11 +174,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 					vec4 camspace = gsModelViewMatrix * vec4(centerAndScaleData.xyz, 1);
 					vec4 pos2d = gsProjectionMatrix * camspace;
 
-                                        float bounds = pos2d.w;
+                                        // float bounds = pos2d.w;
 
-                                        if (pos2d.z < -bounds || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
-                                                return;
-                                        }
+                                        // if (pos2d.z < -bounds || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
+                                                // return;
+                                        // }
                                         
 					uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
 					float scale = centerAndScaleData.w;
@@ -250,7 +250,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 			blendSrcAlpha: THREE.OneFactor,
 			depthTest: true,
         		depthWrite: false,
-                        transparent: false
+                        transparent: true
                 });
                 material.dithering = false;
 
@@ -756,11 +756,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const transparency = matrices[offset + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
                                 
-                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.075;
-				
+                                const skipCullEdges = (radiusTransparencyProduct / scaleFactor) > 0.075;
+				const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.25;
+
 				const behind = clip_w <= 0.2;
                                 if (behind) {
-					if (!skipCull) {
+					if (!skipCullBehind) {
 						continue;
 					}
 					else {
@@ -776,11 +777,21 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 
-                                if (depth + radius > nearPlaneClip && (ndcX >= -1.0 || ndcX <= 1.0 || ndcY >= -1.0 || ndcY <= 1.0) && !behind)
+                                if (depth + radius > nearPlaneClip && clip_w > 0.0 && !behind && (ndcX >= -1.0 || ndcX <= 1.0 || ndcY >= -1.0 || ndcY <= 1.0))
 					continue; // centre is inside the view and too close to the camera
 
+				if (ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)
+				{
+					if (!skipCullEdges) {
+						continue;
+					}
+					else {
+						fadeOpacities[i] = 1.0; // default unset value is -1.0
+					}
+                                }
+
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                                const edgeMultiplier = 1.0 + (edgeDist * 0.75);
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.6);
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 const tooSmall = pixelThreshold < 1.1 * edgeMultiplier;
@@ -790,11 +801,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 				if (ndcX >= -1.0 || ndcX <= 1.0 || ndcY >= -1.0 || ndcY <= 1.0)
 				{
                                 	if (tooSmall) {
-                                        	if (f === -1.0) f = 0.0; // default unset value is -1.0
+                                        	if (f < 0.0) f = 0.0; // default unset value is -1.0
 
                                         	f = Math.max(0, f - fadeStep);
                                 	} else {
-                                       		if (f === -1.0) f = 1.0; // default unset value is -1.0
+                                       		if (f < 0.0) f = 1.0; // default unset value is -1.0
                                                 
                                         	f = Math.min(1, f + fadeStep);
                                 	}
