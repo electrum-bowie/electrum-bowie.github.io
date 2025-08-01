@@ -104,15 +104,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                         ? new SharedArrayBuffer(4096 * 4096)
                         : new ArrayBuffer(4096 * 4096);
                 this.fadeOpacityData = new Uint8Array(fadeBuffer);
-                this.fadeOpacityTexture = new THREE.DataTexture(this.fadeOpacityData, 4096, 4096, THREE.RedFormat, THREE.UnsignedByteType);
-                this.fadeOpacityTexture.generateMipmaps = false;
-                this.fadeOpacityTexture.minFilter = THREE.NearestFilter;
-                this.fadeOpacityTexture.magFilter = THREE.NearestFilter;
-                this.fadeOpacityTexture.internalFormat = "R8";
 
-		let splatIndexArray = new Uint32Array(4096 * 4096);
-		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
-		splatIndexes.setUsage(THREE.DynamicDrawUsage);
+                let splatIndexArray = new Uint32Array(4096 * 4096);
+                const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
+                splatIndexes.setUsage(THREE.DynamicDrawUsage);
+
+                const fadeOpacities = new THREE.InstancedBufferAttribute(this.fadeOpacityData, 1, true);
+                fadeOpacities.setUsage(THREE.DynamicDrawUsage);
 
 		const baseGeometry = new THREE.BufferGeometry();
 		const pos = new Float32Array([
@@ -129,9 +127,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 		]);
 		baseGeometry.setIndex(new THREE.BufferAttribute(idx, 1));
 
-		const geometry = new THREE.InstancedBufferGeometry().copy(baseGeometry);
-		geometry.setAttribute('splatIndex', splatIndexes);
-		geometry.instanceCount = 1;
+                const geometry = new THREE.InstancedBufferGeometry().copy(baseGeometry);
+                geometry.setAttribute('splatIndex', splatIndexes);
+                geometry.setAttribute('fadeOpacity', fadeOpacities);
+                geometry.instanceCount = 1;
+                this.fadeOpacityAttribute = fadeOpacities;
 
                 const material = new THREE.ShaderMaterial({
                         uniforms: {
@@ -140,7 +140,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 focal: { value: 1000.0 }, // Dummy. will be overwritten
                                 centerAndScaleTexture: { value: this.centerAndScaleTexture },
                                 covAndColorTexture: { value: this.covAndColorTexture },
-                                fadeOpacityTexture: { value: this.fadeOpacityTexture },
                                 gsProjectionMatrix: { value: this.getProjectionMatrix() },
                                 gsModelViewMatrix: { value: this.getModelViewMatrix() },
                                 viewRotationMatrix: { value: new THREE.Matrix3() },
@@ -156,10 +155,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 				uniform mat4 gsModelViewMatrix;
 				uniform mat3 viewRotationMatrix;
 
-				attribute uint splatIndex;
+                                attribute uint splatIndex;
                                 uniform sampler2D centerAndScaleTexture;
                                 uniform usampler2D covAndColorTexture;
-                                uniform sampler2D fadeOpacityTexture;
+                                attribute float fadeOpacity;
 
 				vec2 unpackInt16(uint value) {
 					int v0 = int(value) >> 16;
@@ -223,7 +222,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                         uint colorUint = covAndColorData.w;
 
-                                        float fade = texelFetch(fadeOpacityTexture, texPos, 0).r;
+                                        float fade = fadeOpacity;
 
                                         vColor = vec4(
                                                 vec3(colorUint & 0xFFu, (colorUint >> 8) & 0xFFu, (colorUint >> 16) & 0xFFu),
@@ -297,16 +296,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 mesh.geometry.attributes.splatIndex.needsUpdate = true;
                                 mesh.geometry.instanceCount = indexes.length;
                                 this.sortReady = true;
-                                if (e.data.fadeUpdated) this.fadeOpacityTexture.needsUpdate = true;
+                                if (e.data.fadeUpdated) geometry.attributes.fadeOpacity.needsUpdate = true;
                         } else if (e.data.method === "filter") {
                                 this.filterReady = true;
-                                if (e.data.fadeUpdated) this.fadeOpacityTexture.needsUpdate = true;
+                                if (e.data.fadeUpdated) geometry.attributes.fadeOpacity.needsUpdate = true;
                         } else if (e.data.method === "fadeUpdated") {
-                                this.fadeOpacityTexture.needsUpdate = true;
+                                geometry.attributes.fadeOpacity.needsUpdate = true;
                         } else if (e.data.method === "initFadeBuffer") {
                                 this.fadeOpacityData = new Uint8Array(e.data.buffer);
-                                this.fadeOpacityTexture.image.data = this.fadeOpacityData;
-                                this.fadeOpacityTexture.needsUpdate = true;
+                                geometry.attributes.fadeOpacity.array = this.fadeOpacityData;
+                                geometry.attributes.fadeOpacity.needsUpdate = true;
                         }
                 };
                 this.sortReady = true;
@@ -522,13 +521,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                         gl.bindTexture(gl.TEXTURE_2D, covAndColorTextureProperties.__webglTexture);
                         gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, this.covAndColorData, this.loadedVertexCount * 4);
 
-                        const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
-                        gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
-                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RED, gl.UNSIGNED_BYTE, this.fadeOpacityData, this.loadedVertexCount);
 
-			this.loadedVertexCount += width * height;
-			vertexCount -= width * height;
-		}
+                        this.loadedVertexCount += width * height;
+                        vertexCount -= width * height;
+                }
+
+                this.fadeOpacityAttribute.needsUpdate = true;
 
 		this.worker.postMessage({
 			method: "push",
@@ -568,7 +566,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
-                this.fadeOpacityTexture.needsUpdate = true;
+                this.fadeOpacityAttribute.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
