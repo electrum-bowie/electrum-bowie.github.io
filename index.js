@@ -779,7 +779,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                                const edgeMultiplier = 1.0 + (edgeDist * 0.6);
+                                const edgeMultiplier = 1.0 + (edgeDist * 10.6);
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 const tooSmall = pixelThreshold < 1.0 * edgeMultiplier;
@@ -799,15 +799,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
 				else
 				{
-                                	if (tooSmall)
-						f = 2.0;
-                                	else
-						f = 2.0;
+                                	f = 2.0;
 				}
 
 				fadeOpacities[i] = f;
 
-                                if (tooSmall && f < 0.1) continue;
+                                if (f < 0.1) continue;
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
