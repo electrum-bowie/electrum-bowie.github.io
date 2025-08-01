@@ -100,7 +100,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.covAndColorTexture.internalFormat = "RGBA32UI";
                 this.covAndColorTexture.needsUpdate = true;
 
-                this.fadeOpacityTexture = new THREE.DataTexture(null, 4096, 4096, THREE.RedFormat, THREE.FloatType);
+                this.fadeOpacityData = new Float32Array(4096 * 4096);
+                this.fadeOpacityTexture = new THREE.DataTexture(this.fadeOpacityData, 4096, 4096, THREE.RedFormat, THREE.FloatType);
                 this.fadeOpacityTexture.generateMipmaps = false;
                 this.fadeOpacityTexture.minFilter = THREE.NearestFilter;
                 this.fadeOpacityTexture.magFilter = THREE.NearestFilter;
@@ -294,21 +295,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 this.filterReady = true;
                         }
                         if (e.data.fadeOpacities) {
-                                const gl = this.renderer.getContext();
-                                const fadeProps = this.renderer.properties.get(this.fadeOpacityTexture);
-                                gl.bindTexture(gl.TEXTURE_2D, fadeProps.__webglTexture);
-
                                 if (e.data.fadeOpacities.idx && e.data.fadeOpacities.val) {
                                         const idx = new Uint32Array(e.data.fadeOpacities.idx);
                                         const val = new Float32Array(e.data.fadeOpacities.val);
                                         for (let i = 0; i < idx.length; i++) {
-                                                const x = idx[i] % 4096;
-                                                const y = Math.floor(idx[i] / 4096);
-                                                gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, 1, 1, gl.RED, gl.FLOAT, val.subarray(i, i + 1));
+                                                this.fadeOpacityData[idx[i]] = val[i];
                                         }
+                                	this.fadeOpacityTexture.needsUpdate = true;
                                 } else {
                                         const fades = new Float32Array(e.data.fadeOpacities);
-                                        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 4096, 4096, gl.RED, gl.FLOAT, fades);
+                                        this.fadeOpacityData.set(fades);
                                 }
                         }
                 };
@@ -489,6 +485,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
                         covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
 
+                        this.fadeOpacityData[this.loadedVertexCount + i] = 1.0;
 
 			// Store scale and transparent to remove splat in sorting process
 			mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
@@ -526,9 +523,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
                         gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
-                        const fadePatch = new Float32Array(width * height);
-                        fadePatch.fill(1.0);
-                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RED, gl.FLOAT, fadePatch);
+                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RED, gl.FLOAT, this.fadeOpacityData, this.loadedVertexCount);
 
 			this.loadedVertexCount += width * height;
 			vertexCount -= width * height;
@@ -572,6 +567,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
+                this.fadeOpacityTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
