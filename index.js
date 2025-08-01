@@ -106,6 +106,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.fadeOpacityTexture.minFilter = THREE.NearestFilter;
                 this.fadeOpacityTexture.magFilter = THREE.NearestFilter;
                 this.fadeOpacityTexture.internalFormat = "R32F";
+                this.singleFadeArray = new Float32Array(1);
 
 		let splatIndexArray = new Uint32Array(4096 * 4096);
 		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
@@ -298,13 +299,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (e.data.fadeOpacities.idx && e.data.fadeOpacities.val) {
                                         const idx = new Uint32Array(e.data.fadeOpacities.idx);
                                         const val = new Float32Array(e.data.fadeOpacities.val);
-                                        for (let i = 0; i < idx.length; i++) {
-                                                this.fadeOpacityData[idx[i]] = val[i];
-                                        }
-                                	this.fadeOpacityTexture.needsUpdate = true;
+                                        this.updateFadeTexture(idx, val);
                                 } else {
                                         const fades = new Float32Array(e.data.fadeOpacities);
                                         this.fadeOpacityData.set(fades);
+                                        this.fadeOpacityTexture.needsUpdate = true;
                                 }
                         }
                 };
@@ -617,6 +616,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                 } else {
                         renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
+                }
+        },
+
+        updateFadeTexture: function(idxArr, valArr) {
+                const gl = this.renderer.getContext();
+                const texProps = this.renderer.properties.get(this.fadeOpacityTexture);
+                gl.bindTexture(gl.TEXTURE_2D, texProps.__webglTexture);
+                for (let i = 0; i < idxArr.length; i++) {
+                        const index = idxArr[i];
+                        const x = index % 4096;
+                        const y = Math.floor(index / 4096);
+                        this.singleFadeArray[0] = valArr[i];
+                        this.fadeOpacityData[index] = valArr[i];
+                        gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, 1, 1, gl.RED, gl.FLOAT, this.singleFadeArray);
                 }
         },
 
