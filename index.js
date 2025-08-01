@@ -719,7 +719,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const vertexCount = matrices.length / 16;
                         if (!fadeOpacities || fadeOpacities.length < vertexCount) {
                                 const tmp = new Float32Array(vertexCount);
-                                tmp.fill(-1.0);
+                                tmp.fill(2.0);
                                 if (fadeOpacities) tmp.set(fadeOpacities.subarray(0, Math.min(fadeOpacities.length, vertexCount)));
                                 fadeOpacities = tmp;
                         }
@@ -759,15 +759,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const skipCullEdges = (radiusTransparencyProduct / scaleFactor) > 0.075;
 				const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.25;
 
-				const behind = clip_w <= 0.2;
-                                if (behind) {
-					if (!skipCullBehind) {
-						continue;
-					}
-					else {
-						fadeOpacities[i] = 1.0; // default unset value is -1.0
-					}
-				}
+                                if (clip_w < 0.0 && !skipCullBehind) continue;
 
                                 const invW  = 1.0 / clip_w;
 
@@ -776,50 +768,43 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcZ  = clip_z * invW;
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
+				
+				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 
-                                if (depth + radius > nearPlaneClip && clip_w > 0.0 && !behind && (ndcX >= -1.0 || ndcX <= 1.0 || ndcY >= -1.0 || ndcY <= 1.0))
-					continue; // centre is inside the view and too close to the camera
+				if (!insideOfScreen && !skipCullEdges) continue;
 
-				if (ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0)
-				{
-					if (!skipCullEdges) {
-						continue;
-					}
-					else {
-						fadeOpacities[i] = 1.0; // default unset value is -1.0
-					}
+                                if (depth + radius > nearPlaneClip && insideOfScreen) {
+                                        continue; // centre is inside the view and too close to the camera
                                 }
 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 1.1 * edgeMultiplier;
+                                const tooSmall = pixelThreshold < 1.0 * edgeMultiplier;
 
                                 let f = fadeOpacities[i];
 
-				if (ndcX >= -1.0 || ndcX <= 1.0 || ndcY >= -1.0 || ndcY <= 1.0)
-				{
+				if (insideOfScreen) {
                                 	if (tooSmall) {
-                                        	if (f < 0.0) f = 0.0; // default unset value is -1.0
+                                        	if (f > 1.0) f = 0.0; // default unset value is 2.0
 
-                                        	f = Math.max(0, f - fadeStep);
-                                	} else {
-                                       		if (f < 0.0) f = 1.0; // default unset value is -1.0
+						f = Math.max(0, f - fadeStep);
+					} else {
+                                    	   	if (f > 1.0) f = 1.0; // default unset value is 2.0
                                                 
                                         	f = Math.min(1, f + fadeStep);
                                 	}
-
-                                        fadeOpacities[i] = f;
                                 }
 				else
 				{
-                                	if (tooSmall) f = 0.0;
+                                	if (tooSmall)
+						f = 2.0;
+                                	else
+						f = 2.0;
+				}
 
-                                	else f = 1.0;
-
-                                        fadeOpacities[i] = f;
-                                }
+				fadeOpacities[i] = f;
 
                                 if (tooSmall && f < 0.1) continue;
 
@@ -882,7 +867,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method == "push") {
                                 new_matrices = new Float32Array(e.data.matrices);
                                 const newFade = new Float32Array(new_matrices.length / 16);
-                                newFade.fill(-1.0);
+                                newFade.fill(2.0);
                                 if (matrices === undefined) {
                                         matrices = new_matrices;
                                         fadeOpacities = newFade;
