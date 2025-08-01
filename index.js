@@ -106,7 +106,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.fadeOpacityTexture.minFilter = THREE.NearestFilter;
                 this.fadeOpacityTexture.magFilter = THREE.NearestFilter;
                 this.fadeOpacityTexture.internalFormat = "R32F";
-                this.fadeOpacityTexture.needsUpdate = true;
 
 		let splatIndexArray = new Uint32Array(4096 * 4096);
 		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
@@ -219,7 +218,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 					vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagVec.y, -diagVec.x);
 
                                         uint colorUint = covAndColorData.w;
+
                                         float fade = texelFetch(fadeOpacityTexture, texPos, 0).r;
+
                                         vColor = vec4(
                                                 vec3(colorUint & 0xFFu, (colorUint >> 8) & 0xFFu, (colorUint >> 16) & 0xFFu),
                                                 colorUint >> 24
@@ -300,11 +301,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         for (let i = 0; i < idx.length; i++) {
                                                 this.fadeOpacityData[idx[i]] = val[i];
                                         }
+                                	this.fadeOpacityTexture.needsUpdate = true;
                                 } else {
                                         const fades = new Float32Array(e.data.fadeOpacities);
                                         this.fadeOpacityData.set(fades);
                                 }
-                                this.fadeOpacityTexture.needsUpdate = true;
                         }
                 };
                 this.sortReady = true;
@@ -523,8 +524,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
                         gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
                         gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RED, gl.FLOAT, this.fadeOpacityData, this.loadedVertexCount);
-
-                        this.fadeOpacityTexture.needsUpdate = true;
 
 			this.loadedVertexCount += width * height;
 			vertexCount -= width * height;
