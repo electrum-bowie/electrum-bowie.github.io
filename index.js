@@ -295,16 +295,27 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 this.filterReady = true;
                         }
                         if (e.data.fadeOpacities) {
+                                const gl = this.renderer.getContext();
+                                const texProps = this.renderer.properties.get(this.fadeOpacityTexture);
+                                gl.bindTexture(gl.TEXTURE_2D, texProps.__webglTexture);
+
                                 if (e.data.fadeOpacities.idx && e.data.fadeOpacities.val) {
                                         const idx = new Uint32Array(e.data.fadeOpacities.idx);
                                         const val = new Float32Array(e.data.fadeOpacities.val);
+                                        const pixel = new Float32Array(1);
                                         for (let i = 0; i < idx.length; i++) {
-                                                this.fadeOpacityData[idx[i]] = val[i];
+                                                const id = idx[i];
+                                                const v = val[i];
+                                                this.fadeOpacityData[id] = v;
+                                                pixel[0] = v;
+                                                const x = id % 4096;
+                                                const y = Math.floor(id / 4096);
+                                                gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, 1, 1, gl.RED, gl.FLOAT, pixel);
                                         }
-                                	this.fadeOpacityTexture.needsUpdate = true;
                                 } else {
                                         const fades = new Float32Array(e.data.fadeOpacities);
                                         this.fadeOpacityData.set(fades);
+                                        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 4096, 4096, gl.RED, gl.FLOAT, this.fadeOpacityData);
                                 }
                         }
                 };
