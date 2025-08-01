@@ -143,7 +143,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 viewRotationMatrix: { value: new THREE.Matrix3() },
                         },
 			vertexShader: `
-                                precision highp usampler2D;
+                                precision lowp usampler2D;
 
 				out vec4 vColor;
 				out vec2 vPosition;
@@ -728,6 +728,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
                         let depthList = cache.depthList;
+                        let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
                         let validCount = 0;
 
@@ -752,15 +753,24 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_y = m1 * px + m5 * py + m9  * pz + m13;
                                 const clip_z = m2 * px + m6 * py + m10 * pz + m14;
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-                                
-				// if (clip_w <= 0.0 || clip_z <= -clip_w) {
-                                        // continue;
-                                // }
 
-                                const radius = matrices[offset + 15] * scaleFactor;
+				const radius = matrices[offset + 15] * scaleFactor;
                                 const transparency = matrices[offset + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
                                 
+                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.01;
+				
+				const behind = clip_w <= 0.2;
+                                if (behind) {
+					if (!skipCull) {
+						continue;
+					}
+					else {
+						fadeOpacities[i] = 1.0; // default unset value is -1.0
+						changedIdx.push(i); changedVal.push(fadeOpacities[i]);
+					}
+				}
+
                                 const invW  = 1.0 / clip_w;
 
                                 const ndcX  = clip_x * invW;
@@ -769,10 +779,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 
-                                if (depth + radius > nearPlaneClip && (ndcX > -1.0 || ndcX < 1.0 || ndcY > -1.0 || ndcY < 1.0)) {
-                                        continue; // centre is inside the view and too close to the camera
-                                }
-                                
+                                if (depth + radius > nearPlaneClip && (ndcX >= -1.0 || ndcX <= 1.0 || ndcY >= -1.0 || ndcY <= 1.0) && !behind)
+					continue; // centre is inside the view and too close to the camera
+
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
                                 
@@ -782,7 +791,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let f = fadeOpacities[i];
                                 let prevF = f;
 
-				if (ndcX > -1.0 || ndcX < 1.0 || ndcY > -1.0 || ndcY < 1.0)
+				if (ndcX >= -1.0 || ndcX <= 1.0 || ndcY >= -1.0 || ndcY <= 1.0)
 				{
                                 	if (tooSmall) {
                                         	if (f === -1.0) f = 0.0; // default unset value is -1.0
