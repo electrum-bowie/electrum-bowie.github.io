@@ -758,7 +758,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const transparency = matrices[offset + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
                                 
-                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.01;
+                                const skipCull = (radiusTransparencyProduct / scaleFactor) > 0.075;
 				
 				const behind = clip_w <= 0.2;
                                 if (behind) {
