@@ -174,7 +174,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                         float bounds = pos2d.w;
 
-                                        if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
+                                        if (pos2d.z < -bounds || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
                                                 return;
                                         }
                                         
@@ -759,7 +759,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 
-                                if (depth + radius > nearPlaneClip && (ndcZ > -1.0 || ndcZ < 1.0 || ndcX > -1.0 || ndcX < 1.0 || ndcY > -1.0 || ndcY < 1.0)) {
+                                if (depth + radius > nearPlaneClip && (ndcX > -1.0 || ndcX < 1.0 || ndcY > -1.0 || ndcY < 1.0)) {
                                         continue; // centre is inside the view and too close to the camera
                                 }
                                 
@@ -771,7 +771,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 	                        let f = fadeOpacities[i];
 
-				if (ndcZ > -1.0 || ndcZ < 1.0 || ndcX > -1.0 || ndcX < 1.0 || ndcY > -1.0 || ndcY < 1.0)
+				if (ndcX > -1.0 || ndcX < 1.0 || ndcY > -1.0 || ndcY < 1.0)
 				{
                                 	if (tooSmall) {
                                         	if (f === -1.0) f = 0.0; // default unset value is -1.0
