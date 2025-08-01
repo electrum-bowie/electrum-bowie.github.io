@@ -107,9 +107,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.fadeOpacityTexture.magFilter = THREE.NearestFilter;
                 this.fadeOpacityTexture.internalFormat = "R32F";
 
-                // Single pixel buffer used when updating fades on the GPU
-                this.fadePixelBuffer = new Float32Array(1);
-
 		let splatIndexArray = new Uint32Array(4096 * 4096);
 		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
 		splatIndexes.setUsage(THREE.DynamicDrawUsage);
@@ -299,14 +296,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         if (e.data.fadeOpacities) {
                                 if (e.data.fadeOpacities.idx && e.data.fadeOpacities.val) {
-                                        this.applyFadeOpacityUpdates(e.data.fadeOpacities.idx, e.data.fadeOpacities.val);
+                                        const idx = new Uint32Array(e.data.fadeOpacities.idx);
+                                        const val = new Float32Array(e.data.fadeOpacities.val);
+                                        for (let i = 0; i < idx.length; i++) {
+                                                this.fadeOpacityData[idx[i]] = val[i];
+                                        }
+                                	this.fadeOpacityTexture.needsUpdate = true;
                                 } else {
                                         const fades = new Float32Array(e.data.fadeOpacities);
                                         this.fadeOpacityData.set(fades);
-                                        const gl = this.renderer.getContext();
-                                        const props = this.renderer.properties.get(this.fadeOpacityTexture);
-                                        gl.bindTexture(gl.TEXTURE_2D, props.__webglTexture);
-                                        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 4096, 4096, gl.RED, gl.FLOAT, this.fadeOpacityData);
                                 }
                         }
                 };
@@ -619,24 +617,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                 } else {
                         renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
-                }
-        },
-
-        // Apply fade opacity updates coming from the worker directly to the GPU
-        applyFadeOpacityUpdates: function (idxBuffer, valBuffer) {
-                const idx = new Uint32Array(idxBuffer);
-                const val = new Float32Array(valBuffer);
-                const gl = this.renderer.getContext();
-                const props = this.renderer.properties.get(this.fadeOpacityTexture);
-                gl.bindTexture(gl.TEXTURE_2D, props.__webglTexture);
-                for (let i = 0; i < idx.length; i++) {
-                        const index = idx[i];
-                        const x = index & 4095;
-                        const y = index >> 12;
-                        const v = val[i];
-                        this.fadeOpacityData[index] = v;
-                        this.fadePixelBuffer[0] = v;
-                        gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, 1, 1, gl.RED, gl.FLOAT, this.fadePixelBuffer);
                 }
         },
 
