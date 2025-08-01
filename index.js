@@ -295,17 +295,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 this.filterReady = true;
                         }
                         if (e.data.fadeOpacities) {
-                                if (e.data.fadeOpacities.idx && e.data.fadeOpacities.val) {
-                                        const idx = new Uint32Array(e.data.fadeOpacities.idx);
-                                        const val = new Float32Array(e.data.fadeOpacities.val);
-                                        for (let i = 0; i < idx.length; i++) {
-                                                this.fadeOpacityData[idx[i]] = val[i];
-                                        }
-                                	this.fadeOpacityTexture.needsUpdate = true;
-                                } else {
-                                        const fades = new Float32Array(e.data.fadeOpacities);
-                                        this.fadeOpacityData.set(fades);
-                                }
+				const fades = new Float32Array(e.data.fadeOpacities);
+                                this.fadeOpacityData.set(fades);
+                                this.fadeOpacityTexture.needsUpdate = true;
                         }
                 };
                 this.sortReady = true;
@@ -732,9 +724,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let validIndexList = cache.validIndexList;
                         let validCount = 0;
 
-                        let changedIdx = [];
-                        let changedVal = [];
-
                         // cache matrix values locally for speed
                         const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
                         const m0 = mvp[0],  m1 = mvp[1],  m2 = mvp[2],  m3 = mvp[3];
@@ -767,7 +756,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 					}
 					else {
 						fadeOpacities[i] = 1.0; // default unset value is -1.0
-						changedIdx.push(i); changedVal.push(fadeOpacities[i]);
 					}
 				}
 
@@ -789,7 +777,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const tooSmall = pixelThreshold < 1.1 * edgeMultiplier;
 
                                 let f = fadeOpacities[i];
-                                let prevF = f;
 
 				if (ndcX >= -1.0 || ndcX <= 1.0 || ndcY >= -1.0 || ndcY <= 1.0)
 				{
@@ -804,7 +791,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	}
 
                                         fadeOpacities[i] = f;
-                                        if (f !== prevF) { changedIdx.push(i); changedVal.push(f); }
                                 }
 				else
 				{
@@ -813,7 +799,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	else f = 1.0;
 
                                         fadeOpacities[i] = f;
-                                        if (f !== prevF) { changedIdx.push(i); changedVal.push(f); }
                                 }
 
                                 if (tooSmall && f < 0.1) continue;
@@ -828,7 +813,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
-                        return { indices: changedIdx, values: changedVal };
                 };
 
                 const sortSplats = function sortSplats() {
@@ -882,25 +866,26 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
 			}
                         if (e.data.method == "filter") {
-                                let changes = { indices: [], values: [] };
                                 if (matrices !== undefined) {
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        changes = filterSplats(matrices, view, mvp, scaleFactor, focal);
+                                        filterSplats(matrices, view, mvp, scaleFactor, focal);
                                 }
-                                const idxArr = new Uint32Array(changes.indices);
-                                const valArr = new Float32Array(changes.values);
-                                self.postMessage({ method: "filter", fadeOpacities: { idx: idxArr.buffer, val: valArr.buffer } }, [idxArr.buffer, valArr.buffer]);
+                                const fadeCopy = fadeOpacities ? new Float32Array(fadeOpacities) : new Float32Array(1).fill(-1.0);
+                                self.postMessage({ method: "filter", fadeOpacities: fadeCopy }, [fadeCopy.buffer]);
                         }
                         if (e.data.method == "sort") {
                                 if (matrices === undefined) {
                                         const sortedIndexes = new Uint32Array(1);
-                                        self.postMessage({ method: "sort", sortedIndexes }, [sortedIndexes.buffer]);
+                                        const fadeCopy = new Float32Array(1);
+                                        fadeCopy[0] = -1.0;
+                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
                                 } else {
                                         const sortedIndexes = sortSplats();
-                                        self.postMessage({ method: "sort", sortedIndexes }, [sortedIndexes.buffer]);
+                                        const fadeCopy = new Float32Array(fadeOpacities);
+                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
                                 }
                         }
                 };
