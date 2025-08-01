@@ -771,7 +771,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 					continue; // centre is inside the view and too close to the camera
 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                                const edgeMultiplier = 1.0 + (edgeDist * 0.6);
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.75);
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 const tooSmall = pixelThreshold < 1.1 * edgeMultiplier;
