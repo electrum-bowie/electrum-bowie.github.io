@@ -144,7 +144,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 viewRotationMatrix: { value: new THREE.Matrix3() },
                         },
 			vertexShader: `
-                                precision lowp usampler2D;
+                                precision highp usampler2D;
 
 				out vec4 vColor;
 				out vec2 vPosition;
