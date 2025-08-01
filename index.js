@@ -247,7 +247,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 			blendSrcAlpha: THREE.OneFactor,
 			depthTest: true,
         		depthWrite: false,
-                        transparent: true
+                        transparent: false
                 });
                 material.dithering = false;
 
