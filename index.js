@@ -100,9 +100,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.covAndColorTexture.internalFormat = "RGBA32UI";
                 this.covAndColorTexture.needsUpdate = true;
 
-                const initialFadeData = new Uint8Array(4096 * 4096);
-                initialFadeData.fill(255);
-                this.fadeOpacityTexture = new THREE.DataTexture(initialFadeData, 4096, 4096, THREE.RedFormat, THREE.UnsignedByteType);
+                this.fadeOpacityData = new Uint8Array(4096 * 4096);
+                this.fadeOpacityTexture = new THREE.DataTexture(this.fadeOpacityData, 4096, 4096, THREE.RedFormat, THREE.UnsignedByteType);
                 this.fadeOpacityTexture.generateMipmaps = false;
                 this.fadeOpacityTexture.minFilter = THREE.NearestFilter;
                 this.fadeOpacityTexture.magFilter = THREE.NearestFilter;
@@ -298,14 +297,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         if (e.data.fadeOpacities) {
                                 const fades = new Uint8Array(e.data.fadeOpacities);
-                                const gl = this.renderer.getContext();
-                                const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
-                                gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
-                                for (let offset = 0, y = 0; offset < fades.length; y++, offset += 4096) {
-                                        const row = fades.subarray(offset, offset + 4096);
-                                        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y, row.length, 1, gl.RED, gl.UNSIGNED_BYTE, row);
-                                }
-                                gl.bindTexture(gl.TEXTURE_2D, null);
+                                this.fadeOpacityData.set(fades);
+                                this.fadeOpacityTexture.needsUpdate = true;
                         }
                 };
                 this.sortReady = true;
@@ -482,8 +475,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 			destOffset = this.loadedVertexCount * 16 + (i * 4 + 3) * 4;
 			covAndColorData_uint8[destOffset + 0] = u_buffer[32 * i + 24 + 0];
 			covAndColorData_uint8[destOffset + 1] = u_buffer[32 * i + 24 + 1];
-                        covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
+			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
                         covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
+
+                        this.fadeOpacityData[this.loadedVertexCount + i] = 255;
 
 			// Store scale and transparent to remove splat in sorting process
 			mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
@@ -521,9 +516,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
                         gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
-                        const fadeChunk = new Uint8Array(width * height);
-                        fadeChunk.fill(255);
-                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RED, gl.UNSIGNED_BYTE, fadeChunk);
+                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RED, gl.UNSIGNED_BYTE, this.fadeOpacityData, this.loadedVertexCount);
 
 			this.loadedVertexCount += width * height;
 			vertexCount -= width * height;
