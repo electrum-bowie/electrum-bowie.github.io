@@ -682,7 +682,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let matrices = undefined;
                 let fadeOpacities = undefined;
 
-                const COUNT_SIZE = 512 * 512;
+                const COUNT_SIZE = 256 * 256;
 
                 let cache = {
                         capacity: 0,
