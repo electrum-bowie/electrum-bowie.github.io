@@ -297,12 +297,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         if (e.data.fadeOpacities) {
                                 const fades = new Uint8Array(e.data.fadeOpacities);
-                                this.updateFadeTexture(fades);
+                                this.fadeOpacityData.set(fades);
+                                this.fadeOpacityTexture.needsUpdate = true;
                         }
                 };
                 this.sortReady = true;
                 this.filterReady = true;
-        },
+	},
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
@@ -521,27 +522,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 			vertexCount -= width * height;
 		}
 
-                this.worker.postMessage({
-                        method: "push",
-                        matrices: matrices.buffer
-                }, [matrices.buffer]);
-        },
-        updateFadeTexture: function (fades) {
-                const gl = this.renderer.getContext();
-                const texProps = this.renderer.properties.get(this.fadeOpacityTexture);
-                gl.bindTexture(gl.TEXTURE_2D, texProps.__webglTexture);
-                let remaining = fades.length;
-                let srcOffset = 0;
-                let yoffset = 0;
-                while (remaining > 0) {
-                        const width = Math.min(4096, remaining);
-                        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, yoffset, width, 1, gl.RED, gl.UNSIGNED_BYTE, fades, srcOffset);
-                        remaining -= width;
-                        srcOffset += width;
-                        yoffset++;
-                }
-                this.fadeOpacityData = fades;
-        },
+		this.worker.postMessage({
+			method: "push",
+			matrices: matrices.buffer
+		}, [matrices.buffer]);
+	},
         tick: function (time, timeDelta) {
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 
@@ -575,7 +560,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
-                this.fadeOpacityData = new Uint8Array(4096 * 4096);
+                this.fadeOpacityTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
