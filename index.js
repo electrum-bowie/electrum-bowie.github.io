@@ -775,11 +775,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				if (insideOfScreen) {
                                 	if (tooSmall) {
-                                        	if (f > 1.0) f = 0.0; // default unset value is 2.0
+                                        	if (f === 2.0) f = 0.0; // default unset value is 2.0
 
 						f = Math.max(0, f - fadeStep);
 					} else {
-                                    	   	if (f > 1.0) f = 1.0; // default unset value is 2.0
+                                    	   	if (f === 2.0) f = 1.0; // default unset value is 2.0
                                                 
                                         	f = Math.min(1, f + fadeStep);
                                 	}
