@@ -100,7 +100,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.covAndColorTexture.internalFormat = "RGBA32UI";
                 this.covAndColorTexture.needsUpdate = true;
 
-                this.fadeOpacityData = new Uint8Array(new SharedArrayBuffer(4096 * 4096));
+                this.fadeOpacityData = new Uint8Array(4096 * 4096);
                 this.fadeOpacityTexture = new THREE.DataTexture(this.fadeOpacityData, 4096, 4096, THREE.RedFormat, THREE.UnsignedByteType);
                 this.fadeOpacityTexture.generateMipmaps = false;
                 this.fadeOpacityTexture.minFilter = THREE.NearestFilter;
@@ -295,14 +295,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                         } else if (e.data.method === "filter") {
                                 this.filterReady = true;
                         }
-                        if (typeof e.data.fadeLength === "number") {
-                                this.updateFadeTexture(e.data.fadeLength);
+                        if (e.data.fadeOpacities) {
+                                const fades = new Uint8Array(e.data.fadeOpacities);
+                                this.fadeOpacityData.set(fades);
+                                this.fadeOpacityTexture.needsUpdate = true;
                         }
                 };
-                this.worker.postMessage({ method: "initFadeBuffer", buffer: this.fadeOpacityData.buffer });
                 this.sortReady = true;
                 this.filterReady = true;
-        },
+	},
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
@@ -521,21 +522,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 			vertexCount -= width * height;
 		}
 
-                this.worker.postMessage({
-                        method: "push",
-                        matrices: matrices.buffer
-                }, [matrices.buffer]);
-        },
-        updateFadeTexture: function (count) {
-                const gl = this.renderer.getContext();
-                const props = this.renderer.properties.get(this.fadeOpacityTexture);
-                gl.bindTexture(gl.TEXTURE_2D, props.__webglTexture);
-                const width = Math.min(4096, count);
-                const height = Math.ceil(count / 4096);
-                if (width > 0 && height > 0) {
-                        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RED, gl.UNSIGNED_BYTE, this.fadeOpacityData);
-                }
-        },
+		this.worker.postMessage({
+			method: "push",
+			matrices: matrices.buffer
+		}, [matrices.buffer]);
+	},
         tick: function (time, timeDelta) {
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 
@@ -569,6 +560,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
+                this.fadeOpacityTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
@@ -693,7 +685,6 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
                 let fadeOpacities = undefined;
-                let fadeBuffer = null;
 
                 const COUNT_SIZE = 256 * 256;
 
@@ -844,14 +835,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                         return depthIndex;
                 };
 
-                self.onmessage = (e) => {
-                        if (e.data.method == "initFadeBuffer") {
-                                fadeBuffer = new Uint8Array(e.data.buffer);
-                        }
+		self.onmessage = (e) => {
                         if (e.data.method == "clear") {
                                 matrices = undefined;
                                 fadeOpacities = undefined;
-                        }
+			}
                         if (e.data.method == "push") {
                                 new_matrices = new Float32Array(e.data.matrices);
                                 const newFade = new Float32Array(new_matrices.length / 16);
@@ -879,29 +867,32 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
                                         filterSplats(matrices, view, mvp, scaleFactor, focal);
                                 }
-                                if (fadeBuffer && fadeOpacities) {
+                                let fadeCopy;
+                                if (fadeOpacities) {
+                                        fadeCopy = new Uint8Array(fadeOpacities.length);
                                         for (let i = 0; i < fadeOpacities.length; i++) {
                                                 const f = fadeOpacities[i];
-                                                fadeBuffer[i] = Math.round(Math.max(0, Math.min(1, f < 0 ? 1 : f)) * 255);
+                                                fadeCopy[i] = Math.round(Math.max(0, Math.min(1, f < 0 ? 1 : f)) * 255);
                                         }
-                                        self.postMessage({ method: "filter", fadeLength: fadeOpacities.length });
                                 } else {
-                                        self.postMessage({ method: "filter", fadeLength: 0 });
+                                        fadeCopy = new Uint8Array(1); fadeCopy[0] = -255;
                                 }
+                                self.postMessage({ method: "filter", fadeOpacities: fadeCopy }, [fadeCopy.buffer]);
                         }
                         if (e.data.method == "sort") {
                                 if (matrices === undefined) {
                                         const sortedIndexes = new Uint32Array(1);
-                                        self.postMessage({ method: "sort", sortedIndexes, fadeLength: 0 }, [sortedIndexes.buffer]);
+                                        const fadeCopy = new Uint8Array(1);
+                                        fadeCopy[0] = -255;
+                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
                                 } else {
                                         const sortedIndexes = sortSplats();
-                                        if (fadeBuffer && fadeOpacities) {
-                                                for (let i = 0; i < fadeOpacities.length; i++) {
-                                                        const f = fadeOpacities[i];
-                                                        fadeBuffer[i] = Math.round(Math.max(0, Math.min(1, f < 0 ? 1 : f)) * 255);
-                                                }
+                                        const fadeCopy = new Uint8Array(fadeOpacities.length);
+                                        for (let i = 0; i < fadeOpacities.length; i++) {
+                                                const f = fadeOpacities[i];
+                                                fadeCopy[i] = Math.round(Math.max(0, Math.min(1, f < 0 ? 1 : f)) * 255);
                                         }
-                                        self.postMessage({ method: "sort", sortedIndexes, fadeLength: fadeOpacities.length }, [sortedIndexes.buffer]);
+                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
                                 }
                         }
                 };
