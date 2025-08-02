@@ -61,10 +61,11 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
 	// also works from vanilla three.js
 	initGL: function (camera, object, renderer) {
-		this.camera = camera;
-		this.object = object;
+                this.camera = camera;
+                this.object = object;
                 this.renderer = renderer;
-                
+                const gl = this.renderer.getContext();
+
                 this.textureReady = false;
                 this.object.frustumCulled = false;
 
@@ -100,12 +101,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.covAndColorTexture.internalFormat = "RGBA32UI";
                 this.covAndColorTexture.needsUpdate = true;
 
-                this.fadeOpacityData = new Uint8Array(4096 * 4096);
-                this.fadeOpacityTexture = new THREE.DataTexture(this.fadeOpacityData, 4096, 4096, THREE.RedFormat, THREE.UnsignedByteType);
+                this.fadeOpacityTexture = new THREE.DataTexture(null, 4096, 4096, THREE.RedFormat, THREE.UnsignedByteType);
                 this.fadeOpacityTexture.generateMipmaps = false;
                 this.fadeOpacityTexture.minFilter = THREE.NearestFilter;
                 this.fadeOpacityTexture.magFilter = THREE.NearestFilter;
                 this.fadeOpacityTexture.internalFormat = "R8";
+                const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
+                fadeOpacityTextureProperties.__webglTexture = fadeOpacityTextureProperties.__webglTexture || gl.createTexture();
+                gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 4096, 4096, 0, gl.RED, gl.UNSIGNED_BYTE, null);
 
 		let splatIndexArray = new Uint32Array(4096 * 4096);
 		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
@@ -297,8 +301,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         if (e.data.fadeOpacities) {
                                 const fades = new Uint8Array(e.data.fadeOpacities);
-                                this.fadeOpacityData.set(fades);
-                                this.fadeOpacityTexture.needsUpdate = true;
+                                if (fades.length > 1) {
+                                        this.updateFadeTexture(fades);
+                                }
                         }
                 };
                 this.sortReady = true;
@@ -478,10 +483,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
                         covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
 
-                        this.fadeOpacityData[this.loadedVertexCount + i] = 255;
-
-			// Store scale and transparent to remove splat in sorting process
-			mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
+                        // Store scale and transparent to remove splat in sorting process
+                        mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
                         mtx.elements[11] = u_buffer[32*i + 24 + 3] / 255.0;
 
 			for (let j = 0; j < 16; j++) {
@@ -489,12 +492,16 @@ AFRAME.registerComponent("gaussian_splatting", {
 			}
 		}
 
-		const gl = this.renderer.getContext();
-		while (vertexCount > 0) {
-			let width = 0;
-			let height = 0;
-			let xoffset = (this.loadedVertexCount % 4096);
-			let yoffset = Math.floor(this.loadedVertexCount / 4096);
+                const fadeFill = new Uint8Array(vertexCount);
+                fadeFill.fill(255);
+
+                const gl = this.renderer.getContext();
+                let fadeOffset = 0;
+                while (vertexCount > 0) {
+                        let width = 0;
+                        let height = 0;
+                        let xoffset = (this.loadedVertexCount % 4096);
+                        let yoffset = Math.floor(this.loadedVertexCount / 4096);
 			if (this.loadedVertexCount % 4096 != 0) {
 				width = Math.min(4096, xoffset + vertexCount) - xoffset;
 				height = 1;
@@ -516,11 +523,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
                         gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
-                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RED, gl.UNSIGNED_BYTE, this.fadeOpacityData, this.loadedVertexCount);
+                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RED, gl.UNSIGNED_BYTE, fadeFill, fadeOffset);
 
-			this.loadedVertexCount += width * height;
-			vertexCount -= width * height;
-		}
+                        this.loadedVertexCount += width * height;
+                        vertexCount -= width * height;
+                        fadeOffset += width * height;
+                }
 
 		this.worker.postMessage({
 			method: "push",
@@ -560,7 +568,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
-                this.fadeOpacityTexture.needsUpdate = true;
+                const gl = this.renderer.getContext();
+                const fadeProps = this.renderer.properties.get(this.fadeOpacityTexture);
+                fadeProps.__webglTexture = fadeProps.__webglTexture || gl.createTexture();
+                gl.bindTexture(gl.TEXTURE_2D, fadeProps.__webglTexture);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 4096, 4096, 0, gl.RED, gl.UNSIGNED_BYTE, null);
                 for (const buf of this.originalBuffers) {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
@@ -681,6 +693,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (Math.abs(a.elements[i] - b.elements[i]) > epsilon) return false;
                 }
                 return true;
+        },
+        updateFadeTexture: function (fadeArray) {
+                const gl = this.renderer.getContext();
+                const textureProps = this.renderer.properties.get(this.fadeOpacityTexture);
+                textureProps.__webglTexture = textureProps.__webglTexture || gl.createTexture();
+                gl.bindTexture(gl.TEXTURE_2D, textureProps.__webglTexture);
+                let remaining = fadeArray.length;
+                let offset = 0;
+                let y = 0;
+                while (remaining > 0) {
+                        const width = Math.min(4096, remaining);
+                        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y, width, 1, gl.RED, gl.UNSIGNED_BYTE, fadeArray, offset);
+                        remaining -= width;
+                        offset += width;
+                        y++;
+                }
         },
         createWorker: function (self) {
                 let matrices = undefined;
