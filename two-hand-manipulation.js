@@ -125,10 +125,12 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 controller.addEventListener(evt, onUp));
         };
 
-        bindGripEvents(this.leftController, 'left');
-        bindGripEvents(this.rightController, 'right');
-        bindGripEvents(this.leftHand, 'left');
-        bindGripEvents(this.rightHand, 'right');
+        [this.leftController, this.leftHand]
+            .filter((el, idx, arr) => el && arr.indexOf(el) === idx)
+            .forEach(el => bindGripEvents(el, 'left'));
+        [this.rightController, this.rightHand]
+            .filter((el, idx, arr) => el && arr.indexOf(el) === idx)
+            .forEach(el => bindGripEvents(el, 'right'));
     },
 
     startTwoHand: function () {
