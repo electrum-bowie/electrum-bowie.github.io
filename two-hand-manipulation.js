@@ -108,10 +108,12 @@ AFRAME.registerComponent('two-hand-manipulation', {
                     if (isGrip) this.leftGripButton = false;
                     if (isTrigger) this.leftTriggerButton = false;
                     if (isPinch) this.leftUsingPinch = false;
+                    this.leftSource = null;
                 } else {
                     if (isGrip) this.rightGripButton = false;
                     if (isTrigger) this.rightTriggerButton = false;
                     if (isPinch) this.rightUsingPinch = false;
+                    this.rightSource = null;
                 }
                 updatePressedState(hand);
                 this.isInteracting = false;
