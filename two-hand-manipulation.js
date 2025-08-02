@@ -58,6 +58,22 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 else this.rightGripPressed = this.rightGripButton || this.rightTriggerButton || this.rightUsingPinch;
             };
             const onDown = evt => {
+                // Reset interaction if switching between controller and hand sources.
+                const prevSource = hand === 'left' ? this.leftSource : this.rightSource;
+                if (prevSource && prevSource !== controller) {
+                    if (hand === 'left') {
+                        this.leftGripButton = false;
+                        this.leftTriggerButton = false;
+                        this.leftUsingPinch = false;
+                    } else {
+                        this.rightGripButton = false;
+                        this.rightTriggerButton = false;
+                        this.rightUsingPinch = false;
+                    }
+                    this.isInteracting = false;
+                    this.mode = null;
+                }
+
                 updatePinch(evt);
                 const isPinch = evt.type.startsWith('pinch');
                 const isGrip = evt.type.startsWith('grip') || evt.type.startsWith('squeeze');
@@ -65,11 +81,19 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 if (hand === 'left') {
                     if (isGrip) this.leftGripButton = true;
                     if (isTrigger) this.leftTriggerButton = true;
+                    if (isPinch) {
+                        this.leftGripButton = false;
+                        this.leftTriggerButton = false;
+                    }
                     this.leftUsingPinch = isPinch;
                     this.leftSource = controller;
                 } else {
                     if (isGrip) this.rightGripButton = true;
                     if (isTrigger) this.rightTriggerButton = true;
+                    if (isPinch) {
+                        this.rightGripButton = false;
+                        this.rightTriggerButton = false;
+                    }
                     this.rightUsingPinch = isPinch;
                     this.rightSource = controller;
                 }
