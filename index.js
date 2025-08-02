@@ -890,7 +890,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 fadeCopy[i] = Math.round(Math.max(0, Math.min(1, f < 0 ? 1 : f)) * 255);
                                         }
                                 } else {
-                                        fadeCopy = new Uint8Array(1); fadeCopy[0] = -255;
+                                        fadeCopy = new Uint8Array(1); fadeCopy[0] = 255;
                                 }
                                 self.postMessage({ method: "filter", fadeOpacities: fadeCopy }, [fadeCopy.buffer]);
                         }
@@ -898,7 +898,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (matrices === undefined) {
                                         const sortedIndexes = new Uint32Array(1);
                                         const fadeCopy = new Uint8Array(1);
-                                        fadeCopy[0] = -255;
+                                        fadeCopy[0] = 255;
                                         self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
                                 } else {
                                         const sortedIndexes = sortSplats();
