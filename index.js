@@ -297,13 +297,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         if (e.data.fadeOpacities) {
                                 const fades = new Uint8Array(e.data.fadeOpacities);
-                                this.fadeOpacityData.set(fades);
-                                this.fadeOpacityTexture.needsUpdate = true;
+                                this.updateFadeTexture(fades);
                         }
                 };
                 this.sortReady = true;
                 this.filterReady = true;
-	},
+        },
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
@@ -522,11 +521,38 @@ AFRAME.registerComponent("gaussian_splatting", {
 			vertexCount -= width * height;
 		}
 
-		this.worker.postMessage({
-			method: "push",
-			matrices: matrices.buffer
-		}, [matrices.buffer]);
-	},
+                this.worker.postMessage({
+                        method: "push",
+                        matrices: matrices.buffer
+                }, [matrices.buffer]);
+        },
+        updateFadeTexture: function (fades) {
+                const gl = this.renderer.getContext();
+                const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
+                gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
+
+                const rowWidth = 4096;
+                const fullRows = Math.floor(fades.length / rowWidth);
+                if (fullRows > 0) {
+                        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, rowWidth, fullRows, gl.RED, gl.UNSIGNED_BYTE, fades, 0);
+                }
+
+                const remaining = fades.length % rowWidth;
+                if (remaining > 0) {
+                        gl.texSubImage2D(
+                                gl.TEXTURE_2D,
+                                0,
+                                0,
+                                fullRows,
+                                remaining,
+                                1,
+                                gl.RED,
+                                gl.UNSIGNED_BYTE,
+                                fades,
+                                fullRows * rowWidth
+                        );
+                }
+        },
         tick: function (time, timeDelta) {
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 
