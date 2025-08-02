@@ -682,7 +682,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let matrices = undefined;
                 let fadeOpacities = undefined;
 
-                const COUNT_SIZE = 256 * 256;
+                const COUNT_SIZE = 512 * 512;
 
                 let cache = {
                         capacity: 0,
@@ -702,6 +702,28 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
                 };
+                
+                // Stable in-place insertion sort on depthIndex[start … end)
+                // Orders back-to-front (larger depth first).  For ties we fall back to
+                // the previous index so the overall sequence is deterministic frame-to-frame.
+                function insertionSort(depthIndex, depthList, start, end) {
+                    for (let i = start + 1; i < end; ++i) {
+                        const idx  = depthIndex[i];
+                        const key  = depthList[idx];
+                        let j = i - 1;
+
+                        while (j >= start) {
+                            const jIdx = depthIndex[j];
+                            const jKey = depthList[jIdx];
+
+                            if (jKey > key) break;                    // already farther
+                            if (jKey === key && jIdx < idx) break;    // tie → keep order
+                            depthIndex[j + 1] = jIdx;
+                            --j;
+                        }
+                        depthIndex[j + 1] = idx;
+                    }
+                }
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
@@ -825,9 +847,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         starts0[0] = 0;
                         for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+                        
+                        const writePtr = Uint32Array.from(starts0);
+
                         let depthIndex = new Uint32Array(validCount);
-                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
-			
+                        for (let i = 0; i < validCount; ++i)
+                                depthIndex[writePtr[sizeList[i]]++] = validIndexList[i];
+
+                        // ----- pass 2: stable in-bucket sort --------------------------------
+                        let offset = 0;
+                        for (let b = 0; b < COUNT_SIZE; ++b) {
+                                const bucketSize = counts0[b];
+                                if (bucketSize > 1)
+                                insertionSort(depthIndex, depthList, offset, offset + bucketSize);
+                                offset += bucketSize;
+                        }
+
                         return depthIndex;
                 };
 
