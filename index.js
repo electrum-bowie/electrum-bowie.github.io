@@ -869,7 +869,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (matrices === undefined) {
                                         const sortedIndexes = new Uint32Array(1);
                                         const fadeCopy = new Float32Array(1);
-                                        fadeCopy[0] = 1;
+                                        fadeCopy[0] = 2.0;
                                         self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
                                 } else {
                                         const sortedIndexes = sortSplats();
