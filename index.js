@@ -100,14 +100,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.covAndColorTexture.internalFormat = "RGBA32UI";
                 this.covAndColorTexture.needsUpdate = true;
 
-                this.fadeTextureSize = 4096;
-                this.fadeTextureSizeLog2 = 12;
-                this.fadeOpacityTexture = new THREE.DataTexture(null, this.fadeTextureSize, this.fadeTextureSize, THREE.RedFormat, THREE.UnsignedByteType);
+                this.fadeOpacityData = new Uint8Array(4096 * 4096);
+                this.fadeOpacityTexture = new THREE.DataTexture(this.fadeOpacityData, 4096, 4096, THREE.RedFormat, THREE.UnsignedByteType);
                 this.fadeOpacityTexture.generateMipmaps = false;
                 this.fadeOpacityTexture.minFilter = THREE.NearestFilter;
                 this.fadeOpacityTexture.magFilter = THREE.NearestFilter;
                 this.fadeOpacityTexture.internalFormat = "R8";
-                this.fadeOpacityTexture.needsUpdate = true;
 
 		let splatIndexArray = new Uint32Array(4096 * 4096);
 		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
@@ -299,7 +297,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         if (e.data.fadeOpacities) {
                                 const fades = new Uint8Array(e.data.fadeOpacities);
-                                this.updateFadeTexture(fades);
+                                this.fadeOpacityData.set(fades);
+                                this.fadeOpacityTexture.needsUpdate = true;
                         }
                 };
                 this.sortReady = true;
@@ -404,23 +403,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 this.sortSplatsNow();
                         });
         },
-        updateFadeTexture: function (fadeArray, startIndex = 0) {
-                const gl = this.renderer.getContext();
-                const tex = this.renderer.properties.get(this.fadeOpacityTexture);
-                gl.bindTexture(gl.TEXTURE_2D, tex.__webglTexture);
-                let offset = 0;
-                let remaining = fadeArray.length;
-                let index = startIndex;
-                while (remaining > 0) {
-                        const x = index & (this.fadeTextureSize - 1);
-                        const y = index >> this.fadeTextureSizeLog2;
-                        const width = Math.min(this.fadeTextureSize - x, remaining);
-                        gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, width, 1, gl.RED, gl.UNSIGNED_BYTE, fadeArray, offset);
-                        offset += width;
-                        remaining -= width;
-                        index += width;
-                }
-        },
         pushDataBuffer: function (buffer, vertexCount) {
                 if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
                         vertexCount = 4096 * 4096 - this.loadedVertexCount;
@@ -432,11 +414,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.originalBuffers.push(buffer.slice(0));
                 }
                 
-                let u_buffer = new Uint8Array(buffer);
-                let f_buffer = new Float32Array(buffer);
-                let matrices = new Float32Array(vertexCount * 16);
-                let fadeChunk = new Uint8Array(vertexCount);
-                fadeChunk.fill(255);
+		let u_buffer = new Uint8Array(buffer);
+		let f_buffer = new Float32Array(buffer);
+		let matrices = new Float32Array(vertexCount * 16);
 
 		const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
 		const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
@@ -495,8 +475,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 			destOffset = this.loadedVertexCount * 16 + (i * 4 + 3) * 4;
 			covAndColorData_uint8[destOffset + 0] = u_buffer[32 * i + 24 + 0];
 			covAndColorData_uint8[destOffset + 1] = u_buffer[32 * i + 24 + 1];
-                        covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
+			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
                         covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
+
+                        this.fadeOpacityData[this.loadedVertexCount + i] = 255;
 
 			// Store scale and transparent to remove splat in sorting process
 			mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
@@ -507,10 +489,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 			}
 		}
 
-                this.updateFadeTexture(fadeChunk, this.loadedVertexCount);
-
-                const gl = this.renderer.getContext();
-                while (vertexCount > 0) {
+		const gl = this.renderer.getContext();
+		while (vertexCount > 0) {
 			let width = 0;
 			let height = 0;
 			let xoffset = (this.loadedVertexCount % 4096);
@@ -533,6 +513,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const covAndColorTextureProperties = this.renderer.properties.get(this.covAndColorTexture);
                         gl.bindTexture(gl.TEXTURE_2D, covAndColorTextureProperties.__webglTexture);
                         gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, this.covAndColorData, this.loadedVertexCount * 4);
+
+                        const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
+                        gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
+                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RED, gl.UNSIGNED_BYTE, this.fadeOpacityData, this.loadedVertexCount);
 
 			this.loadedVertexCount += width * height;
 			vertexCount -= width * height;
@@ -576,6 +560,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
+                this.fadeOpacityTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
