@@ -296,14 +296,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 this.filterReady = true;
                         }
                         if (e.data.fadeOpacities) {
+                                const prev = this.fadeOpacityData;
                                 const fades = new Uint8Array(e.data.fadeOpacities);
-                                this.fadeOpacityData.set(fades);
+                                this.fadeOpacityData = fades;
+                                this.fadeOpacityTexture.image.data = fades;
                                 this.fadeOpacityTexture.needsUpdate = true;
+                                if (prev && prev.buffer) {
+                                        this.worker.postMessage({ method: "reuseFadeBuffer", fadeBuffer: prev.buffer }, [prev.buffer]);
+                                }
                         }
                 };
                 this.sortReady = true;
                 this.filterReady = true;
-	},
+        },
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
@@ -685,6 +690,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
                 let fadeOpacities = undefined;
+                let reusableFadeCopy = undefined;
 
                 const COUNT_SIZE = 256 * 256;
 
@@ -835,11 +841,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                         return depthIndex;
                 };
 
-		self.onmessage = (e) => {
+                self.onmessage = (e) => {
+                        if (e.data.method == "reuseFadeBuffer") {
+                                reusableFadeCopy = new Uint8Array(e.data.fadeBuffer);
+                                return;
+                        }
                         if (e.data.method == "clear") {
                                 matrices = undefined;
                                 fadeOpacities = undefined;
-			}
+                        }
                         if (e.data.method == "push") {
                                 new_matrices = new Float32Array(e.data.matrices);
                                 const newFade = new Float32Array(new_matrices.length / 16);
@@ -869,7 +879,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 let fadeCopy;
                                 if (fadeOpacities) {
-                                        fadeCopy = new Uint8Array(fadeOpacities.length);
+                                        fadeCopy = reusableFadeCopy;
+                                        if (!fadeCopy || fadeCopy.length < fadeOpacities.length) {
+                                                fadeCopy = new Uint8Array(fadeOpacities.length);
+                                        }
                                         for (let i = 0; i < fadeOpacities.length; i++) {
                                                 const f = fadeOpacities[i];
                                                 fadeCopy[i] = Math.round(Math.max(0, Math.min(1, f < 0 ? 1 : f)) * 255);
@@ -877,22 +890,27 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 } else {
                                         fadeCopy = new Uint8Array(1); fadeCopy[0] = -255;
                                 }
-                                self.postMessage({ method: "filter", fadeOpacities: fadeCopy }, [fadeCopy.buffer]);
+                                self.postMessage({ method: "filter", fadeOpacities: fadeCopy.buffer }, [fadeCopy.buffer]);
+                                reusableFadeCopy = undefined;
                         }
                         if (e.data.method == "sort") {
                                 if (matrices === undefined) {
                                         const sortedIndexes = new Uint32Array(1);
                                         const fadeCopy = new Uint8Array(1);
                                         fadeCopy[0] = -255;
-                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
+                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy.buffer }, [sortedIndexes.buffer, fadeCopy.buffer]);
                                 } else {
                                         const sortedIndexes = sortSplats();
-                                        const fadeCopy = new Uint8Array(fadeOpacities.length);
+                                        let fadeCopy = reusableFadeCopy;
+                                        if (!fadeCopy || fadeCopy.length < fadeOpacities.length) {
+                                                fadeCopy = new Uint8Array(fadeOpacities.length);
+                                        }
                                         for (let i = 0; i < fadeOpacities.length; i++) {
                                                 const f = fadeOpacities[i];
                                                 fadeCopy[i] = Math.round(Math.max(0, Math.min(1, f < 0 ? 1 : f)) * 255);
                                         }
-                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
+                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy.buffer }, [sortedIndexes.buffer, fadeCopy.buffer]);
+                                        reusableFadeCopy = undefined;
                                 }
                         }
                 };
