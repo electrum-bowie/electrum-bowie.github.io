@@ -73,7 +73,9 @@ AFRAME.registerComponent('two-hand-manipulation', {
                     this.isInteracting = false;
                     this.mode = null;
                 }
-
+                // Ensure the controller entity is visible when receiving input. Without
+                // this, switching from hand tracking to controllers could leave the
+                // controller mesh hidden even though it still emits events.
                 controller.object3D.visible = true;
 
                 updatePinch(evt);
@@ -125,7 +127,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 controller.addEventListener(evt, onDown));
             ['gripup', 'gripopen', 'squeezeend', 'pinchended', 'triggerup'].forEach(evt =>
                 controller.addEventListener(evt, onUp));
-
+            // Occasionally the controller model can remain hidden after hand tracking.
+            // Make sure it becomes visible again when the controller is detected.
             controller.addEventListener('controllerconnected', () => {
                 controller.object3D.visible = true;
             });
