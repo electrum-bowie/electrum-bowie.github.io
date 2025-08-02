@@ -297,8 +297,18 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         if (e.data.fadeOpacities) {
                                 const fades = new Uint8Array(e.data.fadeOpacities);
-                                this.fadeOpacityData.set(fades);
-                                this.fadeOpacityTexture.needsUpdate = true;
+                                const gl = this.renderer.getContext();
+                                const texProps = this.renderer.properties.get(this.fadeOpacityTexture);
+                                gl.bindTexture(gl.TEXTURE_2D, texProps.__webglTexture);
+                                const total = fades.length;
+                                let offset = 0;
+                                let y = 0;
+                                while (offset < total) {
+                                        const width = Math.min(4096, total - offset);
+                                        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y, width, 1, gl.RED, gl.UNSIGNED_BYTE, fades, offset);
+                                        offset += width;
+                                        y++;
+                                }
                         }
                 };
                 this.sortReady = true;
@@ -471,17 +481,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 				covAndColorData_int16[destOffset + j] = parseInt(mtx.elements[cov_indexes[j]] * 32767.0 / max_value);
 			}
 
-			// RGBA
-			destOffset = this.loadedVertexCount * 16 + (i * 4 + 3) * 4;
-			covAndColorData_uint8[destOffset + 0] = u_buffer[32 * i + 24 + 0];
-			covAndColorData_uint8[destOffset + 1] = u_buffer[32 * i + 24 + 1];
-			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
+                        // RGBA
+                        destOffset = this.loadedVertexCount * 16 + (i * 4 + 3) * 4;
+                        covAndColorData_uint8[destOffset + 0] = u_buffer[32 * i + 24 + 0];
+                        covAndColorData_uint8[destOffset + 1] = u_buffer[32 * i + 24 + 1];
+                        covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
                         covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
 
-                        this.fadeOpacityData[this.loadedVertexCount + i] = 255;
-
-			// Store scale and transparent to remove splat in sorting process
-			mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
+                        // Store scale and transparent to remove splat in sorting process
+                        mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
                         mtx.elements[11] = u_buffer[32*i + 24 + 3] / 255.0;
 
 			for (let j = 0; j < 16; j++) {
@@ -489,7 +497,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 			}
 		}
 
-		const gl = this.renderer.getContext();
+                this.fadeOpacityData.fill(255, this.loadedVertexCount, this.loadedVertexCount + vertexCount);
+
+                const gl = this.renderer.getContext();
 		while (vertexCount > 0) {
 			let width = 0;
 			let height = 0;
