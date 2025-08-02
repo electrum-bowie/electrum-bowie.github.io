@@ -100,12 +100,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.covAndColorTexture.internalFormat = "RGBA32UI";
                 this.covAndColorTexture.needsUpdate = true;
 
-                this.fadeOpacityData = new Uint8Array(4096 * 4096);
-                this.fadeOpacityTexture = new THREE.DataTexture(this.fadeOpacityData, 4096, 4096, THREE.RedFormat, THREE.UnsignedByteType);
-                this.fadeOpacityTexture.generateMipmaps = false;
-                this.fadeOpacityTexture.minFilter = THREE.NearestFilter;
-                this.fadeOpacityTexture.magFilter = THREE.NearestFilter;
-                this.fadeOpacityTexture.internalFormat = "R8";
+               this.fadeOpacityTexture = new THREE.DataTexture(new Uint8Array(0), 4096, 4096, THREE.RedFormat, THREE.UnsignedByteType);
+               this.fadeOpacityTexture.generateMipmaps = false;
+               this.fadeOpacityTexture.minFilter = THREE.NearestFilter;
+               this.fadeOpacityTexture.magFilter = THREE.NearestFilter;
+               this.fadeOpacityTexture.internalFormat = "R8";
+               this.fadeOpacityTexture.needsUpdate = true;
 
 		let splatIndexArray = new Uint32Array(4096 * 4096);
 		const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
@@ -295,11 +295,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         } else if (e.data.method === "filter") {
                                 this.filterReady = true;
                         }
-                        if (e.data.fadeOpacities) {
-                                const fades = new Uint8Array(e.data.fadeOpacities);
-                                this.fadeOpacityData.set(fades);
-                                this.fadeOpacityTexture.needsUpdate = true;
-                        }
+                       if (e.data.fadeOpacities) {
+                               const fades = new Uint8Array(e.data.fadeOpacities);
+                               this.updateFadeTexture(fades, 0);
+                       }
                 };
                 this.sortReady = true;
                 this.filterReady = true;
@@ -418,9 +417,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 		let f_buffer = new Float32Array(buffer);
 		let matrices = new Float32Array(vertexCount * 16);
 
-		const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
-		const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
-                for (let i = 0; i < vertexCount; i++) {
+               const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
+               const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
+               for (let i = 0; i < vertexCount; i++) {
 			let quat = new THREE.Quaternion(
 				(u_buffer[32 * i + 28 + 1] - 128) / 128.0,
 				(u_buffer[32 * i + 28 + 2] - 128) / 128.0,
@@ -476,9 +475,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 			covAndColorData_uint8[destOffset + 0] = u_buffer[32 * i + 24 + 0];
 			covAndColorData_uint8[destOffset + 1] = u_buffer[32 * i + 24 + 1];
 			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
-                        covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
-
-                        this.fadeOpacityData[this.loadedVertexCount + i] = 255;
+                       covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
 
 			// Store scale and transparent to remove splat in sorting process
 			mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
@@ -489,45 +486,76 @@ AFRAME.registerComponent("gaussian_splatting", {
 			}
 		}
 
-		const gl = this.renderer.getContext();
-		while (vertexCount > 0) {
-			let width = 0;
-			let height = 0;
-			let xoffset = (this.loadedVertexCount % 4096);
-			let yoffset = Math.floor(this.loadedVertexCount / 4096);
-			if (this.loadedVertexCount % 4096 != 0) {
-				width = Math.min(4096, xoffset + vertexCount) - xoffset;
-				height = 1;
-			} else if (Math.floor(vertexCount / 4096) > 0) {
-				width = 4096;
-				height = Math.floor(vertexCount / 4096);
-			} else {
-				width = vertexCount % 4096;
-				height = 1;
-			}
+               const startIndex = this.loadedVertexCount;
+               const fadeChunk = new Uint8Array(vertexCount);
+               fadeChunk.fill(255);
 
-			const centerAndScaleTextureProperties = this.renderer.properties.get(this.centerAndScaleTexture);
-			gl.bindTexture(gl.TEXTURE_2D, centerAndScaleTextureProperties.__webglTexture);
-			gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA, gl.FLOAT, this.centerAndScaleData, this.loadedVertexCount * 4);
+               const gl = this.renderer.getContext();
+               let remaining = vertexCount;
+               while (remaining > 0) {
+                       let width = 0;
+                       let height = 0;
+                       let xoffset = (this.loadedVertexCount % 4096);
+                       let yoffset = Math.floor(this.loadedVertexCount / 4096);
+                       if (this.loadedVertexCount % 4096 != 0) {
+                               width = Math.min(4096, xoffset + remaining) - xoffset;
+                               height = 1;
+                       } else if (Math.floor(remaining / 4096) > 0) {
+                               width = 4096;
+                               height = Math.floor(remaining / 4096);
+                       } else {
+                               width = remaining % 4096;
+                               height = 1;
+                       }
 
-                        const covAndColorTextureProperties = this.renderer.properties.get(this.covAndColorTexture);
-                        gl.bindTexture(gl.TEXTURE_2D, covAndColorTextureProperties.__webglTexture);
-                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, this.covAndColorData, this.loadedVertexCount * 4);
+                       const centerAndScaleTextureProperties = this.renderer.properties.get(this.centerAndScaleTexture);
+                       gl.bindTexture(gl.TEXTURE_2D, centerAndScaleTextureProperties.__webglTexture);
+                       gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA, gl.FLOAT, this.centerAndScaleData, this.loadedVertexCount * 4);
 
-                        const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
-                        gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
-                        gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RED, gl.UNSIGNED_BYTE, this.fadeOpacityData, this.loadedVertexCount);
+                       const covAndColorTextureProperties = this.renderer.properties.get(this.covAndColorTexture);
+                       gl.bindTexture(gl.TEXTURE_2D, covAndColorTextureProperties.__webglTexture);
+                       gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, this.covAndColorData, this.loadedVertexCount * 4);
 
-			this.loadedVertexCount += width * height;
-			vertexCount -= width * height;
-		}
+                       this.loadedVertexCount += width * height;
+                       remaining -= width * height;
+               }
 
-		this.worker.postMessage({
-			method: "push",
-			matrices: matrices.buffer
-		}, [matrices.buffer]);
-	},
-        tick: function (time, timeDelta) {
+               this.updateFadeTexture(fadeChunk, startIndex);
+
+               this.worker.postMessage({
+                       method: "push",
+                       matrices: matrices.buffer
+               }, [matrices.buffer]);
+       },
+       updateFadeTexture: function (data, startIndex = 0) {
+               const gl = this.renderer.getContext();
+               const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
+               gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
+
+               let vertexCount = data.length;
+               let offset = 0;
+               while (vertexCount > 0) {
+                       let xoffset = (startIndex % 4096);
+                       let yoffset = Math.floor(startIndex / 4096);
+                       let width = 0;
+                       let height = 0;
+                       if (xoffset !== 0) {
+                               width = Math.min(4096 - xoffset, vertexCount);
+                               height = 1;
+                       } else if (Math.floor(vertexCount / 4096) > 0) {
+                               width = 4096;
+                               height = Math.floor(vertexCount / 4096);
+                       } else {
+                               width = vertexCount;
+                               height = 1;
+                       }
+                       gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RED, gl.UNSIGNED_BYTE, data.subarray(offset, offset + width * height));
+                       startIndex += width * height;
+                       offset += width * height;
+                       vertexCount -= width * height;
+               }
+       },
+       tick: function (time, timeDelta) {
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 
                 const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 0.001;
