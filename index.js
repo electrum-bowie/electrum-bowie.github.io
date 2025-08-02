@@ -297,17 +297,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         if (e.data.fadeOpacities) {
                                 const fades = new Uint8Array(e.data.fadeOpacities);
-                                const gl = this.renderer.getContext();
-                                const fadeOpacityTextureProperties = this.renderer.properties.get(this.fadeOpacityTexture);
-                                gl.bindTexture(gl.TEXTURE_2D, fadeOpacityTextureProperties.__webglTexture);
-                                const fullRows = Math.floor(fades.length / 4096);
-                                if (fullRows > 0) {
-                                        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 4096, fullRows, gl.RED, gl.UNSIGNED_BYTE, fades, 0);
-                                }
-                                const remainder = fades.length % 4096;
-                                if (remainder > 0) {
-                                        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, fullRows, remainder, 1, gl.RED, gl.UNSIGNED_BYTE, fades, fullRows * 4096);
-                                }
+                                this.fadeOpacityData.set(fades);
+                                this.fadeOpacityTexture.needsUpdate = true;
                         }
                 };
                 this.sortReady = true;
