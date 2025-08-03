@@ -799,7 +799,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	f = 2.0;
 				}
 
-                                fadeOpacities[i] = f;
+				fadeOpacities[i] = f;
 
                                 if (f < 0.1) continue;
 
@@ -808,49 +808,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
-                        }
-
-                        // Occlusion: adjust perceived transparency based on closer splats
-                        if (validCount > 0) {
-                                for (let i = 0; i < validCount; i++) {
-                                        const idxI = validIndexList[i];
-                                        const depthI = depthList[i];
-                                        const radiusI = matrices[idxI * 16 + 15] * scaleFactor;
-                                        let perceived = fadeOpacities[idxI] * matrices[idxI * 16 + 11];
-
-                                        for (let j = 0; j < validCount; j++) {
-                                                if (i === j) continue;
-                                                const depthJ = depthList[j];
-                                                if (depthJ >= depthI) continue;
-                                                const idxJ = validIndexList[j];
-                                                const radiusJ = matrices[idxJ * 16 + 15] * scaleFactor;
-                                                if (depthJ + radiusJ <= depthI - radiusI) continue;
-                                                const transJ = matrices[idxJ * 16 + 11];
-                                                perceived *= (1.0 - transJ);
-                                        }
-
-                                        fadeOpacities[idxI] = perceived;
-                                }
-
-                                let write = 0;
-                                maxDepth = -Infinity;
-                                minDepth = Infinity;
-                                for (let read = 0; read < validCount; read++) {
-                                        const idx = validIndexList[read];
-                                        const perc = fadeOpacities[idx];
-                                        if (perc < 0.01) continue; // discard heavily occluded splats
-                                        depthList[write] = depthList[read];
-                                        validIndexList[write] = idx;
-                                        if (depthList[read] > maxDepth) maxDepth = depthList[read];
-                                        if (depthList[read] < minDepth) minDepth = depthList[read];
-                                        write++;
-                                }
-                                validCount = write;
-                        }
-
-                        if (validCount === 0) {
-                                minDepth = 0;
-                                maxDepth = 0;
                         }
 
                         filterResult.count = validCount;
