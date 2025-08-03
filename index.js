@@ -699,20 +699,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
-                        ndcXList: null,
-                        ndcYList: null,
-                        radiusList: null,
-                        fadeList: null,
-                        transpList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
                 let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
-
-                const OCCLUSION_RES = 512;
-                const OCCLUSION_SIZE = OCCLUSION_RES * OCCLUSION_RES;
-                const occlusionBuffer = new Float32Array(OCCLUSION_SIZE);
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -720,11 +711,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
-                        cache.ndcXList = new Float32Array(n);
-                        cache.ndcYList = new Float32Array(n);
-                        cache.radiusList = new Float32Array(n);
-                        cache.fadeList = new Float32Array(n);
-                        cache.transpList = new Float32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -743,11 +729,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
-                        let ndcXList = cache.ndcXList;
-                        let ndcYList = cache.ndcYList;
-                        let radiusList = cache.radiusList;
-                        let fadeList = cache.fadeList;
-                        let transpList = cache.transpList;
                         let validCount = 0;
 
                         // cache matrix values locally for speed
@@ -818,68 +799,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	f = 2.0;
 				}
 
-                                fadeOpacities[i] = f;
+				fadeOpacities[i] = f;
 
                                 if (f < 0.1) continue;
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
-                                ndcXList[validCount] = ndcX;
-                                ndcYList[validCount] = ndcY;
-                                radiusList[validCount] = radius;
-                                fadeList[validCount] = f;
-                                transpList[validCount] = transparency;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-                        // Occlusion pass
-                        occlusionBuffer.fill(Infinity);
-                        const order = new Array(validCount);
-                        for (let i = 0; i < validCount; i++) order[i] = i;
-                        order.sort((a, b) => depthList[b] - depthList[a]);
-
-                        let finalCount = 0;
-                        let newMaxDepth = -Infinity;
-                        let newMinDepth = Infinity;
-                        for (let idx of order) {
-                                const depth = depthList[idx];
-                                const ndcX = ndcXList[idx];
-                                const ndcY = ndcYList[idx];
-                                const radius = radiusList[idx];
-                                const fade = fadeList[idx];
-                                const transparency = transpList[idx];
-                                const origIndex = validIndexList[idx];
-
-                                let gx = ((ndcX + 1) * 0.5 * OCCLUSION_RES) | 0;
-                                let gy = ((ndcY + 1) * 0.5 * OCCLUSION_RES) | 0;
-                                if (gx < 0) gx = 0; else if (gx >= OCCLUSION_RES) gx = OCCLUSION_RES - 1;
-                                if (gy < 0) gy = 0; else if (gy >= OCCLUSION_RES) gy = OCCLUSION_RES - 1;
-                                const cellIndex = gy * OCCLUSION_RES + gx;
-                                const frontDepth = occlusionBuffer[cellIndex];
-                                let occlusion = 0.0;
-                                if (frontDepth !== Infinity && frontDepth < depth) {
-                                        const depthDiff = depth - frontDepth;
-                                        occlusion = Math.min(1.0, Math.max(0.0, 1.0 - depthDiff / radius));
-                                }
-                                const finalFade = fade * (1.0 - occlusion);
-                                const perceivedTransparency = finalFade * transparency;
-                                fadeOpacities[origIndex] = finalFade;
-                                if (perceivedTransparency < 0.01) continue;
-
-                                occlusionBuffer[cellIndex] = Math.min(frontDepth, depth);
-
-                                depthList[finalCount] = depth;
-                                validIndexList[finalCount] = origIndex;
-                                finalCount++;
-                                if (depth > newMaxDepth) newMaxDepth = depth;
-                                if (depth < newMinDepth) newMinDepth = depth;
-                        }
-
-                        filterResult.count = finalCount;
-                        filterResult.minDepth = finalCount ? newMinDepth : 0;
-                        filterResult.maxDepth = finalCount ? newMaxDepth : 0;
+                        filterResult.count = validCount;
+                        filterResult.minDepth = minDepth;
+                        filterResult.maxDepth = maxDepth;
                 };
 
                 const sortSplats = function sortSplats() {
