@@ -100,8 +100,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.covAndColorTexture.internalFormat = "RGBA32UI";
                 this.covAndColorTexture.needsUpdate = true;
 
-const splatIndexes = new THREE.InstancedBufferAttribute(new Uint32Array(1), 1, false);
-splatIndexes.setUsage(THREE.DynamicDrawUsage);
+                let splatIndexArray = new Uint32Array(4096 * 4096);
+                const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
+                splatIndexes.setUsage(THREE.DynamicDrawUsage);
 
                const fadeArray = new Uint8Array(1);
                const fadeAttribute = new THREE.InstancedBufferAttribute(fadeArray, 1, true);
@@ -283,31 +284,16 @@ splatIndexes.setUsage(THREE.DynamicDrawUsage);
 
                 this.worker.onmessage = (e) => {
                         if (e.data.method === "sort") {
-                                const indexes = new Uint32Array(e.data.sortedIndexes);
-                                let indexAttr = mesh.geometry.getAttribute('splatIndex');
-                                if (!indexAttr || indexAttr.array.length !== indexes.length) {
-                                        indexAttr = new THREE.InstancedBufferAttribute(indexes, 1, false);
-                                        indexAttr.setUsage(THREE.DynamicDrawUsage);
-                                        mesh.geometry.setAttribute('splatIndex', indexAttr);
-                                } else {
-                                        indexAttr.array = indexes;
-                                        indexAttr.count = indexes.length;
-                                        indexAttr.needsUpdate = true;
-                                }
+                                let indexes = new Uint32Array(e.data.sortedIndexes);
+                                mesh.geometry.attributes.splatIndex.set(indexes);
+                                mesh.geometry.attributes.splatIndex.needsUpdate = true;
                                 mesh.geometry.instanceCount = indexes.length;
-                                if (e.data.fadeOpacities) {
-                                        const fades = new Uint8Array(e.data.fadeOpacities);
-                                        let fadeAttr = mesh.geometry.getAttribute('fadeOpacity');
-                                        if (!fadeAttr || fadeAttr.array.length !== fades.length) {
-                                                fadeAttr = new THREE.InstancedBufferAttribute(fades, 1, true);
-                                                fadeAttr.setUsage(THREE.DynamicDrawUsage);
-                                                mesh.geometry.setAttribute('fadeOpacity', fadeAttr);
-                                        } else {
-                                                fadeAttr.array = fades;
-                                                fadeAttr.count = fades.length;
-                                                fadeAttr.needsUpdate = true;
-                                        }
-                                }
+                               if (e.data.fadeOpacities) {
+                                       const fades = new Uint8Array(e.data.fadeOpacities);
+                                       const fadeAttr = new THREE.InstancedBufferAttribute(fades, 1, true);
+                                       fadeAttr.setUsage(THREE.DynamicDrawUsage);
+                                       mesh.geometry.setAttribute('fadeOpacity', fadeAttr);
+                               }
                                 this.sortReady = true;
                         } else if (e.data.method === "filter") {
                                 this.filterReady = true;
