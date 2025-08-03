@@ -282,23 +282,27 @@ AFRAME.registerComponent("gaussian_splatting", {
 			),
 		);
 
-                this.worker.onmessage = (e) => {
-                        if (e.data.method === "sort") {
-                                let indexes = new Uint32Array(e.data.sortedIndexes);
-                                mesh.geometry.attributes.splatIndex.set(indexes);
-                                mesh.geometry.attributes.splatIndex.needsUpdate = true;
-                                mesh.geometry.instanceCount = indexes.length;
+               this.worker.onmessage = (e) => {
+                       if (e.data.method === "sort") {
+                               const indexes = new Uint32Array(e.data.sortedIndexes);
+                               const splatAttr = mesh.geometry.attributes.splatIndex;
+                               splatAttr.array = indexes;
+                               splatAttr.count = indexes.length;
+                               splatAttr.needsUpdate = true;
+                               mesh.geometry.instanceCount = indexes.length;
+
                                if (e.data.fadeOpacities) {
                                        const fades = new Uint8Array(e.data.fadeOpacities);
-                                       const fadeAttr = new THREE.InstancedBufferAttribute(fades, 1, true);
-                                       fadeAttr.setUsage(THREE.DynamicDrawUsage);
-                                       mesh.geometry.setAttribute('fadeOpacity', fadeAttr);
+                                       const fadeAttr = mesh.geometry.attributes.fadeOpacity;
+                                       fadeAttr.array = fades;
+                                       fadeAttr.count = fades.length;
+                                       fadeAttr.needsUpdate = true;
                                }
-                                this.sortReady = true;
-                        } else if (e.data.method === "filter") {
-                                this.filterReady = true;
-                        }
-                };
+                               this.sortReady = true;
+                       } else if (e.data.method === "filter") {
+                               this.filterReady = true;
+                       }
+               };
                 this.sortReady = true;
                 this.filterReady = true;
         },
