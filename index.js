@@ -821,7 +821,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
                         if (validCount === 0) {
-                                return new Uint32Array(0);
+                                return new Uint8Array(0);
                         }
 
                         let maxDepth = filterResult.maxDepth;
@@ -877,7 +877,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         if (e.data.method == "sort") {
                                if (matrices === undefined) {
-                                       const sortedIndexes = new Uint32Array(1);
+                                       const sortedIndexes = new Uint8Array(4);
                                        const fadeCopy = new Uint8Array(1);
                                        fadeCopy[0] = 2.0;
                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
