@@ -699,6 +699,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
+                        screenPosList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -711,7 +712,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
+                        cache.screenPosList = new Int16Array(n * 2);
                 };
+
+                const OCCLUSION_RES = 512;
+                const occlusionBuffer = new Float32Array(OCCLUSION_RES * OCCLUSION_RES);
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
@@ -723,12 +728,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
 
                         ensureCapacity(vertexCount);
+                        occlusionBuffer.fill(0);
 
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
+                        let screenPosList = cache.screenPosList;
                         let validCount = 0;
 
                         // cache matrix values locally for speed
@@ -767,9 +774,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 				
-				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
+                                const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 
-				if (!insideOfScreen && !skipCullEdges) continue;
+                                if (!insideOfScreen && !skipCullEdges) continue;
 
                                 if (depth + radius > nearPlaneClip && insideOfScreen) {
                                         continue; // centre is inside the view and too close to the camera
@@ -777,37 +784,81 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
-                                
+
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 const tooSmall = pixelThreshold < 1.0 * edgeMultiplier;
 
                                 let f = fadeOpacities[i];
 
-				if (insideOfScreen) {
-                                	if (tooSmall) {
-                                        	if (f === 2.0) f = 0.0; // default unset value is 2.0
+                                if (insideOfScreen) {
+                                        if (tooSmall) {
+                                                if (f === 2.0) f = 0.0; // default unset value is 2.0
 
-						f = Math.max(0, f - fadeStep);
-					} else {
-                                    	   	if (f === 2.0) f = 1.0; // default unset value is 2.0
-                                                
-                                        	f = Math.min(1, f + fadeStep);
-                                	}
+                                                f = Math.max(0, f - fadeStep);
+                                        } else {
+                                                if (f === 2.0) f = 1.0; // default unset value is 2.0
+
+                                                f = Math.min(1, f + fadeStep);
+                                        }
                                 }
-				else
-				{
-                                	f = 2.0;
-				}
+                                else
+                                {
+                                        f = 2.0;
+                                }
 
-				fadeOpacities[i] = f;
+                                fadeOpacities[i] = f;
 
                                 if (f < 0.1) continue;
 
+                                let sx = -1, sy = -1;
+                                if (insideOfScreen) {
+                                        sx = ((ndcX * 0.5 + 0.5) * OCCLUSION_RES) | 0;
+                                        sy = ((ndcY * 0.5 + 0.5) * OCCLUSION_RES) | 0;
+                                }
+
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
+                                screenPosList[validCount * 2] = sx;
+                                screenPosList[validCount * 2 + 1] = sy;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
+                        }
+
+                        // Occlusion pass: process from nearest to farthest
+                        if (validCount > 0) {
+                                const order = new Array(validCount);
+                                for (let j = 0; j < validCount; j++) order[j] = j;
+                                order.sort((a, b) => depthList[a] - depthList[b]);
+
+                                let outCount = 0;
+                                maxDepth = -Infinity;
+                                minDepth = Infinity;
+                                for (let j = 0; j < validCount; j++) {
+                                        const idx = order[j];
+                                        const x = screenPosList[idx * 2];
+                                        const y = screenPosList[idx * 2 + 1];
+                                        const baseIdx = validIndexList[idx] * 16 + 11;
+                                        const transparency = matrices[baseIdx];
+                                        let perceived = transparency;
+
+                                        if (x >= 0 && y >= 0) {
+                                                const occIdx = y * OCCLUSION_RES + x;
+                                                const occ = occlusionBuffer[occIdx];
+                                                perceived *= (1.0 - occ);
+                                                if (perceived <= 0.01) continue;
+                                                occlusionBuffer[occIdx] = occ + (1.0 - occ) * transparency;
+                                        }
+
+                                        depthList[outCount] = depthList[idx];
+                                        validIndexList[outCount] = validIndexList[idx];
+                                        screenPosList[outCount * 2] = x;
+                                        screenPosList[outCount * 2 + 1] = y;
+                                        if (depthList[idx] > maxDepth) maxDepth = depthList[idx];
+                                        if (depthList[idx] < minDepth) minDepth = depthList[idx];
+                                        outCount++;
+                                }
+                                validCount = outCount;
                         }
 
                         filterResult.count = validCount;
