@@ -699,12 +699,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
-                        behindIndexList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
-                let filterResult = { count: 0, minDepth: 0, maxDepth: 0, behindCount: 0 };
+                let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -712,7 +711,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
-                        cache.behindIndexList = new Int32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -731,9 +729,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
-                        let behindIndexList = cache.behindIndexList;
                         let validCount = 0;
-                        let behindCount = 0;
 
                         // cache matrix values locally for speed
                         const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
@@ -803,14 +799,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	f = 2.0;
 				}
 
-                                fadeOpacities[i] = f;
+				fadeOpacities[i] = f;
 
                                 if (f < 0.1) continue;
-
-                                if (depth > 0) {
-                                        behindIndexList[behindCount++] = i;
-                                        continue;
-                                }
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
@@ -820,42 +811,32 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
 
                         filterResult.count = validCount;
-                        filterResult.minDepth = validCount > 0 ? minDepth : 0;
-                        filterResult.maxDepth = validCount > 0 ? maxDepth : 0;
-                        filterResult.behindCount = behindCount;
+                        filterResult.minDepth = minDepth;
+                        filterResult.maxDepth = maxDepth;
                 };
 
                 const sortSplats = function sortSplats() {
                         const validCount = filterResult.count;
-                        const behindCount = filterResult.behindCount;
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
-                        let depthIndex;
-                        if (validCount > 0) {
-                                let maxDepth = filterResult.maxDepth;
-                                let minDepth = filterResult.minDepth;
-
-                                let depthInv = (COUNT_SIZE - 1) / (maxDepth - minDepth);
-                                counts0.fill(0);
-                                for (let i = 0; i < validCount; i++) {
-                                        sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
-                                        counts0[sizeList[i]]++;
-                                }
-                                starts0[0] = 0;
-                                for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-                                depthIndex = new Uint32Array(validCount);
-                                for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
-                        } else {
-                                depthIndex = new Uint32Array(0);
+                        if (validCount === 0) {
+                                return new Uint32Array(0);
                         }
 
-                        if (behindCount > 0) {
-                                const combined = new Uint32Array(validCount + behindCount);
-                                if (validCount > 0) combined.set(depthIndex);
-                                combined.set(cache.behindIndexList.subarray(0, behindCount), validCount);
-                                depthIndex = combined;
+                        let maxDepth = filterResult.maxDepth;
+                        let minDepth = filterResult.minDepth;
+
+                        let depthInv = (COUNT_SIZE - 1) / (maxDepth - minDepth);
+                        counts0.fill(0);
+                        for (let i = 0; i < validCount; i++) {
+                                sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+                                counts0[sizeList[i]]++;
                         }
+                        starts0[0] = 0;
+                        for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+                        let depthIndex = new Uint32Array(validCount);
+                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         return depthIndex;
                 };
