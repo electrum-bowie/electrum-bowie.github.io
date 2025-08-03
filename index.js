@@ -699,11 +699,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
+                        screenIndexList: null,
+                        radiusList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
                 let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
+
+                const OCCLUSION_GRID_SIZE = 128;
+                let occlusionGrid = new Float32Array(OCCLUSION_GRID_SIZE * OCCLUSION_GRID_SIZE);
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -711,6 +716,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
+                        cache.screenIndexList = new Uint32Array(n);
+                        cache.radiusList = new Float32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -723,12 +730,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
 
                         ensureCapacity(vertexCount);
+                        occlusionGrid.fill(Infinity);
 
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
+                        let screenIndexList = cache.screenIndexList;
+                        let radiusList = cache.radiusList;
                         let validCount = 0;
 
                         // cache matrix values locally for speed
@@ -803,12 +813,53 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 if (f < 0.1) continue;
 
+                                const sx = Math.max(0, Math.min(OCCLUSION_GRID_SIZE - 1, ((ndcX * 0.5 + 0.5) * OCCLUSION_GRID_SIZE) | 0));
+                                const sy = Math.max(0, Math.min(OCCLUSION_GRID_SIZE - 1, ((ndcY * 0.5 + 0.5) * OCCLUSION_GRID_SIZE) | 0));
+                                const screenIndex = sy * OCCLUSION_GRID_SIZE + sx;
+
+                                if (depth < occlusionGrid[screenIndex]) occlusionGrid[screenIndex] = depth;
+
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
+                                screenIndexList[validCount] = screenIndex;
+                                radiusList[validCount] = radius;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
                         }
+
+                        // Occlusion pass (front depths already recorded in occlusionGrid)
+                        let newCount = 0;
+                        let newMaxDepth = -Infinity;
+                        let newMinDepth = Infinity;
+                        for (let j = 0; j < validCount; j++) {
+                                const idx = validIndexList[j];
+                                const depth = depthList[j];
+                                const screenIndex = screenIndexList[j];
+                                const radius = radiusList[j];
+                                const transparency = matrices[idx * 16 + 11];
+                                let f = fadeOpacities[idx];
+                                const frontDepth = occlusionGrid[screenIndex];
+                                if (depth > frontDepth) {
+                                        const diff = depth - frontDepth;
+                                        const attenuation = Math.min(1.0, diff / (radius * 4.0 + 1e-6));
+                                        f *= (1.0 - attenuation);
+                                }
+                                const perceived = f * transparency;
+                                if (perceived < 0.01) {
+                                        fadeOpacities[idx] = f;
+                                        continue;
+                                }
+                                fadeOpacities[idx] = f;
+                                depthList[newCount] = depth;
+                                validIndexList[newCount] = idx;
+                                if (depth > newMaxDepth) newMaxDepth = depth;
+                                if (depth < newMinDepth) newMinDepth = depth;
+                                newCount++;
+                        }
+                        validCount = newCount;
+                        maxDepth = newMaxDepth;
+                        minDepth = newMinDepth;
 
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
