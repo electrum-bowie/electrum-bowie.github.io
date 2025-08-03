@@ -699,11 +699,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
+                        tileList: null,
+                        transparencyList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
                 let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
+
+                const OCCLUSION_GRID_W = 32;
+                const OCCLUSION_GRID_H = 16;
+                const OCCLUSION_CELL_COUNT = OCCLUSION_GRID_W * OCCLUSION_GRID_H;
+                const occlusionDepth = new Float32Array(OCCLUSION_CELL_COUNT);
+                const occlusionAlpha = new Float32Array(OCCLUSION_CELL_COUNT);
+                const OCCLUSION_THRESHOLD = 0.01;
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -711,6 +720,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
+                        cache.tileList = new Int32Array(n);
+                        cache.transparencyList = new Float32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -724,11 +735,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         ensureCapacity(vertexCount);
 
+                        occlusionDepth.fill(-Infinity);
+                        occlusionAlpha.fill(0);
+
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
                         let depthList = cache.depthList;
-                        let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
+                        let tileList = cache.tileList;
+                        let transList = cache.transparencyList;
                         let validCount = 0;
 
                         // cache matrix values locally for speed
@@ -803,14 +818,48 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 if (f < 0.1) continue;
 
+                                let tile = -1;
+                                if (insideOfScreen) {
+                                        let sx = ((ndcX * 0.5 + 0.5) * OCCLUSION_GRID_W) | 0;
+                                        let sy = ((-ndcY * 0.5 + 0.5) * OCCLUSION_GRID_H) | 0;
+                                        sx = Math.max(0, Math.min(OCCLUSION_GRID_W - 1, sx));
+                                        sy = Math.max(0, Math.min(OCCLUSION_GRID_H - 1, sy));
+                                        tile = sx + sy * OCCLUSION_GRID_W;
+                                        if (depth > occlusionDepth[tile]) {
+                                                occlusionDepth[tile] = depth;
+                                                occlusionAlpha[tile] = transparency;
+                                        }
+
+                                	tileList[validCount] = tile;
+                                	transList[validCount] = transparency;
+                                }
+
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
                                 validCount++;
-                                if (depth > maxDepth) maxDepth = depth;
-                                if (depth < minDepth) minDepth = depth;
                         }
 
-                        filterResult.count = validCount;
+                        let newCount = 0;
+                        maxDepth = -Infinity;
+                        minDepth = Infinity;
+                        for (let i = 0; i < validCount; i++) {
+                                const tile = tileList[i];
+                                const depth = depthList[i];
+                                let perceived = transList[i];
+                                if (tile > 0 && depth < occlusionDepth[tile]) {
+                                        perceived *= (1.0 - occlusionAlpha[tile]);
+                                }
+                                if (perceived < OCCLUSION_THRESHOLD) continue;
+                                depthList[newCount] = depth;
+                                validIndexList[newCount] = validIndexList[i];
+                                tileList[newCount] = tile;
+                                transList[newCount] = perceived;
+                                if (depth > maxDepth) maxDepth = depth;
+                                if (depth < minDepth) minDepth = depth;
+                                newCount++;
+                        }
+
+                        filterResult.count = newCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
                 };
