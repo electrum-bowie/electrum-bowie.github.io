@@ -699,6 +699,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
+                        ndcXList: null,
+                        ndcYList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -711,6 +713,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
+                        cache.ndcXList = new Float32Array(n);
+                        cache.ndcYList = new Float32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -765,6 +769,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcY  = clip_y * invW;
                                 const ndcZ  = clip_z * invW;
 
+                                cache.ndcXList[i] = ndcX;
+                                cache.ndcYList[i] = ndcY;
+
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 				
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
@@ -809,6 +816,33 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
                         }
+
+                        // Occlusion pass to discard splats hidden behind others
+                        const OCCLUSION_GRID_SIZE = 128;
+                        const occlusionGrid = new Float32Array(OCCLUSION_GRID_SIZE * OCCLUSION_GRID_SIZE);
+                        const order = Array.from({ length: validCount }, (_, idx) => idx).sort((a, b) => depthList[a] - depthList[b]);
+                        let newCount = 0;
+                        maxDepth = -Infinity;
+                        minDepth = Infinity;
+                        for (let idx of order) {
+                                const originalIndex = validIndexList[idx];
+                                const ndcX = cache.ndcXList[originalIndex];
+                                const ndcY = cache.ndcYList[originalIndex];
+                                const gx = Math.min(Math.max(((ndcX * 0.5) + 0.5) * OCCLUSION_GRID_SIZE | 0, 0), OCCLUSION_GRID_SIZE - 1);
+                                const gy = Math.min(Math.max(((ndcY * 0.5) + 0.5) * OCCLUSION_GRID_SIZE | 0, 0), OCCLUSION_GRID_SIZE - 1);
+                                const cell = gy * OCCLUSION_GRID_SIZE + gx;
+                                const occlusion = occlusionGrid[cell];
+                                const transparency = matrices[originalIndex * 16 + 11];
+                                const perceived = transparency * (1.0 - occlusion);
+                                if (perceived < 0.05) continue;
+                                occlusionGrid[cell] = occlusion + (1.0 - occlusion) * transparency;
+                                depthList[newCount] = depthList[idx];
+                                validIndexList[newCount] = originalIndex;
+                                if (depthList[idx] > maxDepth) maxDepth = depthList[idx];
+                                if (depthList[idx] < minDepth) minDepth = depthList[idx];
+                                newCount++;
+                        }
+                        validCount = newCount;
 
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
