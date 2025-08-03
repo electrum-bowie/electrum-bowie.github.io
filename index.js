@@ -699,8 +699,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
-                        ndcXList: null,
-                        ndcYList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -713,8 +711,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
-                        cache.ndcXList = new Float32Array(n);
-                        cache.ndcYList = new Float32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -733,8 +729,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
-                        let ndcXList = cache.ndcXList;
-                        let ndcYList = cache.ndcYList;
                         let validCount = 0;
 
                         // cache matrix values locally for speed
@@ -811,57 +805,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
-                                ndcXList[validCount] = ndcX;
-                                ndcYList[validCount] = ndcY;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-                        // Occlusion pass: reduce transparency if occluded by closer splats
-                        const GRID_SIZE = 64;
-                        const cellCount = GRID_SIZE * GRID_SIZE;
-                        const cellOpacity = new Float32Array(cellCount);
-                        const order = new Uint32Array(validCount);
-                        for (let i = 0; i < validCount; i++) order[i] = i;
-                        order.sort((a, b) => depthList[b] - depthList[a]); // front to back
-
-                        let newCount = 0;
-                        maxDepth = -Infinity;
-                        minDepth = Infinity;
-                        for (let k = 0; k < validCount; k++) {
-                                const idx = order[k];
-                                const original = validIndexList[idx];
-                                const nx = ndcXList[idx];
-                                const ny = ndcYList[idx];
-                                let perceived = fadeOpacities[original] * matrices[original * 16 + 11];
-                                const cellX = Math.floor((nx * 0.5 + 0.5) * GRID_SIZE);
-                                const cellY = Math.floor((ny * 0.5 + 0.5) * GRID_SIZE);
-                                if (cellX >= 0 && cellX < GRID_SIZE && cellY >= 0 && cellY < GRID_SIZE) {
-                                        const cellIdx = cellY * GRID_SIZE + cellX;
-                                        perceived *= (1.0 - cellOpacity[cellIdx]);
-                                        if (perceived <= 0.01) {
-                                                fadeOpacities[original] = 0.0;
-                                                continue;
-                                        }
-                                        cellOpacity[cellIdx] = Math.min(1.0, cellOpacity[cellIdx] + perceived);
-                                } else {
-                                        if (perceived <= 0.01) {
-                                                fadeOpacities[original] = 0.0;
-                                                continue;
-                                        }
-                                }
-                                fadeOpacities[original] = perceived;
-                                depthList[newCount] = depthList[idx];
-                                validIndexList[newCount] = original;
-                                ndcXList[newCount] = nx;
-                                ndcYList[newCount] = ny;
-                                if (depthList[idx] > maxDepth) maxDepth = depthList[idx];
-                                if (depthList[idx] < minDepth) minDepth = depthList[idx];
-                                newCount++;
-                        }
-
-                        validCount = newCount;
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
