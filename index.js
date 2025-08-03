@@ -707,8 +707,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const starts0 = new Uint32Array(COUNT_SIZE);
                 let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
 
-                const OCCLUSION_GRID_W = 16;
-                const OCCLUSION_GRID_H = 8;
+                const OCCLUSION_GRID_W = 32;
+                const OCCLUSION_GRID_H = 16;
                 const OCCLUSION_CELL_COUNT = OCCLUSION_GRID_W * OCCLUSION_GRID_H;
                 const occlusionDepth = new Float32Array(OCCLUSION_CELL_COUNT);
                 const occlusionAlpha = new Float32Array(OCCLUSION_CELL_COUNT);
@@ -818,12 +818,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 if (f < 0.1) continue;
 
+                                let tile = -1;
                                 if (insideOfScreen) {
                                         let sx = ((ndcX * 0.5 + 0.5) * OCCLUSION_GRID_W) | 0;
                                         let sy = ((-ndcY * 0.5 + 0.5) * OCCLUSION_GRID_H) | 0;
                                         sx = Math.max(0, Math.min(OCCLUSION_GRID_W - 1, sx));
                                         sy = Math.max(0, Math.min(OCCLUSION_GRID_H - 1, sy));
-                                        const tile = sx + sy * OCCLUSION_GRID_W;
+                                        tile = sx + sy * OCCLUSION_GRID_W;
                                         if (depth > occlusionDepth[tile]) {
                                                 occlusionDepth[tile] = depth;
                                                 occlusionAlpha[tile] = transparency;
@@ -845,23 +846,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const tile = tileList[i];
                                 const depth = depthList[i];
                                 let perceived = transList[i];
-                                if (tile >= 0) {
-				        // sample a 3×3 kernel around this cell
-				        const ix = tile % OCCLUSION_GRID_W;
-				        const iy = (tile / OCCLUSION_GRID_W) | 0;
-				        let sumA = 0, count = 0;
-				        for (let dy = -1; dy <= 1; dy++) {
-				            for (let dx = -1; dx <= 1; dx++) {
-				                const nx = ix + dx, ny = iy + dy;
-				                sumA += occlusionAlpha[nx + ny * OCCLUSION_GRID_W];
-				                count++;
-				            }
-				        }
-				        const avgAlpha = sumA / count;
-				        if (depth < occlusionDepth[tile]) {
-				            perceived *= (1.0 - avgAlpha);
-				        }
-				}
+                                if (tile > 0 && depth < occlusionDepth[tile]) {
+                                        perceived *= (1.0 - occlusionAlpha[tile]);
+                                }
                                 if (perceived < OCCLUSION_THRESHOLD) continue;
                                 depthList[newCount] = depth;
                                 validIndexList[newCount] = validIndexList[i];
