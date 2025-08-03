@@ -104,9 +104,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
                 splatIndexes.setUsage(THREE.DynamicDrawUsage);
 
-                const fadeArray = new Float32Array(1);
-                const fadeAttribute = new THREE.InstancedBufferAttribute(fadeArray, 1, false);
-                fadeAttribute.setUsage(THREE.DynamicDrawUsage);
+               const fadeArray = new Uint8Array(1);
+               const fadeAttribute = new THREE.InstancedBufferAttribute(fadeArray, 1, true);
+               fadeAttribute.setUsage(THREE.DynamicDrawUsage);
 
 		const baseGeometry = new THREE.BufferGeometry();
 		const pos = new Float32Array([
@@ -288,17 +288,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 mesh.geometry.attributes.splatIndex.set(indexes);
                                 mesh.geometry.attributes.splatIndex.needsUpdate = true;
                                 mesh.geometry.instanceCount = indexes.length;
-                                if (e.data.fadeOpacities) {
-                                        const fades = new Float32Array(e.data.fadeOpacities);
-                                        if (!mesh.geometry.attributes.fadeOpacity || mesh.geometry.attributes.fadeOpacity.count !== fades.length) {
-                                                const fadeAttr = new THREE.InstancedBufferAttribute(fades, 1, false);
-                                                fadeAttr.setUsage(THREE.DynamicDrawUsage);
-                                                mesh.geometry.setAttribute('fadeOpacity', fadeAttr);
-                                        } else {
-                                                mesh.geometry.attributes.fadeOpacity.array.set(fades);
-                                                mesh.geometry.attributes.fadeOpacity.needsUpdate = true;
-                                        }
-                                }
+                               if (e.data.fadeOpacities) {
+                                       const fades = new Uint8Array(e.data.fadeOpacities);
+                                       const fadeAttr = new THREE.InstancedBufferAttribute(fades, 1, true);
+                                       fadeAttr.setUsage(THREE.DynamicDrawUsage);
+                                       mesh.geometry.setAttribute('fadeOpacity', fadeAttr);
+                               }
                                 this.sortReady = true;
                         } else if (e.data.method === "filter") {
                                 this.filterReady = true;
@@ -866,20 +861,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 self.postMessage({ method: "filter" });
                         }
                         if (e.data.method == "sort") {
-                                if (matrices === undefined) {
-                                        const sortedIndexes = new Uint32Array(1);
-                                        const fadeCopy = new Float32Array(1);
-                                        fadeCopy[0] = 2.0;
-                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
-                                } else {
-                                        const sortedIndexes = sortSplats();
-                                        const fadeCopy = new Float32Array(sortedIndexes.length);
-                                        for (let i = 0; i < sortedIndexes.length; i++) {
-                                                const f = fadeOpacities[sortedIndexes[i]];
-                                                fadeCopy[i] = Math.max(0, Math.min(1, f < 0 ? 1 : f));
-                                        }
-                                        self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
-                                }
+                               if (matrices === undefined) {
+                                       const sortedIndexes = new Uint32Array(1);
+                                       const fadeCopy = new Uint8Array(1);
+                                       fadeCopy[0] = 0;
+                                       self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
+                               } else {
+                                       const sortedIndexes = sortSplats();
+                                       const fadeCopy = new Uint8Array(sortedIndexes.length);
+                                       for (let i = 0; i < sortedIndexes.length; i++) {
+                                               const f = fadeOpacities[sortedIndexes[i]];
+                                               fadeCopy[i] = Math.round(Math.max(0, Math.min(1, f < 0 ? 1 : f)) * 255);
+                                       }
+                                       self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
+                               }
                         }
                 };
         },
