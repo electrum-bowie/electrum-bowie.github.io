@@ -713,14 +713,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                 };
 
-                // Low resolution occlusion buffer used to approximate
-                // how much of the screen is already covered by splats.
-                // Each cell stores the accumulated transparency as well as
-                // the closest depth written to that cell.
-                const OCCLUSION_RES = 64;
-                let occlusionAlpha = new Float32Array(OCCLUSION_RES * OCCLUSION_RES);
-                let occlusionDepth = new Float32Array(OCCLUSION_RES * OCCLUSION_RES);
-
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
                         if (!fadeOpacities || fadeOpacities.length < vertexCount) {
@@ -731,10 +723,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
 
                         ensureCapacity(vertexCount);
-
-                        // Reset occlusion buffers for this pass
-                        occlusionAlpha.fill(0);
-                        occlusionDepth.fill(Infinity);
 
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
@@ -809,47 +797,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 				else
 				{
                                 	f = 2.0;
-                                }
+				}
 
-                                fadeOpacities[i] = f;
+				fadeOpacities[i] = f;
+
                                 if (f < 0.1) continue;
-
-                                // Calculate perceived transparency taking into account
-                                // how much of the splat is visible after occlusion.
-                                let perceivedTransparency = transparency * f;
-
-                                if (insideOfScreen) {
-                                        // Convert NDC coordinates to a cell in the occlusion grid.
-                                        const gx = Math.min(OCCLUSION_RES - 1, Math.max(0, ((ndcX * 0.5 + 0.5) * OCCLUSION_RES) | 0));
-                                        const gy = Math.min(OCCLUSION_RES - 1, Math.max(0, ((ndcY * 0.5 + 0.5) * OCCLUSION_RES) | 0));
-                                        const gIndex = gy * OCCLUSION_RES + gx;
-                                        const occAlpha = occlusionAlpha[gIndex];
-                                        const occDepth = occlusionDepth[gIndex];
-
-                                        // If another splat is already closer to the camera in this cell,
-                                        // reduce the perceived transparency accordingly.
-                                        if (depth >= occDepth) {
-                                                perceivedTransparency *= (1.0 - occAlpha);
-                                        }
-
-                                        if (perceivedTransparency < 0.01) {
-                                                // Fully occluded, skip
-                                                fadeOpacities[i] = 0.0;
-                                                continue;
-                                        }
-
-                                        // Update occlusion buffers with the contribution of this splat.
-                                        const newAlpha = Math.min(1.0, occAlpha + perceivedTransparency);
-                                        occlusionAlpha[gIndex] = newAlpha;
-                                        if (depth < occDepth) {
-                                                occlusionDepth[gIndex] = depth;
-                                        }
-                                } else {
-                                        if (perceivedTransparency < 0.01) {
-                                                fadeOpacities[i] = 0.0;
-                                                continue;
-                                        }
-                                }
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
