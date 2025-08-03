@@ -705,6 +705,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const starts0 = new Uint32Array(COUNT_SIZE);
                 let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
 
+                // simple screen-space occlusion buffer
+                const OCCLUSION_GRID_SIZE = 128;
+                let occlusionBuffer = new Float32Array(OCCLUSION_GRID_SIZE * OCCLUSION_GRID_SIZE);
+
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
                         cache.capacity = n;
@@ -808,6 +812,48 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
+                        }
+
+                        // Occlusion pass: evaluate visibility based on nearer splats
+                        if (validCount > 0) {
+                                occlusionBuffer.fill(0);
+                                const order = new Array(validCount);
+                                for (let k = 0; k < validCount; k++) order[k] = k;
+                                order.sort((a, b) => depthList[a] - depthList[b]);
+                                let outCount = 0;
+                                let occMaxDepth = -Infinity;
+                                let occMinDepth = Infinity;
+                                for (let s = 0; s < order.length; s++) {
+                                        const idx = validIndexList[order[s]];
+                                        const offset2 = idx * 16;
+                                        const px2 = matrices[offset2 + 12];
+                                        const py2 = matrices[offset2 + 13];
+                                        const pz2 = matrices[offset2 + 14];
+                                        const clip_x2 = m0 * px2 + m4 * py2 + m8 * pz2 + m12;
+                                        const clip_y2 = m1 * px2 + m5 * py2 + m9 * pz2 + m13;
+                                        const clip_w2 = m3 * px2 + m7 * py2 + m11 * pz2 + m15;
+                                        const invW2 = 1.0 / clip_w2;
+                                        const ndcX2 = clip_x2 * invW2;
+                                        const ndcY2 = clip_y2 * invW2;
+                                        const gx = ((ndcX2 + 1) * 0.5 * OCCLUSION_GRID_SIZE) | 0;
+                                        const gy = ((ndcY2 + 1) * 0.5 * OCCLUSION_GRID_SIZE) | 0;
+                                        if (gx < 0 || gx >= OCCLUSION_GRID_SIZE || gy < 0 || gy >= OCCLUSION_GRID_SIZE) continue;
+                                        const cell = gy * OCCLUSION_GRID_SIZE + gx;
+                                        const existing = occlusionBuffer[cell];
+                                        const opacity = matrices[offset2 + 11];
+                                        const perceived = opacity * (1.0 - existing);
+                                        if (perceived < 0.05) continue;
+                                        occlusionBuffer[cell] = Math.min(1.0, existing + perceived);
+                                        const depth2 = depthList[order[s]];
+                                        depthList[outCount] = depth2;
+                                        validIndexList[outCount] = idx;
+                                        outCount++;
+                                        if (depth2 > occMaxDepth) occMaxDepth = depth2;
+                                        if (depth2 < occMinDepth) occMinDepth = depth2;
+                                }
+                                validCount = outCount;
+                                maxDepth = occMaxDepth;
+                                minDepth = occMinDepth;
                         }
 
                         filterResult.count = validCount;
