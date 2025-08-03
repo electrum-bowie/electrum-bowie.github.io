@@ -699,8 +699,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
-                        cellIndexList: null,
-                        occlusionGrid: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -713,7 +711,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
-                        cache.cellIndexList = new Int32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -732,18 +729,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
-                        let cellIndexList = cache.cellIndexList;
                         let validCount = 0;
-
-                        // Occlusion grid setup
-                        const GRID_RES = 64;
-                        const GRID_SIZE = GRID_RES * GRID_RES;
-                        let occlusionGrid = cache.occlusionGrid;
-                        if (!occlusionGrid || occlusionGrid.length !== GRID_SIZE) {
-                                occlusionGrid = new Float32Array(GRID_SIZE);
-                                cache.occlusionGrid = occlusionGrid;
-                        }
-                        occlusionGrid.fill(Infinity);
 
                         // cache matrix values locally for speed
                         const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
@@ -813,18 +799,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	f = 2.0;
 				}
 
-                                fadeOpacities[i] = f;
+				fadeOpacities[i] = f;
 
                                 if (f < 0.1) continue;
-
-                                // determine screen cell for occlusion
-                                let ix = ((ndcX * 0.5 + 0.5) * GRID_RES) | 0;
-                                let iy = ((ndcY * 0.5 + 0.5) * GRID_RES) | 0;
-                                if (ix < 0) ix = 0; else if (ix >= GRID_RES) ix = GRID_RES - 1;
-                                if (iy < 0) iy = 0; else if (iy >= GRID_RES) iy = GRID_RES - 1;
-                                const cell = ix + iy * GRID_RES;
-                                cellIndexList[validCount] = cell;
-                                if (depth < occlusionGrid[cell]) occlusionGrid[cell] = depth;
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
@@ -833,38 +810,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-                        // Second pass: apply occlusion and discard splats with low perceived transparency
-                        let finalCount = 0;
-                        maxDepth = -Infinity;
-                        minDepth = Infinity;
-                        for (let j = 0; j < validCount; j++) {
-                                const idx = validIndexList[j];
-                                const depth = depthList[j];
-                                const cell = cellIndexList[j];
-                                const nearest = occlusionGrid[cell];
-                                let occlusionFactor = 1.0;
-                                if (nearest < depth) {
-                                        const radius = matrices[idx * 16 + 15] * scaleFactor;
-                                        const diff = depth - nearest;
-                                        const maxDiff = radius * 2.0 + 1e-6;
-                                        occlusionFactor = Math.max(0.0, 1.0 - diff / maxDiff);
-                                }
-                                const baseTransparency = matrices[idx * 16 + 11];
-                                const fade = fadeOpacities[idx];
-                                const newFade = fade * occlusionFactor;
-                                fadeOpacities[idx] = newFade;
-                                const perceived = baseTransparency * newFade;
-                                if (perceived < 0.01) continue;
-
-                                depthList[finalCount] = depth;
-                                validIndexList[finalCount] = idx;
-                                cellIndexList[finalCount] = cell;
-                                if (depth > maxDepth) maxDepth = depth;
-                                if (depth < minDepth) minDepth = depth;
-                                finalCount++;
-                        }
-
-                        filterResult.count = finalCount;
+                        filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
                 };
