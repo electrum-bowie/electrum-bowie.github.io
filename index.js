@@ -1,8 +1,8 @@
 AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
-                pixelRatio: { type: 'number', default: 0.8 },
-                xrPixelRatio: { type: 'number', default: 1.0 },
+                pixelRatio: { type: 'number', default: 1.0 },
+                xrPixelRatio: { type: 'number', default: 0.8 },
                 // Fixed foveation level. Set to 0 to disable foveated rendering
                 foveation: { type: 'number', default: 1.0 },
         },
@@ -723,7 +723,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        const fadeStep = 0.25;
+                        const fadeStep = 0.3;
                         const nearPlaneClip = -0.08;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
                                 const px = matrices[offset + 12];
