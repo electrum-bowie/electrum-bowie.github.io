@@ -810,47 +810,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-                        // Occlusion system: reduce perceived transparency for splats occluded by closer ones
-                        if (validCount > 1) {
-                                const order = new Array(validCount);
-                                for (let i = 0; i < validCount; i++) order[i] = i;
-                                // Sort so that nearer splats come first
-                                order.sort((a, b) => depthList[b] - depthList[a]);
-
-                                for (let oi = 0; oi < order.length; oi++) {
-                                        const aIndex = order[oi];
-                                        const vertA = validIndexList[aIndex];
-                                        const offsetA = vertA * 16;
-                                        const radiusA = matrices[offsetA + 15] * scaleFactor;
-                                        const alphaA = matrices[offsetA + 11] * fadeOpacities[vertA];
-                                        if (alphaA <= 0) continue;
-
-                                        for (let oj = oi + 1; oj < order.length; oj++) {
-                                                const bIndex = order[oj];
-                                                const vertB = validIndexList[bIndex];
-                                                const depthDiff = depthList[aIndex] - depthList[bIndex];
-                                                if (depthDiff > radiusA) continue; // too far behind to be occluded
-                                                fadeOpacities[vertB] *= (1.0 - alphaA);
-                                        }
-                                }
-
-                                // Discard splats with very low perceived transparency
-                                let newCount = 0;
-                                maxDepth = -Infinity;
-                                minDepth = Infinity;
-                                for (let i = 0; i < validCount; i++) {
-                                        const vert = validIndexList[i];
-                                        const f = fadeOpacities[vert];
-                                        if (f < 0.01) continue;
-                                        depthList[newCount] = depthList[i];
-                                        validIndexList[newCount] = vert;
-                                        newCount++;
-                                        if (depthList[i] > maxDepth) maxDepth = depthList[i];
-                                        if (depthList[i] < minDepth) minDepth = depthList[i];
-                                }
-                                validCount = newCount;
-                        }
-
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
