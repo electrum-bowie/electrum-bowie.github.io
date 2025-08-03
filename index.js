@@ -701,15 +701,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         validIndexList: null,
                 };
 
-               const counts0 = new Uint32Array(COUNT_SIZE);
-               const starts0 = new Uint32Array(COUNT_SIZE);
-               let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
-
-               const OCCLUSION_WIDTH = 512;
-               const OCCLUSION_HEIGHT = 512;
-               const OCCLUSION_SIZE = OCCLUSION_WIDTH * OCCLUSION_HEIGHT;
-               const OCCLUSION_THRESHOLD = 0.01;
-               const occlusionBuffer = new Float32Array(OCCLUSION_SIZE);
+                const counts0 = new Uint32Array(COUNT_SIZE);
+                const starts0 = new Uint32Array(COUNT_SIZE);
+                let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -733,11 +727,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
                         let depthList = cache.depthList;
-                       let sizeList = cache.sizeList;
-                       let validIndexList = cache.validIndexList;
-                       let validCount = 0;
-
-                       occlusionBuffer.fill(0);
+                        let sizeList = cache.sizeList;
+                        let validIndexList = cache.validIndexList;
+                        let validCount = 0;
 
                         // cache matrix values locally for speed
                         const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
@@ -818,70 +810,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-                       // Occlusion pass: reduce visibility of splats obscured by others
-                       const order = new Array(validCount);
-                       for (let i = 0; i < validCount; i++) order[i] = i;
-                       order.sort((a, b) => depthList[b] - depthList[a]);
-
-                       let outCount = 0;
-                       let outMinDepth = Infinity;
-                       let outMaxDepth = -Infinity;
-
-                       for (let oi = 0; oi < order.length; oi++) {
-                               const listIndex = order[oi];
-                               const i = validIndexList[listIndex];
-                               const depth = depthList[listIndex];
-
-                               const offset = i * 16;
-                               const px = matrices[offset + 12];
-                               const py = matrices[offset + 13];
-                               const pz = matrices[offset + 14];
-
-                               const clip_x = m0 * px + m4 * py + m8 * pz + m12;
-                               const clip_y = m1 * px + m5 * py + m9 * pz + m13;
-                               const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-                               const invW = 1.0 / clip_w;
-                               const ndcX = clip_x * invW;
-                               const ndcY = clip_y * invW;
-
-                               const sx = ((ndcX * 0.5 + 0.5) * OCCLUSION_WIDTH) | 0;
-                               const sy = ((ndcY * 0.5 + 0.5) * OCCLUSION_HEIGHT) | 0;
-
-                               let occ = 0.0;
-                               let occIndex = -1;
-                               if (sx >= 0 && sx < OCCLUSION_WIDTH && sy >= 0 && sy < OCCLUSION_HEIGHT) {
-                                       occIndex = sy * OCCLUSION_WIDTH + sx;
-                                       occ = occlusionBuffer[occIndex];
-                               }
-
-                               const transparency = matrices[offset + 11];
-                               let f = fadeOpacities[i];
-                               let perceived = transparency * f * (1.0 - occ);
-
-                               if (perceived < OCCLUSION_THRESHOLD) {
-                                       fadeOpacities[i] = 0.0;
-                                       continue;
-                               }
-
-                               f *= (1.0 - occ);
-                               fadeOpacities[i] = f;
-
-                               if (occIndex >= 0) {
-                                       let newOcc = occ + perceived;
-                                       occlusionBuffer[occIndex] = newOcc > 1.0 ? 1.0 : newOcc;
-                               }
-
-                               depthList[outCount] = depth;
-                               validIndexList[outCount] = i;
-                               outCount++;
-                               if (depth > outMaxDepth) outMaxDepth = depth;
-                               if (depth < outMinDepth) outMinDepth = depth;
-                       }
-
-                       filterResult.count = outCount;
-                       filterResult.minDepth = outMinDepth;
-                       filterResult.maxDepth = outMaxDepth;
-               };
+                        filterResult.count = validCount;
+                        filterResult.minDepth = minDepth;
+                        filterResult.maxDepth = maxDepth;
+                };
 
                 const sortSplats = function sortSplats() {
                         const validCount = filterResult.count;
