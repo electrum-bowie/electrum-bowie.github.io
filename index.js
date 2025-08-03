@@ -807,10 +807,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 if (f < 0.1) continue;
 
-                                if (depth > 0) {
-                                        behindIndexList[behindCount++] = i;
-                                        continue;
-                                }
+                                if (depth > 0) behindIndexList[behindCount++] = i;
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
