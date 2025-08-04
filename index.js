@@ -810,6 +810,46 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
+                        // Occlusion pass: accumulate transparency from front to back
+                        if (validCount > 0) {
+                                // Order indices by depth so that nearer splats are processed first
+                                const order = Array.from({ length: validCount }, (_, idx) => idx);
+                                order.sort((a, b) => depthList[a] - depthList[b]);
+
+                                const OCCLUSION_THRESHOLD = 0.01;
+                                let remainingTransparency = 1.0;
+
+                                let newCount = 0;
+                                let newMinDepth = Infinity;
+                                let newMaxDepth = -Infinity;
+
+                                for (let k = 0; k < order.length && remainingTransparency > OCCLUSION_THRESHOLD; k++) {
+                                        const idx = order[k];
+                                        const originalIndex = validIndexList[idx];
+                                        const baseAlpha = fadeOpacities[originalIndex];
+
+                                        const perceivedAlpha = baseAlpha * remainingTransparency;
+                                        if (perceivedAlpha < OCCLUSION_THRESHOLD) {
+                                                fadeOpacities[originalIndex] = 0;
+                                                continue;
+                                        }
+
+                                        fadeOpacities[originalIndex] = perceivedAlpha;
+                                        const d = depthList[idx];
+                                        depthList[newCount] = d;
+                                        validIndexList[newCount] = originalIndex;
+                                        if (d > newMaxDepth) newMaxDepth = d;
+                                        if (d < newMinDepth) newMinDepth = d;
+                                        newCount++;
+
+                                        remainingTransparency *= (1 - baseAlpha);
+                                }
+
+                                validCount = newCount;
+                                minDepth = newMinDepth;
+                                maxDepth = newMaxDepth;
+                        }
+
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
