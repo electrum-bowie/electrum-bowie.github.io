@@ -799,7 +799,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	f = 2.0;
 				}
 
-                                fadeOpacities[i] = f;
+				fadeOpacities[i] = f;
 
                                 if (f < 0.1) continue;
 
@@ -808,53 +808,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
-                        }
-
-                        // Occlusion culling
-                        if (validCount > 0) {
-                                let newCount = 0;
-                                let newMin = Infinity;
-                                let newMax = -Infinity;
-                                for (let a = 0; a < validCount; a++) {
-                                        const idx = validIndexList[a];
-                                        const depthA = depthList[a];
-                                        const offsetA = idx * 16;
-                                        const radiusA = matrices[offsetA + 15] * scaleFactor;
-                                        const sizeA = radiusA / -depthA;
-                                        let occluded = 0.0;
-                                        for (let b = 0; b < validCount && occluded < 0.99; b++) {
-                                                if (a === b) continue;
-                                                const depthB = depthList[b];
-                                                if (depthB <= depthA) continue;
-                                                const idxB = validIndexList[b];
-                                                const offsetB = idxB * 16;
-                                                const radiusB = matrices[offsetB + 15] * scaleFactor;
-                                                const sizeB = radiusB / -depthB;
-                                                if (sizeB < sizeA) continue;
-                                                let fadeB = fadeOpacities[idxB];
-                                                fadeB = fadeB < 0 ? 1 : fadeB;
-                                                if (fadeB > 1) fadeB = 1;
-                                                const alphaB = matrices[offsetB + 11] * fadeB;
-                                                occluded += alphaB * (1.0 - occluded);
-                                        }
-                                        if (occluded < 0.99) {
-                                                depthList[newCount] = depthA;
-                                                validIndexList[newCount] = idx;
-                                                if (depthA > newMax) newMax = depthA;
-                                                if (depthA < newMin) newMin = depthA;
-                                                newCount++;
-                                        } else {
-                                                fadeOpacities[idx] = 0.0;
-                                        }
-                                }
-                                validCount = newCount;
-                                if (newCount > 0) {
-                                        minDepth = newMin;
-                                        maxDepth = newMax;
-                                } else {
-                                        minDepth = 0;
-                                        maxDepth = 0;
-                                }
                         }
 
                         filterResult.count = validCount;
