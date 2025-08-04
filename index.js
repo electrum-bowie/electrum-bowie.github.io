@@ -699,8 +699,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
-                        transparencyList: null,
-                        sortIndexList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -713,8 +711,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
-                        cache.transparencyList = new Float32Array(n);
-                        cache.sortIndexList = new Uint32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -733,8 +729,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
-                        let transparencyList = cache.transparencyList;
-                        let orderList = cache.sortIndexList;
                         let validCount = 0;
 
                         // cache matrix values locally for speed
@@ -746,7 +740,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         const fadeStep = 0.25;
                         const nearPlaneClip = -0.08;
-                        const occlusionThreshold = 0.01;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
@@ -806,51 +799,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	f = 2.0;
 				}
 
-                                fadeOpacities[i] = f;
+				fadeOpacities[i] = f;
 
                                 if (f < 0.1) continue;
 
-                                transparencyList[validCount] = transparency;
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
-                        }
-                        // Occlusion calculation: accumulate transparency front-to-back
-                        if (validCount > 0) {
-                                let depthInv = (COUNT_SIZE - 1) / (maxDepth - minDepth);
-                                counts0.fill(0);
-                                for (let i = 0; i < validCount; i++) {
-                                        sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
-                                        counts0[sizeList[i]]++;
-                                }
-                                starts0[0] = 0;
-                                for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-                                for (let i = 0; i < validCount; i++) orderList[starts0[sizeList[i]]++] = i;
-
-                                let cumulative = 1.0;
-                                let newCount = 0;
-                                let newMaxDepth = -Infinity;
-                                let newMinDepth = Infinity;
-                                for (let i = validCount - 1; i >= 0; i--) {
-                                        const idx = orderList[i];
-                                        const t = transparencyList[idx];
-                                        const perceived = cumulative * t;
-                                        if (perceived <= occlusionThreshold) continue;
-                                        const d = depthList[idx];
-                                        depthList[newCount] = d;
-                                        validIndexList[newCount] = validIndexList[idx];
-                                        transparencyList[newCount] = t;
-                                        if (d > newMaxDepth) newMaxDepth = d;
-                                        if (d < newMinDepth) newMinDepth = d;
-                                        cumulative = perceived;
-                                        newCount++;
-                                        if (cumulative <= occlusionThreshold) break;
-                                }
-                                validCount = newCount;
-                                maxDepth = newMaxDepth;
-                                minDepth = newMinDepth;
                         }
 
                         filterResult.count = validCount;
