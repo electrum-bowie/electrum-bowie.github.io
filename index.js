@@ -810,52 +810,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-                        // --- Occlusion pass -------------------------------------------------
-                        // Accumulate the transparency of splats in front of each other so that
-                        // heavily occluded splats are discarded early.  This prevents us from
-                        // rendering splats that would contribute less than a tiny amount to the
-                        // final image.
-                        if (validCount > 0) {
-                                // Sort indices by depth so that we process closest splats first.
-                                const order = new Array(validCount);
-                                for (let i = 0; i < validCount; i++) order[i] = i;
-                                order.sort((a, b) => depthList[b] - depthList[a]);
-
-                                const OCCLUSION_THRESHOLD = 0.01;
-                                let accumulatedTrans = 1.0; // Remaining visibility after front splats.
-                                let outCount = 0;
-                                let newMinDepth = Infinity;
-                                let newMaxDepth = -Infinity;
-
-                                for (const ord of order) {
-                                        const idx = validIndexList[ord];
-                                        const alpha = matrices[idx * 16 + 11]; // 0-1 opacity
-                                        const perceived = accumulatedTrans * alpha;
-
-                                        if (perceived < OCCLUSION_THRESHOLD) {
-                                                // Too transparent after occlusion, skip it.
-                                                continue;
-                                        }
-
-                                        const d = depthList[ord];
-                                        depthList[outCount] = d;
-                                        validIndexList[outCount] = idx;
-                                        if (d > newMaxDepth) newMaxDepth = d;
-                                        if (d < newMinDepth) newMinDepth = d;
-                                        outCount++;
-
-                                        accumulatedTrans *= (1.0 - alpha);
-                                        if (accumulatedTrans < OCCLUSION_THRESHOLD) {
-                                                // Scene is fully occluded; remaining splats won't be visible.
-                                                break;
-                                        }
-                                }
-
-                                validCount = outCount;
-                                minDepth = newMinDepth;
-                                maxDepth = newMaxDepth;
-                        }
-
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
