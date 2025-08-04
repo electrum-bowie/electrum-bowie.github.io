@@ -799,7 +799,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	f = 2.0;
 				}
 
-                                fadeOpacities[i] = f;
+				fadeOpacities[i] = f;
 
                                 if (f < 0.1) continue;
 
@@ -810,45 +810,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-                        // Occlusion culling
-                        let newValidCount = 0;
-                        maxDepth = -Infinity;
-                        minDepth = Infinity;
-                        for (let a = 0; a < validCount; a++) {
-                                const indexA = validIndexList[a];
-                                const depthA = depthList[a];
-                                const offsetA = indexA * 16;
-                                const radiusA = matrices[offsetA + 15] * scaleFactor;
-                                const sizeRatioA = radiusA / -depthA;
-                                let visibility = 1.0;
-                                for (let b = 0; b < validCount && visibility > 0.01; b++) {
-                                        if (a === b) continue;
-                                        const depthB = depthList[b];
-                                        if (depthB <= depthA) continue;
-                                        const indexB = validIndexList[b];
-                                        const offsetB = indexB * 16;
-                                        const radiusB = matrices[offsetB + 15] * scaleFactor;
-                                        const sizeRatioB = radiusB / -depthB;
-                                        if (sizeRatioB < sizeRatioA) continue;
-                                        let fadeB = fadeOpacities[indexB];
-                                        if (fadeB === 2.0) fadeB = 1.0;
-                                        const alphaB = matrices[offsetB + 11] * Math.max(0, Math.min(1, fadeB));
-                                        visibility *= (1.0 - alphaB);
-                                }
-                                if (visibility > 0.01) {
-                                        depthList[newValidCount] = depthA;
-                                        validIndexList[newValidCount] = indexA;
-                                        newValidCount++;
-                                        if (depthA > maxDepth) maxDepth = depthA;
-                                        if (depthA < minDepth) minDepth = depthA;
-                                }
-                        }
-
-                        validCount = newValidCount;
-
                         filterResult.count = validCount;
-                        filterResult.minDepth = validCount > 0 ? minDepth : 0;
-                        filterResult.maxDepth = validCount > 0 ? maxDepth : 0;
+                        filterResult.minDepth = minDepth;
+                        filterResult.maxDepth = maxDepth;
                 };
 
                 const sortSplats = function sortSplats() {
