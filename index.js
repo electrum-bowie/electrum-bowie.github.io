@@ -810,6 +810,44 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
+                        // Occlusion culling: remove splats hidden by larger ones in front
+                        for (let i = 0; i < validCount; i++) {
+                                const idx = validIndexList[i];
+                                const offset = idx * 16;
+                                const depth = depthList[i];
+                                const radius = matrices[offset + 15] * scaleFactor;
+                                const projRadius = radius / -depth;
+                                let visible = 1.0;
+
+                                for (let j = 0; j < validCount && visible > 0.01; j++) {
+                                        if (i === j) continue;
+                                        const frontDepth = depthList[j];
+                                        if (frontDepth <= depth) continue;
+                                        const frontIdx = validIndexList[j];
+                                        const frontOffset = frontIdx * 16;
+                                        const frontRadius = matrices[frontOffset + 15] * scaleFactor;
+                                        const projFront = frontRadius / -frontDepth;
+                                        if (projFront < projRadius) continue;
+                                        const frontTrans = matrices[frontOffset + 11];
+                                        visible *= (1.0 - frontTrans);
+                                }
+
+                                if (visible <= 0.01) {
+                                        validCount--;
+                                        depthList[i] = depthList[validCount];
+                                        validIndexList[i] = validIndexList[validCount];
+                                        i--;
+                                }
+                        }
+
+                        maxDepth = -Infinity;
+                        minDepth = Infinity;
+                        for (let i = 0; i < validCount; i++) {
+                                const d = depthList[i];
+                                if (d > maxDepth) maxDepth = d;
+                                if (d < minDepth) minDepth = d;
+                        }
+
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
