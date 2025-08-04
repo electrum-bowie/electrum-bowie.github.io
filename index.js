@@ -699,6 +699,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
+                        screenSizeList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -711,6 +712,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
+                        cache.screenSizeList = new Float32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -729,6 +731,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
+                        let screenSizeList = cache.screenSizeList;
                         let validCount = 0;
 
                         // cache matrix values locally for speed
@@ -799,15 +802,48 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	f = 2.0;
 				}
 
-				fadeOpacities[i] = f;
+                                fadeOpacities[i] = f;
 
                                 if (f < 0.1) continue;
 
+                                const screenSize = radius / -depth;
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
+                                screenSizeList[validCount] = screenSize;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
+                        }
+                        // Occlusion culling
+                        if (validCount > 0) {
+                                let newValid = 0;
+                                let newMinDepth = Infinity;
+                                let newMaxDepth = -Infinity;
+                                for (let i = 0; i < validCount; i++) {
+                                        const depth = depthList[i];
+                                        const size = screenSizeList[i];
+                                        const index = validIndexList[i];
+                                        let visibility = 1.0;
+                                        for (let j = 0; j < validCount && visibility > 0.01; j++) {
+                                                if (depthList[j] <= depth) continue;
+                                                if (screenSizeList[j] >= size) {
+                                                        const jIndex = validIndexList[j];
+                                                        const alpha = matrices[jIndex * 16 + 11];
+                                                        visibility *= (1.0 - alpha);
+                                                }
+                                        }
+                                        if (visibility > 0.01) {
+                                                depthList[newValid] = depth;
+                                                validIndexList[newValid] = index;
+                                                screenSizeList[newValid] = size;
+                                                if (depth > newMaxDepth) newMaxDepth = depth;
+                                                if (depth < newMinDepth) newMinDepth = depth;
+                                                newValid++;
+                                        }
+                                }
+                                validCount = newValid;
+                                minDepth = newMinDepth;
+                                maxDepth = newMaxDepth;
                         }
 
                         filterResult.count = validCount;
