@@ -810,6 +810,44 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
+                        // --- Occlusion system ---
+                        // Sort the valid splats front-to-back so we can accumulate
+                        // the transparency of splats in front and discard those that
+                        // become effectively invisible.
+                        if (validCount > 0) {
+                                const order = new Array(validCount);
+                                for (let i = 0; i < validCount; i++) order[i] = i;
+                                order.sort((a, b) => depthList[a] - depthList[b]);
+
+                                const OCCLUSION_THRESHOLD = 0.01;
+                                let remaining = 1.0;
+                                let newCount = 0;
+                                let newMin = Infinity;
+                                let newMax = -Infinity;
+
+                                for (let k = 0; k < order.length && remaining > OCCLUSION_THRESHOLD; k++) {
+                                        const localIdx = order[k];
+                                        const globalIdx = validIndexList[localIdx];
+                                        // opacity of current splat after fade
+                                        const alpha = fadeOpacities[globalIdx] * matrices[globalIdx * 16 + 11];
+                                        const visible = alpha * remaining;
+                                        if (visible < OCCLUSION_THRESHOLD) {
+                                                continue;
+                                        }
+                                        remaining *= (1.0 - alpha);
+                                        const d = depthList[localIdx];
+                                        depthList[newCount] = d;
+                                        validIndexList[newCount] = globalIdx;
+                                        if (d > newMax) newMax = d;
+                                        if (d < newMin) newMin = d;
+                                        newCount++;
+                                }
+
+                                validCount = newCount;
+                                minDepth = newMin;
+                                maxDepth = newMax;
+                        }
+
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
