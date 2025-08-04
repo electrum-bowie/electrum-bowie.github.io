@@ -810,49 +810,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-                        // Occlusion culling pass
-                        if (validCount > 0) {
-                                const originalCount = validCount;
-                                let newCount = 0;
-                                let newMinDepth = Infinity;
-                                let newMaxDepth = -Infinity;
-
-                                for (let i = 0; i < originalCount; i++) {
-                                        const depthI = depthList[i];
-                                        const indexI = validIndexList[i];
-                                        const offsetI = indexI * 16;
-                                        const radiusI = matrices[offsetI + 15] * scaleFactor;
-                                        const sizeI = radiusI / -depthI;
-
-                                        let visibility = 1.0;
-                                        for (let j = 0; j < originalCount && visibility > 0.01; j++) {
-                                                if (i === j) continue;
-                                                const depthJ = depthList[j];
-                                                if (depthJ > depthI) {
-                                                        const indexJ = validIndexList[j];
-                                                        const offsetJ = indexJ * 16;
-                                                        const radiusJ = matrices[offsetJ + 15] * scaleFactor;
-                                                        if ((radiusJ / -depthJ) >= sizeI) {
-                                                                const alphaJ = matrices[offsetJ + 11];
-                                                                visibility *= (1.0 - alphaJ);
-                                                        }
-                                                }
-                                        }
-
-                                        if (visibility > 0.01) {
-                                                depthList[newCount] = depthI;
-                                                validIndexList[newCount] = indexI;
-                                                if (depthI > newMaxDepth) newMaxDepth = depthI;
-                                                if (depthI < newMinDepth) newMinDepth = depthI;
-                                                newCount++;
-                                        }
-                                }
-
-                                validCount = newCount;
-                                minDepth = newMinDepth;
-                                maxDepth = newMaxDepth;
-                        }
-
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
