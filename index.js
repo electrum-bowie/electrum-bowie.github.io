@@ -805,15 +805,53 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
-                                validCount++;
-                                if (depth > maxDepth) maxDepth = depth;
-                                if (depth < minDepth) minDepth = depth;
-                        }
+                               validCount++;
+                               if (depth > maxDepth) maxDepth = depth;
+                               if (depth < minDepth) minDepth = depth;
+                       }
 
-                        filterResult.count = validCount;
-                        filterResult.minDepth = minDepth;
-                        filterResult.maxDepth = maxDepth;
-                };
+                       // Occlusion culling
+                       for (let i = 0; i < validCount; i++) {
+                               const index = validIndexList[i];
+                               const offset = index * 16;
+                               const depth = depthList[i];
+                               const radius = matrices[offset + 15] * scaleFactor;
+                               const size = radius / -depth;
+                               let visibility = 1.0;
+                               for (let j = 0; j < validCount && visibility > 0.01; j++) {
+                                       if (i === j) continue;
+                                       const depthJ = depthList[j];
+                                       if (depthJ <= depth) continue;
+                                       const indexJ = validIndexList[j];
+                                       const offsetJ = indexJ * 16;
+                                       const radiusJ = matrices[offsetJ + 15] * scaleFactor;
+                                       if ((radiusJ / -depthJ) >= size) {
+                                               let opacity = matrices[offsetJ + 11];
+                                               const f = fadeOpacities ? fadeOpacities[indexJ] : 1.0;
+                                               opacity *= (f > 1 ? 1 : (f < 0 ? 0 : f));
+                                               visibility *= (1.0 - opacity);
+                                       }
+                               }
+                               if (visibility <= 0.01) {
+                                       validCount--;
+                                       depthList[i] = depthList[validCount];
+                                       validIndexList[i] = validIndexList[validCount];
+                                       i--;
+                               }
+                       }
+
+                       maxDepth = -Infinity;
+                       minDepth = Infinity;
+                       for (let i = 0; i < validCount; i++) {
+                               const d = depthList[i];
+                               if (d > maxDepth) maxDepth = d;
+                               if (d < minDepth) minDepth = d;
+                       }
+
+                       filterResult.count = validCount;
+                       filterResult.minDepth = minDepth;
+                       filterResult.maxDepth = maxDepth;
+               };
 
                 const sortSplats = function sortSplats() {
                         const validCount = filterResult.count;
