@@ -810,43 +810,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-                        // Occlusion culling: remove splats that are mostly hidden by others in front
-                        let newCount = 0;
-                        let newMaxDepth = -Infinity;
-                        let newMinDepth = Infinity;
-                        for (let i = 0; i < validCount; i++) {
-                                const idx = validIndexList[i];
-                                const depth = depthList[i];
-                                const radius = matrices[idx * 16 + 15] * scaleFactor;
-                                const size = radius / -depth;
-
-                                let visibility = 1.0;
-                                for (let j = 0; j < validCount; j++) {
-                                        if (i === j) continue;
-                                        const depthFront = depthList[j];
-                                        if (depthFront <= depth) continue; // only consider splats in front
-                                        const idxFront = validIndexList[j];
-                                        const radiusFront = matrices[idxFront * 16 + 15] * scaleFactor;
-                                        const sizeFront = radiusFront / -depthFront;
-                                        if (sizeFront < size) continue; // not large enough to cover
-                                        const transparencyFront = matrices[idxFront * 16 + 11] * (fadeOpacities[idxFront] > 1 ? 1 : fadeOpacities[idxFront]);
-                                        visibility *= transparencyFront;
-                                        if (visibility <= 0.01) break; // >=99% occluded
-                                }
-
-                                if (visibility > 0.01) {
-                                        depthList[newCount] = depth;
-                                        validIndexList[newCount] = idx;
-                                        newCount++;
-                                        if (depth > newMaxDepth) newMaxDepth = depth;
-                                        if (depth < newMinDepth) newMinDepth = depth;
-                                }
-                        }
-
-                        validCount = newCount;
-                        maxDepth = newMaxDepth;
-                        minDepth = newMinDepth;
-
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
