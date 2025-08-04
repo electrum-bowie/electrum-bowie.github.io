@@ -810,6 +810,53 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
+                        // Occlusion culling: remove splats hidden by larger, closer splats.
+                        // Iterate over currently valid splats and test visibility against splats in front.
+                        let writePtr = 0;
+                        for (let i = 0; i < validCount; i++) {
+                                const idx = validIndexList[i];
+                                const depth = depthList[i];
+                                const off = idx * 16;
+                                const radius = matrices[off + 15] * scaleFactor;
+                                const size = radius / -depth; // projected size ratio
+
+                                let visibility = 1.0;
+                                for (let j = 0; j < validCount && visibility > 0.01; j++) {
+                                        if (i === j) continue;
+                                        const depthFront = depthList[j];
+                                        if (depthFront > depth) {
+                                                const idxFront = validIndexList[j];
+                                                const offFront = idxFront * 16;
+                                                const radiusFront = matrices[offFront + 15] * scaleFactor;
+                                                const sizeFront = radiusFront / -depthFront;
+                                                if (sizeFront >= size) {
+                                                        const opacityFront = matrices[offFront + 11]; // 0-1
+                                                        visibility *= (1.0 - opacityFront);
+                                                }
+                                        }
+                                }
+                                if (visibility > 0.01) {
+                                        depthList[writePtr] = depth;
+                                        validIndexList[writePtr] = idx;
+                                        writePtr++;
+                                }
+                        }
+
+                        validCount = writePtr;
+
+                        // Recompute depth range for the remaining splats
+                        maxDepth = -Infinity;
+                        minDepth = Infinity;
+                        for (let i = 0; i < validCount; i++) {
+                                const d = depthList[i];
+                                if (d > maxDepth) maxDepth = d;
+                                if (d < minDepth) minDepth = d;
+                        }
+                        if (validCount === 0) {
+                                minDepth = 0;
+                                maxDepth = 0;
+                        }
+
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
