@@ -809,10 +809,42 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
                         }
+                        // Occlusion culling
+                        let newCount = 0;
+                        let newMaxDepth = -Infinity;
+                        let newMinDepth = Infinity;
+                        for (let i = 0; i < validCount; i++) {
+                                const idx = validIndexList[i];
+                                const offset = idx * 16;
+                                const depth = depthList[i];
+                                const radius = matrices[offset + 15] * scaleFactor;
+                                const projectedRadius = radius / -depth;
+                                let visibility = 1.0;
+                                for (let j = 0; j < validCount && visibility > 0.01; j++) {
+                                        if (i === j) continue;
+                                        const otherIdx = validIndexList[j];
+                                        const otherDepth = depthList[j];
+                                        if (otherDepth > depth) {
+                                                const otherRadius = matrices[otherIdx * 16 + 15] * scaleFactor;
+                                                const otherProj = otherRadius / -otherDepth;
+                                                if (otherProj >= projectedRadius) {
+                                                        const otherTrans = matrices[otherIdx * 16 + 11];
+                                                        visibility *= (1.0 - otherTrans);
+                                                }
+                                        }
+                                }
+                                if (visibility > 0.01) {
+                                        depthList[newCount] = depth;
+                                        validIndexList[newCount] = idx;
+                                        newCount++;
+                                        if (depth > newMaxDepth) newMaxDepth = depth;
+                                        if (depth < newMinDepth) newMinDepth = depth;
+                                }
+                        }
 
-                        filterResult.count = validCount;
-                        filterResult.minDepth = minDepth;
-                        filterResult.maxDepth = maxDepth;
+                        filterResult.count = newCount;
+                        filterResult.minDepth = newMinDepth;
+                        filterResult.maxDepth = newMaxDepth;
                 };
 
                 const sortSplats = function sortSplats() {
