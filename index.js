@@ -699,8 +699,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
-                        radiusList: null,
-                        transparencyList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
@@ -713,8 +711,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
-                        cache.radiusList = new Float32Array(n);
-                        cache.transparencyList = new Float32Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -733,8 +729,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
-                        let radiusList = cache.radiusList;
-                        let transparencyList = cache.transparencyList;
                         let validCount = 0;
 
                         // cache matrix values locally for speed
@@ -811,48 +805,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
-                                radiusList[validCount] = radius;
-                                transparencyList[validCount] = transparency;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
                         }
-
-                        // Occlusion culling: remove splats almost completely hidden by others
-                        let newCount = 0;
-                        let newMaxDepth = -Infinity;
-                        let newMinDepth = Infinity;
-                        for (let i = 0; i < validCount; i++) {
-                                const depth = depthList[i];
-                                const radius = radiusList[i];
-                                const projected = radius / -depth;
-                                let visibility = 1.0;
-
-                                for (let j = 0; j < validCount; j++) {
-                                        if (i === j) continue;
-                                        const depthJ = depthList[j];
-                                        if (depthJ <= depth) continue; // only consider splats in front
-                                        const radiusJ = radiusList[j];
-                                        if ((radiusJ / -depthJ) < projected) continue; // not large enough to cover
-
-                                        visibility *= (1.0 - transparencyList[j]);
-                                        if (visibility <= 0.01) break; // >=99% occluded
-                                }
-
-                                if (visibility <= 0.01) continue; // skip fully occluded splat
-
-                                depthList[newCount] = depth;
-                                radiusList[newCount] = radius;
-                                transparencyList[newCount] = transparencyList[i];
-                                validIndexList[newCount] = validIndexList[i];
-                                if (depth > newMaxDepth) newMaxDepth = depth;
-                                if (depth < newMinDepth) newMinDepth = depth;
-                                newCount++;
-                        }
-
-                        validCount = newCount;
-                        maxDepth = newMaxDepth;
-                        minDepth = newMinDepth;
 
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
