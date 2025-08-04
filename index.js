@@ -810,46 +810,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-                        // Occlusion culling: remove splats that are almost fully covered by others
-                        for (let i = 0; i < validCount; ) {
-                                const idx = validIndexList[i];
-                                const depth = depthList[i];
-                                const offset = idx * 16;
-                                const radius = matrices[offset + 15] * scaleFactor;
-                                const screenRadius = radius / -depth;
-
-                                let visibility = 1.0;
-
-                                for (let j = 0; j < validCount && visibility > 0.01; j++) {
-                                        if (i === j) continue;
-
-                                        const depthFront = depthList[j];
-                                        if (depthFront <= depth) continue; // only consider splats in front of current one
-
-                                        const frontIdx = validIndexList[j];
-                                        const frontOffset = frontIdx * 16;
-                                        const frontRadius = matrices[frontOffset + 15] * scaleFactor;
-
-                                        // only consider potential occluders that are proportionally larger on screen
-                                        if ((frontRadius / -depthFront) < screenRadius) continue;
-
-                                        let fade = fadeOpacities[frontIdx];
-                                        if (fade === 2.0) fade = 1.0;
-                                        const opacity = matrices[frontOffset + 11] * fade;
-
-                                        visibility *= (1.0 - opacity);
-                                }
-
-                                if (visibility <= 0.01) {
-                                        // remove this splat by swapping with the last valid one
-                                        validCount--;
-                                        depthList[i] = depthList[validCount];
-                                        validIndexList[i] = validIndexList[validCount];
-                                } else {
-                                        i++;
-                                }
-                        }
-
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
