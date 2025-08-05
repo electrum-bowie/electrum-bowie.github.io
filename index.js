@@ -787,7 +787,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const fadeStep = 0.25;
                         const nearPlaneClip = -0.08;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
-                                if (discardSet.has(i)) continue;
+                                //if (discardSet.has(i)) continue;
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
@@ -831,15 +831,21 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let f = fadeOpacities[i];
 
 				if (insideOfScreen) {
+					const isOccluded = discardSet.has(i);
+
                                 	if (tooSmall) {
                                         	if (f === 2.0) f = 0.0; // default unset value is 2.0
 
 						f = Math.max(0, f - fadeStep);
 					} else {
                                     	   	if (f === 2.0) f = 1.0; // default unset value is 2.0
-                                                
-                                        	f = Math.min(1, f + fadeStep);
+
+						if (!isOccluded)
+                                        		f = Math.min(1, f + fadeStep);
                                 	}
+
+					if (isOccluded)
+						f = Math.max(0, f - fadeStep);
                                 }
 				else
 				{
@@ -848,7 +854,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				fadeOpacities[i] = f;
 
-                                if (f < 0.1 && depth < 0.0) continue;
+                                if (f < 0.1) continue;
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
@@ -856,6 +862,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
                         }
+
+			console.warn(validCount);
 
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
@@ -1000,23 +1008,25 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion accumulation using a screen space grid
-                        const GRID_SIZE = 64;
+                        const GRID_SIZE = 128;
                         const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
                         grid.fill(1.0); // remaining transparency for each cell
-                        const threshold = 0.01;
                         const discarded = new Uint32Array(validCount);
                         let discardCount = 0;
-
-                        // approximation of projection scale along Y axis (|P[5]|)
-                        const projScale = Math.hypot(m1, m5, m9);
 
                         for (let di = 0; di < validCount; di++) {
                                 const idx = depthIndex[di];
                                 const offset = idx * 16;
 
+                                const rawRadius = matrices[offset + 15];
+				if (rawRadius > 0.6) continue;
+
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
+
+                                const depth = v0 * px + v1 * py + v2 * pz + v3;
+				if (depth >= 0.0) continue;
 
                                 const clip_x = m0 * px + m4 * py + m8  * pz + m12;
                                 const clip_y = m1 * px + m5 * py + m9  * pz + m13;
@@ -1028,13 +1038,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
 
-                                const depth = v0 * px + v1 * py + v2 * pz + v3;
-                                if (depth >= 0.0) continue;
+				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
+				if (!insideOfScreen) continue;
 
                                 const radius = matrices[offset + 15] * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
-                                const ndcRadius = (projScale * radius) / -depth;
+                                const ndcRadius = radius / -depth;
                                 const gridX = (ndcX * 0.5 + 0.5) * GRID_SIZE;
                                 const gridY = (ndcY * 0.5 + 0.5) * GRID_SIZE;
                                 const gridRadius = ndcRadius * (GRID_SIZE * 0.5);
@@ -1046,26 +1056,28 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
-                                let cells = 0;
-                                for (let y = y0; y <= y1; y++) {
-                                        const row = y * GRID_SIZE;
-                                        for (let x = x0; x <= x1; x++) {
-                                                residual += grid[row + x];
-                                                cells++;
-                                        }
-                                }
-                                const avgResidual = residual / cells;
-                                const perceived = opacity * avgResidual;
-                                if (perceived < threshold) {
-                                        discarded[discardCount++] = idx;
-                                        continue;
-                                }
+				let cells = 0;
+				for (let y = y0; y <= y1; y++) {
+    					const row = y * GRID_SIZE;
+    					for (let x = x0; x <= x1; x++) {
+        					residual += grid[row + x];
+        					cells++;
+					}
+				}
+				const avgResidual = residual / cells;
+				const perceived = opacity * avgResidual;
+				if (perceived < 0.0001) {
+    					discarded[discardCount++] = idx;
+    					continue;
+				}
+                                
+				const opacitySensitivity = opacity;
 
-                                const attenuation = 1.0 - opacity;
+                                //const attenuation = 1.0 - opacitySensitivity;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
-                                                grid[row + x] *= attenuation;
+                                                grid[row + x] *= opacitySensitivity;
                                         }
                                 }
                         }
