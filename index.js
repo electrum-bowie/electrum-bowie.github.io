@@ -944,8 +944,77 @@ AFRAME.registerComponent("gaussian_splatting", {
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
+                const COUNT_SIZE = 1024 * 1024;
+
+                const counts0 = new Uint32Array(COUNT_SIZE);
+                const starts0 = new Uint32Array(COUNT_SIZE);
+
                 const occludeSplats = function occludeSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
-                        return new Uint32Array(0);
+                        const vertexCount = matrices.length / 16;
+                        let maxDepth = -Infinity;
+                        let minDepth = Infinity;
+                        let depthList =  new Float32Array(vertexCount);
+                        let sizeList =  new Int32Array(depthList.buffer);
+                        let validIndexList = new Int32Array(vertexCount);
+                        let validCount = 0;
+
+                        // cache matrix values locally for speed
+                        const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
+                        const m0 = mvp[0],  m1 = mvp[1],  m2 = mvp[2],  m3 = mvp[3];
+                        const m4 = mvp[4],  m5 = mvp[5],  m6 = mvp[6],  m7 = mvp[7];
+                        const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
+                        const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
+
+                        for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
+                                const px = matrices[offset + 12];
+                                const py = matrices[offset + 13];
+                                const pz = matrices[offset + 14];
+
+                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+
+				const radius = matrices[offset + 15] * scaleFactor;
+                                const transparency = matrices[offset + 11]; // 0-1
+                                const radiusTransparencyProduct = radius * transparency;
+                                
+                                const skipCullEdges = (radiusTransparencyProduct / scaleFactor) > 0.075;
+				const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
+
+                                const invW  = 1.0 / clip_w;
+
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+                                const ndcZ  = clip_z * invW;
+
+                                let depth = v0 * px + v1 * py + v2 * pz + v3;
+				
+				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
+
+                                depthList[validCount] = depth;
+                                validIndexList[validCount] = i;
+                                validCount++;
+                                if (depth > maxDepth) maxDepth = depth;
+                                if (depth < minDepth) minDepth = depth;
+                        }
+
+                        if (validCount === 0) {
+                                return new Uint32Array(0);
+                        }
+
+                        let depthInv = (COUNT_SIZE - 1) / (maxDepth - minDepth);
+                        counts0.fill(0);
+                        for (let i = 0; i < validCount; i++) {
+                                sizeList[i] = ((depthList[i] - minDepth) * depthInv) | 0;
+                                counts0[sizeList[i]]++;
+                        }
+                        starts0[0] = 0;
+                        for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
+                        let depthIndex = new Uint32Array(validCount);
+                        for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
+
+                        return depthIndex;
                 };
 
                 self.onmessage = (e) => {
