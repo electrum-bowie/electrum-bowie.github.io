@@ -82,6 +82,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.tmpCameraQuat = new THREE.Quaternion();
                 this.viewRotationMatrix = new THREE.Matrix3();
 
+                this.splatsToDiscard = [];
+
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
 		this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
@@ -316,11 +318,29 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
                 this.sortReady = true;
                 this.filterReady = true;
+
+                this.occlusionWorker = new Worker(
+                        URL.createObjectURL(
+                                new Blob(["(", this.createOcclusionWorker.toString(), ")(self)"], {
+                                        type: "application/javascript",
+                                }),
+                        ),
+                );
+
+                this.occlusionWorker.onmessage = (e) => {
+                        if (e.data.method === "occlude") {
+                                const discarded = new Uint32Array(e.data.discard);
+                                this.splatsToDiscard = Array.from(discarded);
+                                this.occlusionReady = true;
+                        }
+                };
+                this.occlusionReady = true;
         },
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
                 this.worker.postMessage({ method: "clear" });
+                this.occlusionWorker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
                 this.isCaching = true;
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -414,6 +434,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 this.filterSplatsNow();
                                 this.sortSplatsNow();
+                                this.occludeSplatsNow();
                         });
         },
         pushDataBuffer: function (buffer, vertexCount) {
@@ -529,10 +550,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 			vertexCount -= width * height;
 		}
 
-		this.worker.postMessage({
-			method: "push",
-			matrices: matrices.buffer
-		}, [matrices.buffer]);
+                const matricesCopy = matrices.slice();
+                this.worker.postMessage({
+                        method: "push",
+                        matrices: matrices.buffer
+                }, [matrices.buffer]);
+                this.occlusionWorker.postMessage({
+                        method: "push",
+                        matrices: matricesCopy.buffer
+                }, [matricesCopy.buffer]);
 	},
         tick: function (time, timeDelta) {
                 this.camera.getWorldPosition(this.tmpCameraPos);
@@ -547,9 +573,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 0.001;
 
 
-                if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged) {		
-			if (this.filterReady) this.filterSplatsNow();
-			if (this.sortReady) this.sortSplatsNow();
+                if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged) {
+                        if (this.filterReady) this.filterSplatsNow();
+                        if (this.sortReady) this.sortSplatsNow();
+                        if (this.occlusionReady) this.occludeSplatsNow();
                 }
         },
         updateQuality: function () {
@@ -634,7 +661,25 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                this.worker.postMessage({ method: "filter", view: view.buffer, mvp: mvp.buffer, scale: globalScale, focal: focal, }, [view.buffer, mvp.buffer]);
+                this.worker.postMessage({ method: "filter", view: view.buffer, mvp: mvp.buffer, scale: globalScale, focal: focal, discard: this.splatsToDiscard }, [view.buffer, mvp.buffer]);
+        },
+
+        occludeSplatsNow: function () {
+                if (!this.occlusionReady) return;
+                this.occlusionReady = false;
+                const viewMatrix = this.getModelViewMatrix();
+                const projectionMatrix = this.getProjectionMatrix();
+                let camera_mtx = viewMatrix.elements;
+                let view = new Float32Array([camera_mtx[2], camera_mtx[6], camera_mtx[10], camera_mtx[14]]);
+
+                const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
+                let mvp = new Float32Array(mvpMatrix.elements);
+
+                const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
+                let viewport = new THREE.Vector4();
+                this.renderer.getCurrentViewport(viewport);
+                const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
+                this.occlusionWorker.postMessage({ method: "occlude", view: view.buffer, mvp: mvp.buffer, scale: globalScale, focal: focal }, [view.buffer, mvp.buffer]);
         },
 
         sortSplatsNow: function () {
@@ -704,6 +749,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
                 let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
+                let discardSet = new Set();
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -741,6 +787,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const fadeStep = 0.25;
                         const nearPlaneClip = -0.08;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
+                                if (discardSet.has(i)) continue;
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
@@ -866,6 +913,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
 			}
                         if (e.data.method == "filter") {
+                                discardSet = new Set(e.data.discard || []);
                                 if (matrices !== undefined) {
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
@@ -893,7 +941,42 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                 };
         },
-	processPlyBuffer: function (inputBuffer) {
+        createOcclusionWorker: function (self) {
+                let matrices = undefined;
+
+                const occludeSplats = function occludeSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
+                        return new Uint32Array(0);
+                };
+
+                self.onmessage = (e) => {
+                        if (e.data.method == "clear") {
+                                matrices = undefined;
+                        }
+                        if (e.data.method == "push") {
+                                const new_matrices = new Float32Array(e.data.matrices);
+                                if (matrices === undefined) {
+                                        matrices = new_matrices;
+                                } else {
+                                        const resized = new Float32Array(matrices.length + new_matrices.length);
+                                        resized.set(matrices);
+                                        resized.set(new_matrices, matrices.length);
+                                        matrices = resized;
+                                }
+                        }
+                        if (e.data.method == "occlude") {
+                                let discard = new Uint32Array(0);
+                                if (matrices !== undefined) {
+                                        const view = new Float32Array(e.data.view);
+                                        const mvp = new Float32Array(e.data.mvp);
+                                        const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
+                                        const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
+                                        discard = occludeSplats(matrices, view, mvp, scaleFactor, focal);
+                                }
+                                self.postMessage({ method: "occlude", discard }, [discard.buffer]);
+                        }
+                };
+        },
+        processPlyBuffer: function (inputBuffer) {
 		const ubuf = new Uint8Array(inputBuffer);
 		// 10KB ought to be enough for a header...
 		const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 10));
