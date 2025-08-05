@@ -975,22 +975,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = m2 * px + m6 * py + m10 * pz + m14;
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
-				const radius = matrices[offset + 15] * scaleFactor;
-                                const transparency = matrices[offset + 11]; // 0-1
-                                const radiusTransparencyProduct = radius * transparency;
-                                
-                                const skipCullEdges = (radiusTransparencyProduct / scaleFactor) > 0.075;
-				const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
-
-                                const invW  = 1.0 / clip_w;
-
-                                const ndcX  = clip_x * invW;
-                                const ndcY  = clip_y * invW;
-                                const ndcZ  = clip_z * invW;
-
-                                let depth = v0 * px + v1 * py + v2 * pz + v3;
-				
-				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
+                                const depth = v0 * px + v1 * py + v2 * pz + v3;
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
@@ -1014,7 +999,78 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = new Uint32Array(validCount);
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        return depthIndex;
+                        // Occlusion accumulation using a screen space grid
+                        const GRID_SIZE = 64;
+                        const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
+                        grid.fill(1.0); // remaining transparency for each cell
+                        const threshold = 0.01;
+                        const discarded = new Uint32Array(validCount);
+                        let discardCount = 0;
+
+                        // approximation of projection scale along Y axis (|P[5]|)
+                        const projScale = Math.hypot(m1, m5, m9);
+
+                        for (let di = 0; di < validCount; di++) {
+                                const idx = depthIndex[di];
+                                const offset = idx * 16;
+
+                                const px = matrices[offset + 12];
+                                const py = matrices[offset + 13];
+                                const pz = matrices[offset + 14];
+
+                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+                                if (clip_w <= 0.0) continue;
+
+                                const invW  = 1.0 / clip_w;
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+
+                                const depth = v0 * px + v1 * py + v2 * pz + v3;
+                                if (depth >= 0.0) continue;
+
+                                const radius = matrices[offset + 15] * scaleFactor;
+                                const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
+
+                                const ndcRadius = (projScale * radius) / -depth;
+                                const gridX = (ndcX * 0.5 + 0.5) * GRID_SIZE;
+                                const gridY = (ndcY * 0.5 + 0.5) * GRID_SIZE;
+                                const gridRadius = ndcRadius * (GRID_SIZE * 0.5);
+
+                                const x0 = Math.max(0, Math.floor(gridX - gridRadius));
+                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadius));
+                                const y0 = Math.max(0, Math.floor(gridY - gridRadius));
+                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadius));
+                                if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
+
+                                let residual = 0.0;
+                                let cells = 0;
+                                for (let y = y0; y <= y1; y++) {
+                                        const row = y * GRID_SIZE;
+                                        for (let x = x0; x <= x1; x++) {
+                                                residual += grid[row + x];
+                                                cells++;
+                                        }
+                                }
+                                const avgResidual = residual / cells;
+                                const perceived = opacity * avgResidual;
+                                if (perceived < threshold) {
+                                        discarded[discardCount++] = idx;
+                                        continue;
+                                }
+
+                                const attenuation = 1.0 - opacity;
+                                for (let y = y0; y <= y1; y++) {
+                                        const row = y * GRID_SIZE;
+                                        for (let x = x0; x <= x1; x++) {
+                                                grid[row + x] *= attenuation;
+                                        }
+                                }
+                        }
+
+                        return discarded.subarray(0, discardCount);
                 };
 
                 self.onmessage = (e) => {
