@@ -1008,18 +1008,18 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion accumulation using a screen space grid
-                        const GRID_SIZE = 128;
+                        const GRID_SIZE = 512;
                         const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
                         grid.fill(1.0); // remaining transparency for each cell
                         const discarded = new Uint32Array(validCount);
                         let discardCount = 0;
 
-                        for (let di = 0; di < validCount; di++) {
+                        for (let di = validCount - 1; di >= 0; di--) {
                                 const idx = depthIndex[di];
                                 const offset = idx * 16;
 
                                 const rawRadius = matrices[offset + 15];
-				if (rawRadius > 0.6) continue;
+				//if (rawRadius > 0.6) continue;
 
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
@@ -1066,18 +1066,17 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived < 0.0001) {
+				if (perceived <= 0.0) {
     					discarded[discardCount++] = idx;
-    					continue;
 				}
                                 
 				const opacitySensitivity = opacity;
 
-                                //const attenuation = 1.0 - opacitySensitivity;
+                                const attenuation = 1.0 - opacitySensitivity;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
-                                                grid[row + x] *= opacitySensitivity;
+                                                grid[row + x] *= attenuation;
                                         }
                                 }
                         }
