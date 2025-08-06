@@ -512,9 +512,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
                         covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
 
-                        // Store scale and transparent to remove splat in sorting process
-                        mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
-                        mtx.elements[11] = u_buffer[32*i + 24 + 3] / 255.0;
+                        // Store scale information for occlusion culling
+                        const scales = [scale.x, scale.y, scale.z].sort((a, b) => b - a);
+                        mtx.elements[15] = scales[0]; // largest axis
+                        mtx.elements[3] = scales[1]; // second largest axis
+                        // Store transparency to remove splat in sorting process
+                        mtx.elements[11] = u_buffer[32 * i + 24 + 3] / 255.0;
 
 			for (let j = 0; j < 16; j++) {
 				matrices[i * 16 + j] = mtx.elements[j];
@@ -1018,8 +1021,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const idx = depthIndex[di];
                                 const offset = idx * 16;
 
-                                const rawRadius = matrices[offset + 15];
-				if (rawRadius > 1.0) continue;
+                                const rawRadiusX = matrices[offset + 15];
+                                const rawRadiusY = matrices[offset + 3];
+                                if (rawRadiusX > 1.0) continue;
 
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
@@ -1041,42 +1045,57 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const radius = rawRadius * scaleFactor;
+                                const radiusX = rawRadiusX * scaleFactor;
+                                const radiusY = rawRadiusY * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
-                                const ndcRadius = radius / -depth;
+                                const ndcRadiusX = radiusX / -depth;
+                                const ndcRadiusY = radiusY / -depth;
                                 const gridX = (ndcX * 0.5 + 0.5) * GRID_SIZE;
                                 const gridY = (ndcY * 0.5 + 0.5) * GRID_SIZE;
-                                const gridRadius = ndcRadius * (GRID_SIZE * 0.5);
+                                const gridRadiusX = ndcRadiusX * (GRID_SIZE * 0.5);
+                                const gridRadiusY = ndcRadiusY * (GRID_SIZE * 0.5);
 
-                                const x0 = Math.max(0, Math.floor(gridX - gridRadius));
-                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadius));
-                                const y0 = Math.max(0, Math.floor(gridY - gridRadius));
-                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadius));
+                                if (gridRadiusX <= 0.0 || gridRadiusY <= 0.0) continue;
+
+                                const x0 = Math.max(0, Math.floor(gridX - gridRadiusX));
+                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadiusX));
+                                const y0 = Math.max(0, Math.floor(gridY - gridRadiusY));
+                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadiusY));
                                 if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
-				let cells = 0;
-				for (let y = y0; y <= y1; y++) {
-    					const row = y * GRID_SIZE;
-    					for (let x = x0; x <= x1; x++) {
-        					residual += grid[row + x];
-        					cells++;
-					}
-				}
-				const avgResidual = residual / cells;
-				const perceived = opacity * avgResidual;
-				if (perceived <= 0.0) {
-    					discarded[discardCount++] = idx;
-				}
-                                
-				const opacitySensitivity = opacity;
-
-                                const attenuation = 1.0 - opacitySensitivity;
+                                let cells = 0;
+                                const invRadiusX = 1.0 / gridRadiusX;
+                                const invRadiusY = 1.0 / gridRadiusY;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
+                                        const dy = (y + 0.5 - gridY) * invRadiusY;
                                         for (let x = x0; x <= x1; x++) {
-                                                grid[row + x] *= attenuation;
+                                                const dx = (x + 0.5 - gridX) * invRadiusX;
+                                                if (dx * dx + dy * dy > 1.0) continue;
+                                                residual += grid[row + x];
+                                                cells++;
+                                        }
+                                }
+                                if (cells > 0) {
+                                        const avgResidual = residual / cells;
+                                        const perceived = opacity * avgResidual;
+                                        if (perceived <= 0.0) {
+                                                discarded[discardCount++] = idx;
+                                        }
+
+                                        const opacitySensitivity = opacity;
+
+                                        const attenuation = 1.0 - opacitySensitivity;
+                                        for (let y = y0; y <= y1; y++) {
+                                                const row = y * GRID_SIZE;
+                                                const dy = (y + 0.5 - gridY) * invRadiusY;
+                                                for (let x = x0; x <= x1; x++) {
+                                                        const dx = (x + 0.5 - gridX) * invRadiusX;
+                                                        if (dx * dx + dy * dy > 1.0) continue;
+                                                        grid[row + x] *= attenuation;
+                                                }
                                         }
                                 }
                         }
