@@ -1018,6 +1018,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const idx = depthIndex[di];
                                 const offset = idx * 16;
 
+                                const rawRadius = matrices[offset + 15];
+				if (rawRadius > 1.0) continue;
+                          
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
