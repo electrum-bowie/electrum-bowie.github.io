@@ -509,15 +509,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 			destOffset = this.loadedVertexCount * 16 + (i * 4 + 3) * 4;
 			covAndColorData_uint8[destOffset + 0] = u_buffer[32 * i + 24 + 0];
 			covAndColorData_uint8[destOffset + 1] = u_buffer[32 * i + 24 + 1];
-                        covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
+			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
                         covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
 
-                        // Store scale information for workers
-                        // elements[15] holds the maximum axis for rough size,
-                        // elements[10] stores the minimum axis so thin splats
-                        // can be detected, and elements[11] keeps opacity.
+                        // Store scale and transparent to remove splat in sorting process
                         mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
-                        mtx.elements[10] = Math.min(scale.x, scale.y, scale.z);
                         mtx.elements[11] = u_buffer[32*i + 24 + 3] / 255.0;
 
 			for (let j = 0; j < 16; j++) {
@@ -801,11 +797,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = m2 * px + m6 * py + m10 * pz + m14;
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
-                                const maxScale = matrices[offset + 15];
-                                const minScale = matrices[offset + 10];
-                                // Geometric mean provides a better radius for splats
-                                // that are very thin along one axis.
-                                const radius = Math.sqrt(maxScale * minScale) * scaleFactor;
+				const radius = matrices[offset + 15] * scaleFactor;
                                 const transparency = matrices[offset + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
                                 
@@ -1026,10 +1018,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const idx = depthIndex[di];
                                 const offset = idx * 16;
 
-                                // Use geometric mean of largest and smallest axes to
-                                // approximate screen-space influence for thin splats.
-                                const rawRadius = Math.sqrt(matrices[offset + 15] * matrices[offset + 10]);
-                                if (rawRadius > 1.0) continue;
+                                const rawRadius = matrices[offset + 15];
+				if (rawRadius > 1.0) continue;
 
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
@@ -1051,7 +1041,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const radius = rawRadius * scaleFactor;
+                                const radius = matrices[offset + 15] * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 const ndcRadius = radius / -depth;
