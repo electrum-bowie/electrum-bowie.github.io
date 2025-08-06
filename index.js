@@ -516,9 +516,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                         mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
                         mtx.elements[11] = u_buffer[32*i + 24 + 3] / 255.0;
 
-			for (let j = 0; j < 16; j++) {
-				matrices[i * 16 + j] = mtx.elements[j];
-			}
+                        for (let j = 0; j < 16; j++) {
+                                matrices[i * 16 + j] = mtx.elements[j];
+                        }
+                        // Preserve individual axis scales for occlusion culling
+                        matrices[i * 16 + 0] = scale.x;
+                        matrices[i * 16 + 1] = scale.y;
 		}
 
 		const gl = this.renderer.getContext();
@@ -794,7 +797,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const clip_x = m0 * px + m4 * py + m8  * pz + m12;
                                 const clip_y = m1 * px + m5 * py + m9  * pz + m13;
-                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
 				const radius = matrices[offset + 15] * scaleFactor;
@@ -810,7 +812,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
-                                const ndcZ  = clip_z * invW;
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
 				
@@ -980,7 +981,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const clip_x = m0 * px + m4 * py + m8  * pz + m12;
                                 const clip_y = m1 * px + m5 * py + m9  * pz + m13;
-                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
                                 const depth = v0 * px + v1 * py + v2 * pz + v3;
@@ -1020,7 +1020,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const rawRadius = matrices[offset + 15];
 				if (rawRadius > 1.0) continue;
-
+                          
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
@@ -1030,7 +1030,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const clip_x = m0 * px + m4 * py + m8  * pz + m12;
                                 const clip_y = m1 * px + m5 * py + m9  * pz + m13;
-                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
                                 if (clip_w <= 0.0) continue;
 
@@ -1041,18 +1040,21 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const radius = matrices[offset + 15] * scaleFactor;
+                                const scaleX = matrices[offset + 0] * scaleFactor;
+                                const scaleY = matrices[offset + 1] * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
-                                const ndcRadius = radius / -depth;
+                                const ndcRadiusX = scaleX / -depth;
+                                const ndcRadiusY = scaleY / -depth;
                                 const gridX = (ndcX * 0.5 + 0.5) * GRID_SIZE;
                                 const gridY = (ndcY * 0.5 + 0.5) * GRID_SIZE;
-                                const gridRadius = ndcRadius * (GRID_SIZE * 0.5);
+                                const gridRadiusX = ndcRadiusX * (GRID_SIZE * 0.5);
+                                const gridRadiusY = ndcRadiusY * (GRID_SIZE * 0.5);
 
-                                const x0 = Math.max(0, Math.floor(gridX - gridRadius));
-                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadius));
-                                const y0 = Math.max(0, Math.floor(gridY - gridRadius));
-                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadius));
+                                const x0 = Math.max(0, Math.floor(gridX - gridRadiusX));
+                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadiusX));
+                                const y0 = Math.max(0, Math.floor(gridY - gridRadiusY));
+                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadiusY));
                                 if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
