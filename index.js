@@ -845,7 +845,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	}
 
 					if (isOccluded)
-						f = Math.max(0, f - fadeStep);
+						f = Math.max(0, f - (fadeStep * 2));
                                 }
 				else
 				{
@@ -1041,7 +1041,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const radius = matrices[offset + 15] * scaleFactor;
+                                const radius = rawRadius * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 const ndcRadius = radius / -depth;
