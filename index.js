@@ -833,7 +833,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let f = fadeOpacities[i];
 
 				if (insideOfScreen) {
-					const isOccluded = discardSet.has(i);
+					const isOccluded = !discardSet.has(i);
 
                                 	if (tooSmall) {
                                         	if (f === 2.0) f = 0.0; // default unset value is 2.0
@@ -847,7 +847,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	}
 
 					if (isOccluded)
-						f = Math.max(0, f - (fadeStep * 2));
+						f = Math.max(0, f - (fadeStep * 1.5));
                                 }
 				else
 				{
@@ -1031,6 +1031,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const depth = v0 * px + v1 * py + v2 * pz + v3;
 				if (depth >= 0.0) continue;
 
+                                if (minRadius / -depth < 0.0003) continue;
+
                                 const clip_x = m0 * px + m4 * py + m8  * pz + m12;
                                 const clip_y = m1 * px + m5 * py + m9  * pz + m13;
                                 const clip_z = m2 * px + m6 * py + m10 * pz + m14;
@@ -1044,8 +1046,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                // Approximate screen-space influence using geometric mean of axes
-                                const radius = Math.sqrt(maxRadius * minRadius) * scaleFactor;
+                                const radius = maxRadius * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 const ndcRadius = radius / -depth;
@@ -1070,7 +1071,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived <= 0.0) {
+				if (perceived <= 0.000001) {
     					discarded[discardCount++] = idx;
 				}
                                 
