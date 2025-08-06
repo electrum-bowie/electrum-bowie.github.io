@@ -1044,15 +1044,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const radius = matrices[offset + 15] * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
+                                // derive axis lengths to detect thin splats
+                                const sx = Math.hypot(matrices[offset + 0], matrices[offset + 1], matrices[offset + 2]);
+                                const sy = Math.hypot(matrices[offset + 4], matrices[offset + 5], matrices[offset + 6]);
+                                const sz = Math.hypot(matrices[offset + 8], matrices[offset + 9], matrices[offset + 10]);
+                                const maxScale = Math.max(sx, sy, sz) || 1e-6;
+
                                 const ndcRadius = radius / -depth;
                                 const gridX = (ndcX * 0.5 + 0.5) * GRID_SIZE;
                                 const gridY = (ndcY * 0.5 + 0.5) * GRID_SIZE;
-                                const gridRadius = ndcRadius * (GRID_SIZE * 0.5);
+                                const gridRadiusX = ndcRadius * (GRID_SIZE * 0.5) * (sx / maxScale);
+                                const gridRadiusY = ndcRadius * (GRID_SIZE * 0.5) * (sy / maxScale);
 
-                                const x0 = Math.max(0, Math.floor(gridX - gridRadius));
-                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadius));
-                                const y0 = Math.max(0, Math.floor(gridY - gridRadius));
-                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadius));
+                                const x0 = Math.max(0, Math.floor(gridX - gridRadiusX));
+                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadiusX));
+                                const y0 = Math.max(0, Math.floor(gridY - gridRadiusY));
+                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadiusY));
                                 if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
