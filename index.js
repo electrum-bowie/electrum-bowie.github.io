@@ -1010,11 +1010,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion accumulation using a screen space grid
-                        const GRID_SIZE = 512;
+                        const GRID_SIZE = 256;
                         const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
                         grid.fill(1.0); // remaining transparency for each cell
                         const discarded = new Uint32Array(validCount);
                         let discardCount = 0;
+
+                        const nearPlaneClip = -0.08;
 
                         for (let di = validCount - 1; di >= 0; di--) {
                                 const idx = depthIndex[di];
@@ -1031,7 +1033,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const depth = v0 * px + v1 * py + v2 * pz + v3;
 				if (depth >= 0.0) continue;
 
-                                if (minRadius * scaleFactor / -depth < 0.0002) continue; // skip thin splats
+                                if (depth + maxRadius > nearPlaneClip) {
+                                        continue; // centre is inside the view and too close to the camera
+                                }
 
                                 const clip_x = m0 * px + m4 * py + m8  * pz + m12;
                                 const clip_y = m1 * px + m5 * py + m9  * pz + m13;
@@ -1071,11 +1075,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived <= 0.000000001) {
+				if (perceived <= 0.00000001) {
     					discarded[discardCount++] = idx;
 				}
-                                
-				const opacitySensitivity = opacity;
+
+				const opacitySensitivity = opacity * opacity * opacity;
 
                                 const attenuation = 1.0 - opacitySensitivity;
                                 for (let y = y0; y <= y1; y++) {
