@@ -833,7 +833,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let f = fadeOpacities[i];
 
 				if (insideOfScreen) {
-					const isOccluded = !discardSet.has(i);
+					const isOccluded = discardSet.has(i);
 
                                 	if (tooSmall) {
                                         	if (f === 2.0) f = 0.0; // default unset value is 2.0
@@ -847,7 +847,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	}
 
 					if (isOccluded)
-						f = Math.max(0, f - (fadeStep * 1.5));
+						f = Math.max(0, f - fadeStep);
                                 }
 				else
 				{
@@ -1031,7 +1031,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const depth = v0 * px + v1 * py + v2 * pz + v3;
 				if (depth >= 0.0) continue;
 
-                                if (minRadius / -depth < 0.0003) continue;
+                                if (minRadius * scaleFactor / -depth < 0.0002) continue; // skip thin splats
 
                                 const clip_x = m0 * px + m4 * py + m8  * pz + m12;
                                 const clip_y = m1 * px + m5 * py + m9  * pz + m13;
@@ -1071,7 +1071,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived <= 0.000001) {
+				if (perceived <= 0.000000001) {
     					discarded[discardCount++] = idx;
 				}
                                 
