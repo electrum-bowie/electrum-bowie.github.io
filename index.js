@@ -1024,8 +1024,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const maxRadius = matrices[offset + 15];
                                 if (maxRadius > 1.0) continue;
 
-                                const minRadius = matrices[offset + 3] > 0.0 ? matrices[offset + 3] : maxRadius;
-                                const rawRadius = Math.sqrt(maxRadius * minRadius); // area-preserving radius for thin splats
+                                const minRadius = matrices[offset + 3];
 
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
@@ -1034,7 +1033,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const depth = v0 * px + v1 * py + v2 * pz + v3;
 				if (depth >= 0.0) continue;
 
-                                if (depth + rawRadius > nearPlaneClip) {
+                                if (depth + maxRadius > nearPlaneClip) {
                                         continue; // centre is inside the view and too close to the camera
                                 }
 
@@ -1051,7 +1050,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const radius = rawRadius * scaleFactor;
+                                const radius = scaleFactor * Math.sqrt(maxRadius * minRadius) * 2;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 const ndcRadius = radius / -depth;
@@ -1076,7 +1075,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived <= 0.00000001) {
+				if (perceived <= 0.01) {
     					discarded[discardCount++] = idx;
 				}
 
