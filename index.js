@@ -1079,7 +1079,7 @@ AFRAME.registerComponent("gaussian_splatting", {
     					discarded[discardCount++] = idx;
 				}
 
-				const opacitySensitivity = opacity;
+				const opacitySensitivity = opacity * opacity;
 
                                 const attenuation = 1.0 - opacitySensitivity;
                                 for (let y = y0; y <= y1; y++) {
