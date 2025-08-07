@@ -725,9 +725,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         ensureCapacity(vertexCount);
 
+                        let maxDepth = -Infinity;
+                        let minDepth = Infinity;
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
+                        let validCount = 0;
 
                         // cache matrix values locally for speed
                         const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
@@ -736,131 +739,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        // Pre-pass: compute depth index for occlusion culling
-                        let tmpMaxDepth = -Infinity;
-                        let tmpMinDepth = Infinity;
-                        for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
-                                const px = matrices[offset + 12];
-                                const py = matrices[offset + 13];
-                                const pz = matrices[offset + 14];
-                                const depth = v0 * px + v1 * py + v2 * pz + v3;
-                                depthList[i] = depth;
-                                validIndexList[i] = i;
-                                if (depth > tmpMaxDepth) tmpMaxDepth = depth;
-                                if (depth < tmpMinDepth) tmpMinDepth = depth;
-                        }
-
-                        let depthIndex = new Uint32Array(vertexCount);
-                        if (vertexCount > 0) {
-                                let depthInvTmp = (COUNT_SIZE - 1) / (tmpMaxDepth - tmpMinDepth);
-                                counts0.fill(0);
-                                for (let i = 0; i < vertexCount; i++) {
-                                        sizeList[i] = ((depthList[i] - tmpMinDepth) * depthInvTmp) | 0;
-                                        counts0[sizeList[i]]++;
-                                }
-                                starts0[0] = 0;
-                                for (let i = 1; i < COUNT_SIZE; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
-                                for (let i = 0; i < vertexCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
-                        }
-
-                        const occlusionCull = function (matrices, depthIndex, validCount, view, mvp, scaleFactor) {
-                                const GRID_SIZE = 256;
-                                const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
-                                grid.fill(1.0); // remaining transparency for each cell
-                                const discarded = new Uint32Array(validCount);
-                                let discardCount = 0;
-
-                                const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
-                                const m0 = mvp[0],  m1 = mvp[1],  m2 = mvp[2],  m3 = mvp[3];
-                                const m4 = mvp[4],  m5 = mvp[5],  m6 = mvp[6],  m7 = mvp[7];
-                                const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
-                                const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
-
-                                const nearPlaneClip = -0.08;
-
-                                for (let di = validCount - 1; di >= 0; di--) {
-                                        const idx = depthIndex[di];
-                                        const offset = idx * 16;
-
-                                        const maxRadius = matrices[offset + 15];
-                                        if (maxRadius > 1.0) continue;
-
-                                        const minRadius = matrices[offset + 3];
-
-                                        const px = matrices[offset + 12];
-                                        const py = matrices[offset + 13];
-                                        const pz = matrices[offset + 14];
-
-                                        const depth = v0 * px + v1 * py + v2 * pz + v3;
-
-                                        if (depth >= 0.0) continue;
-
-                                        if (depth + maxRadius > nearPlaneClip) {
-                                                continue; // centre is inside the view and too close to the camera
-                                        }
-
-                                        const clip_x = m0 * px + m4 * py + m8  * pz + m12;
-                                        const clip_y = m1 * px + m5 * py + m9  * pz + m13;
-                                        const clip_z = m2 * px + m6 * py + m10 * pz + m14;
-                                        const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-                                        if (clip_w <= 0.0) continue;
-
-                                        const invW  = 1.0 / clip_w;
-                                        const ndcX  = clip_x * invW;
-                                        const ndcY  = clip_y * invW;
-
-                                        const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
-                                        if (!insideOfScreen) continue;
-
-                                        const radius = scaleFactor * Math.sqrt(maxRadius * minRadius) * 1.5;
-                                        const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
-
-                                        const ndcRadius = radius / -depth;
-                                        const gridX = (ndcX * 0.5 + 0.5) * GRID_SIZE;
-                                        const gridY = (ndcY * 0.5 + 0.5) * GRID_SIZE;
-                                        const gridRadius = ndcRadius * (GRID_SIZE * 0.5);
-
-                                        const x0 = Math.max(0, Math.ceil(gridX - gridRadius));
-                                        const x1 = Math.min(GRID_SIZE - 1, Math.floor(gridX + gridRadius));
-                                        const y0 = Math.max(0, Math.ceil(gridY - gridRadius));
-                                        const y1 = Math.min(GRID_SIZE - 1, Math.floor(gridY + gridRadius));
-                                        if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
-
-                                        let residual = 0.0;
-                                        let cells = 0;
-                                        for (let y = y0; y <= y1; y++) {
-                                                const row = y * GRID_SIZE;
-                                                for (let x = x0; x <= x1; x++) {
-                                                        residual += grid[row + x];
-                                                        cells++;
-                                                }
-                                        }
-                                        const avgResidual = residual / cells;
-                                        const perceived = opacity * avgResidual;
-                                        if (perceived < 0.01) {
-                                                discarded[discardCount++] = idx;
-                                        }
-
-                                        const opacitySensitivity = opacity * opacity;
-
-                                        const attenuation = 1.0 - opacitySensitivity;
-                                        for (let y = y0; y <= y1; y++) {
-                                                const row = y * GRID_SIZE;
-                                                for (let x = x0; x <= x1; x++) {
-                                                        grid[row + x] *= attenuation;
-                                                }
-                                        }
-                                }
-
-                                return discarded.subarray(0, discardCount);
-                        };
-
-                        const occludedArray = occlusionCull(matrices, depthIndex, vertexCount, view, mvp, scaleFactor);
-                        const occludedSet = new Set(occludedArray);
-
-                        let maxDepth = -Infinity;
-                        let minDepth = Infinity;
-                        let validCount = 0;
                         const fadeStep = 0.2;
                         const nearPlaneClip = -0.08;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
@@ -873,12 +751,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = m2 * px + m6 * py + m10 * pz + m14;
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
-                                const radius = matrices[offset + 15] * scaleFactor;
+				const radius = matrices[offset + 15] * scaleFactor;
                                 const transparency = matrices[offset + 11]; // 0-1
                                 const radiusTransparencyProduct = radius * transparency;
-
+                                
                                 const skipCullEdges = (radiusTransparencyProduct / scaleFactor) > 0.075;
-                                const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
+				const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
 
                                 if (clip_w < 0.0 && !skipCullBehind) continue;
 
@@ -889,10 +767,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcZ  = clip_z * invW;
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
+				
+				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 
-                                const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
-
-                                if (!insideOfScreen && !skipCullEdges) continue;
+				if (!insideOfScreen && !skipCullEdges) continue;
 
                                 if (depth + radius > nearPlaneClip && insideOfScreen) {
                                         continue; // centre is inside the view and too close to the camera
@@ -900,35 +778,35 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
-
+                                
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 const tooSmall = pixelThreshold < 1.0 * edgeMultiplier;
 
                                 let f = fadeOpacities[i];
 
-                                if (insideOfScreen) {
-                                        const isOccluded = occludedSet.has(i);
+				if (insideOfScreen) {
+					const isOccluded = ..........;
 
-                                        if (tooSmall) {
-                                                if (f === 2.0) f = 0.0; // default unset value is 2.0
+                                	if (tooSmall) {
+                                        	if (f === 2.0) f = 0.0; // default unset value is 2.0
 
-                                                f = Math.max(0, f - fadeStep);
-                                        } else {
-                                                if (f === 2.0) f = 1.0; // default unset value is 2.0
+						f = Math.max(0, f - fadeStep);
+					} else {
+                                    	   	if (f === 2.0) f = 1.0; // default unset value is 2.0
 
-                                                if (!isOccluded)
-                                                        f = Math.min(1, f + fadeStep);
-                                        }
+						if (!isOccluded)
+                                        		f = Math.min(1, f + fadeStep);
+                                	}
 
-                                        if (isOccluded)
-                                                f = Math.max(0, f - (fadeStep * 1.5));
+					if (isOccluded)
+						f = Math.max(0, f - (fadeStep * 1.5));
                                 }
-                                else
-                                {
-                                        f = 2.0;
-                                }
+				else
+				{
+                                	f = 2.0;
+				}
 
-                                fadeOpacities[i] = f;
+				fadeOpacities[i] = f;
 
                                 if (f < 0.1) continue;
 
