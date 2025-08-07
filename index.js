@@ -562,23 +562,23 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }, [matricesCopy.buffer]);
 	},
         tick: function (time, timeDelta) {
-                this.camera.getWorldPosition(this.tmpCameraPos);
+                //this.camera.getWorldPosition(this.tmpCameraPos);
                 
-                const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 0.001;
+                //const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 0.001;
 
-                this.camera.getWorldQuaternion(this.tmpCameraQuat);
+                //this.camera.getWorldQuaternion(this.tmpCameraQuat);
                 
-                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.008;
-                const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 0.001;
-                const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.008;
-                const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 0.001;
+                //const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.008;
+                //const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 0.001;
+                //const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.008;
+                //const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 0.001;
 
 		if (this.occlusionReady) this.occludeSplatsNow();
-
-                if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged) {
-                        if (this.filterReady) this.filterSplatsNow();
-                        if (this.sortReady) this.sortSplatsNow();
-                }
+                if (this.filterReady) this.filterSplatsNow();
+                if (this.sortReady) this.sortSplatsNow();
+               
+                //if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged) {
+                //}
         },
         updateQuality: function () {
                 if (this.isCaching) {
