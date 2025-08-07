@@ -846,7 +846,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 	}
 
 					if (isOccluded)
-						f = Math.max(0, f - fadeStep);
+						f = Math.max(0, f - (fadeStep * 1.5));
                                 }
 				else
 				{
