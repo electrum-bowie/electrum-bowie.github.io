@@ -784,7 +784,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        const fadeStep = 0.2;
+                        const fadeStep = 0.25;
                         const nearPlaneClip = -0.08;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
                                 const px = matrices[offset + 12];
@@ -825,7 +825,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 1.0 * edgeMultiplier;
+                                const tooSmall = pixelThreshold < 1.0 * edgeMultiplier && !skipCullBehind;
 
                                 let f = fadeOpacities[i];
 
