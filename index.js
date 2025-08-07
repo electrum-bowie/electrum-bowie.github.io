@@ -568,9 +568,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.camera.getWorldQuaternion(this.tmpCameraQuat);
                 
-                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.005;
+                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.004;
                 const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 0.001;
-                const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.005;
+                const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.004;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 0.001;
 
                 if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged) {
@@ -787,6 +787,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const fadeStep = 0.25;
                         const nearPlaneClip = -0.08;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
+                                //if (discardSet.has(i)) continue;
+
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
@@ -1020,7 +1022,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const offset = idx * 16;
 
                                 const maxRadius = matrices[offset + 15];
-                                //if (maxRadius > 1.0) continue;
+                                if (maxRadius > 1.0) continue;
 
                                 const minRadius = matrices[offset + 3];
 
@@ -1048,7 +1050,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const radius = scaleFactor * Math.sqrt(maxRadius * minRadius) * 1.3;
+                                const radius = scaleFactor * Math.sqrt(maxRadius * minRadius) * 1.25;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 const ndcRadius = radius / -depth;
@@ -1073,7 +1075,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived < 0.01) {
+				if (perceived < 0.02) {
     					discarded[discardCount++] = idx;
 				}
 
