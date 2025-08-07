@@ -1050,7 +1050,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const radius = scaleFactor * Math.sqrt(maxRadius * minRadius) * 2;
+                                const radius = scaleFactor * Math.sqrt(maxRadius * minRadius) * 1.5;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 const ndcRadius = radius / -depth;
@@ -1075,11 +1075,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived <= 0.01) {
+				if (perceived < 0.02) {
     					discarded[discardCount++] = idx;
 				}
 
-				const opacitySensitivity = opacity * opacity * opacity;
+				const opacitySensitivity = opacity;
 
                                 const attenuation = 1.0 - opacitySensitivity;
                                 for (let y = y0; y <= y1; y++) {
