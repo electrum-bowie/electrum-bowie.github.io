@@ -512,8 +512,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
                         covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
 
-                        // Store scale and transparent to remove splat in sorting process
+                        // Store scale information and transparency for later processing
                         mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
+                        mtx.elements[3] = Math.min(scale.x, scale.y, scale.z);
                         mtx.elements[11] = u_buffer[32*i + 24 + 3] / 255.0;
 
 			for (let j = 0; j < 16; j++) {
@@ -1020,8 +1021,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const idx = depthIndex[di];
                                 const offset = idx * 16;
 
-                                const rawRadius = matrices[offset + 15];
-				if (rawRadius > 1.0) continue;
+                                const maxRadius = matrices[offset + 15];
+                                if (maxRadius > 1.0) continue;
+
+                                const minRadius = matrices[offset + 3] > 0.0 ? matrices[offset + 3] : maxRadius;
+                                const rawRadius = Math.sqrt(maxRadius * minRadius); // area-preserving radius for thin splats
 
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
