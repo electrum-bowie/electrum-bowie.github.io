@@ -772,9 +772,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         ensureCapacity(vertexCount);
 
                         const now = performance.now();
-                        const deltaTime = (now - lastFadeTime) / 1000;
+                        const deltaTime = Math.min((now - lastFadeTime) / 1000, 0.25);
                         lastFadeTime = now;
-                        const fadeSpeed = 15.0;
+
+                        const fadeSpeed = 2.0;
                         const fadeStep = Math.min(1.0, fadeSpeed * deltaTime);
 
                         let maxDepth = -Infinity;
