@@ -772,10 +772,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         ensureCapacity(vertexCount);
 
                         const now = performance.now();
-                        const deltaTime = Math.min((now - lastFadeTime) / 1000, 0.25);
+                        const deltaTime = Math.min((now - lastFadeTime) / 1000, 0.4);
                         lastFadeTime = now;
 
-                        const fadeSpeed = 2.0;
+                        const fadeSpeed = 1.5;
                         const fadeStep = Math.min(1.0, fadeSpeed * deltaTime);
 
                         let maxDepth = -Infinity;
@@ -841,16 +841,19 @@ AFRAME.registerComponent("gaussian_splatting", {
 				if (insideOfScreen) {
 					const isOccluded = discardSet.has(i);
 
-                                	if (tooSmall) {
-                                        	if (f === 2.0) f = 0.0; // default unset value is 2.0
-
-						f = Math.max(0, f - fadeStep);
+					if (isOccluded || tooSmall) {
+						if (f === 2.0)
+							f = 0.0; // default unset value is 2.0
 					} else {
-                                    	   	if (f === 2.0) f = 1.0; // default unset value is 2.0
-
-						if (!isOccluded)
-                                        		f = Math.min(1, f + fadeStep);
+                                    	   	if (f === 2.0)
+							f = 1.0; // default unset value is 2.0
                                 	}
+
+                                	if (tooSmall)
+						f = Math.max(0, f - fadeStep);
+
+					else if (!isOccluded)
+                                        		f = Math.min(1, f + fadeStep);
 
 					if (isOccluded)
 						f = Math.max(0, f - fadeStep);
@@ -1057,7 +1060,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const radius = scaleFactor * Math.sqrt(maxRadius * minRadius) * 1.25;
+                                const radius = scaleFactor * Math.sqrt(maxRadius * minRadius) * 1.15;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 const ndcRadius = radius / -depth;
@@ -1082,7 +1085,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived < 0.02) {
+				if (perceived < 0.03) {
     					discarded[discardCount++] = idx;
 				}
 
@@ -1179,7 +1182,7 @@ let vertexCount = parseInt(/element vertex (\d+)\n/.exec(header)[1]);
 		);
 
                 console.time("calculate importance");
-                const IMPORTANCE_THRESHOLD = 0.000000001;
+                const IMPORTANCE_THRESHOLD = 0.00000000001;
                 let sizeList = [];
                 let sizeIndex = [];
                 for (row = 0; row < vertexCount; row++) {
