@@ -737,7 +737,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let matrices = undefined;
                 let fadeOpacities = undefined;
 
-                const COUNT_SIZE = 4000000;
+                const COUNT_SIZE = 4194304; // 2048 x 2048
 
                 let cache = {
                         capacity: 0,
@@ -1082,7 +1082,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived < 0.03) {
+				if (perceived < 0.07) {
     					discarded[discardCount++] = idx;
 				}
 
