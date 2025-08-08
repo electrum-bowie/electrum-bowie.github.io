@@ -472,7 +472,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 f_buffer[8 * i + 3 + 2]
                         );
                         const maxScale = 100.0;
-                        const minScale = 0.0005;
+                        const minScale = 0.0001;
                         if (Math.max(scale.x, scale.y, scale.z) > maxScale ||
                                 Math.max(scale.x, scale.y, scale.z) < minScale) {
                                 continue;
@@ -1179,7 +1179,7 @@ let vertexCount = parseInt(/element vertex (\d+)\n/.exec(header)[1]);
 		);
 
                 console.time("calculate importance");
-                const IMPORTANCE_THRESHOLD = 1e-4;
+                const IMPORTANCE_THRESHOLD = 0.000000001;
                 let sizeList = [];
                 let sizeIndex = [];
                 for (row = 0; row < vertexCount; row++) {
