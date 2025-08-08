@@ -736,6 +736,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
                 let fadeOpacities = undefined;
+                let lastFadeTime = performance.now();
 
                 const COUNT_SIZE = 2048 * 2048;
 
@@ -770,6 +771,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         ensureCapacity(vertexCount);
 
+                        const now = performance.now();
+                        const deltaTime = (now - lastFadeTime) / 1000;
+                        lastFadeTime = now;
+                        const fadeSpeed = 15.0;
+                        const fadeStep = Math.min(1.0, fadeSpeed * deltaTime);
+
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
                         let depthList = cache.depthList;
@@ -784,7 +791,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        const fadeStep = 0.25;
                         const nearPlaneClip = -0.08;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
                                 //if (discardSet.has(i)) continue;
