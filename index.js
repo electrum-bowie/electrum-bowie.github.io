@@ -1057,7 +1057,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const radius = scaleFactor * Math.sqrt(maxRadius * minRadius) * 1.15;
+                                const thinness = (maxRadius * minRadius) * 1.0;
+
+                                const radius = scaleFactor * thinness;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 const ndcRadius = radius / -depth;
