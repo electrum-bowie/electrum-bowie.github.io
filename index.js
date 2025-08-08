@@ -568,9 +568,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.camera.getWorldQuaternion(this.tmpCameraQuat);
                 
-                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.001;
+                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.004;
                 const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 0.001;
-                const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.001;
+                const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.004;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 0.001;
 
                 if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged) {
@@ -772,10 +772,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         ensureCapacity(vertexCount);
 
                         const now = performance.now();
-                        const deltaTime = Math.min((now - lastFadeTime) / 1000, 0.3);
+                        const deltaTime = Math.min((now - lastFadeTime) / 1000, 0.45);
                         lastFadeTime = now;
 
-                        const fadeSpeed = 1.5;
+                        const fadeSpeed = 1.3;
                         const fadeStep = Math.min(1.0, fadeSpeed * deltaTime);
 
                         let maxDepth = -Infinity;
@@ -1085,7 +1085,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived < 0.05) {
+				if (perceived < 0.07) {
     					discarded[discardCount++] = idx;
 				}
 
