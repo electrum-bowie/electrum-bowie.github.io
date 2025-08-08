@@ -1136,7 +1136,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 		const header_end_index = header.indexOf(header_end);
 		if (header_end_index < 0)
 			throw new Error("Unable to read .ply file header");
-		const vertexCount = parseInt(/element vertex (\d+)\n/.exec(header)[1]);
+let vertexCount = parseInt(/element vertex (\d+)\n/.exec(header)[1]);
 		let row_offset = 0,
 			offsets = {},
 			types = {};
@@ -1178,24 +1178,34 @@ AFRAME.registerComponent("gaussian_splatting", {
 			},
 		);
 
-		console.time("calculate importance");
-		let sizeList = new Float32Array(vertexCount);
-		let sizeIndex = new Uint32Array(vertexCount);
-		for (row = 0; row < vertexCount; row++) {
-			sizeIndex[row] = row;
-			if (!types["scale_0"]) continue;
-			const size =
-				Math.exp(attrs.scale_0) *
-				Math.exp(attrs.scale_1) *
-				Math.exp(attrs.scale_2);
-			const opacity = 1 / (1 + Math.exp(-attrs.opacity));
-			sizeList[row] = size * opacity;
-		}
-		console.timeEnd("calculate importance");
+                console.time("calculate importance");
+                const IMPORTANCE_THRESHOLD = 1e-4;
+                let sizeList = [];
+                let sizeIndex = [];
+                for (row = 0; row < vertexCount; row++) {
+                        if (!types["scale_0"]) {
+                                sizeIndex.push(row);
+                                sizeList.push(0);
+                                continue;
+                        }
+                        const size =
+                                Math.exp(attrs.scale_0) *
+                                Math.exp(attrs.scale_1) *
+                                Math.exp(attrs.scale_2);
+                        const opacity = 1 / (1 + Math.exp(-attrs.opacity));
+                        const importance = size * opacity;
+                        if (importance < IMPORTANCE_THRESHOLD) continue;
+                        sizeIndex.push(row);
+                        sizeList.push(importance);
+                }
+                sizeIndex = new Uint32Array(sizeIndex);
+                sizeList = new Float32Array(sizeList);
+                vertexCount = sizeIndex.length;
+                console.timeEnd("calculate importance");
 
-		console.time("sort");
-		sizeIndex.sort((b, a) => sizeList[a] - sizeList[b]);
-		console.timeEnd("sort");
+                console.time("sort");
+                sizeIndex.sort((b, a) => sizeList[a] - sizeList[b]);
+                console.timeEnd("sort");
 
 		// 6*4 + 4 + 4 = 8*4
 		// XYZ - Position (Float32)
