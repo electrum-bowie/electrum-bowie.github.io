@@ -750,7 +750,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const starts0 = new Uint32Array(COUNT_SIZE);
                 let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
                 let discardSet = new Set();
-		let wasOccluded = new Uint8Array(0);
+		let wasOccluded = null;
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -762,7 +762,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
-                        if (!fadeOpacities || fadeOpacities.length < vertexCount) {
+                        if (!wasOccluded || !fadeOpacities || fadeOpacities.length < vertexCount) {
                                 const tmp = new Float32Array(vertexCount);
                                 tmp.fill(2.0);
                                 if (fadeOpacities) tmp.set(fadeOpacities.subarray(0, Math.min(fadeOpacities.length, vertexCount)));
