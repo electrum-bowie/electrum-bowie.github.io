@@ -851,12 +851,14 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 					if (isOccluded)
 						wasOccluded[i] = 1;
-					else if (f >= 1.0 - fadeStep)
+					else if (was && f >= 1.0 - fadeStep)
 						wasOccluded[i] = 0;
+                                                
                                 }
 				else
 				{
                                 	f = 2.0;
+                                        wasOccluded[i] = 0;
 				}
 
 				fadeOpacities[i] = f;
@@ -959,7 +961,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
-                const COUNT_SIZE = 2048;
+                const COUNT_SIZE = 4096;
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
@@ -1015,7 +1017,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion accumulation using a screen space grid
-                        const GRID_SIZE = 1800;
+                        const GRID_SIZE = 1024;
                         const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
                         grid.fill(1.0); // remaining transparency for each cell
                         const discarded = new Uint32Array(validCount);
@@ -1081,7 +1083,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived < 0.07) {
+				if (perceived < 0.03) {
     					discarded[discardCount++] = idx;
 				}
 
