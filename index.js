@@ -736,7 +736,6 @@ AFRAME.registerComponent("gaussian_splatting", {
         createWorker: function (self) {
                 let matrices = undefined;
                 let fadeOpacities = undefined;
-                let lastFadeTime = performance.now();
 
                 const COUNT_SIZE = 4000000;
 
@@ -751,6 +750,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const starts0 = new Uint32Array(COUNT_SIZE);
                 let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
                 let discardSet = new Set();
+		let wasOccluded = new Uint8Array(0);
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -767,16 +767,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 tmp.fill(2.0);
                                 if (fadeOpacities) tmp.set(fadeOpacities.subarray(0, Math.min(fadeOpacities.length, vertexCount)));
                                 fadeOpacities = tmp;
+
+				wasOccluded = new Uint8Array(vertexCount);
                         }
 
                         ensureCapacity(vertexCount);
-
-                        const now = performance.now();
-                        const deltaTime = Math.min((now - lastFadeTime) / 1000, 0.3);
-                        lastFadeTime = now;
-
-                        const fadeSpeed = 1.5;
-                        const fadeStep = Math.min(1.0, fadeSpeed * deltaTime);
 
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
@@ -792,6 +787,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
+                        const fadeStep = 0.25;
                         const nearPlaneClip = -0.08;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
                                 //if (discardSet.has(i)) continue;
@@ -840,23 +836,23 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				if (insideOfScreen) {
 					const isOccluded = discardSet.has(i);
+					const was = wasOccluded[i] === 1;
 
-					if (isOccluded || tooSmall) {
-						if (f === 2.0)
-							f = 0.0; // default unset value is 2.0
-					} else {
-                                    	   	if (f === 2.0)
-							f = 1.0; // default unset value is 2.0
-                                	}
+					if (f === 2.0) f = (isOccluded || tooSmall) ? 0.0 : 1.0; // default unset value is 2.0
 
-                                	if (tooSmall)
-						f = Math.max(0, f - fadeStep);
+					if (tooSmall) f = Math.max(0, f - fadeStep);
+					
+					else if (isOccluded) f = Math.max(0, f - fadeStep * 1.75);
 
-					else if (!isOccluded)
-                                        		f = Math.min(1, f + fadeStep);
+					else {
+						const step = was ? fadeStep * 1.75 : fadeStep;
+						f = Math.min(1, f + step);
+					}
 
 					if (isOccluded)
-						f = Math.max(0, f - fadeStep);
+						wasOccluded[i] = 1;
+					else if (f >= 1.0 - fadeStep)
+						wasOccluded[i] = 0;
                                 }
 				else
 				{
