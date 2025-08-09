@@ -868,8 +868,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				else
 				{
                                 	f = 2.0;
-                                        wasOccluded[i] = 0;
-				}
+ 				}
 
 				fadeOpacities[i] = f;
 
@@ -881,6 +880,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
                         }
+
+			console.warn(validCount);
 
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
