@@ -1112,11 +1112,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived < 0.08) {
     					discarded[discardCount++] = idx;
 				}
 
-				const opacitySensitivity = opacity * opacity;
+				const opacitySensitivity = opacity;
 
                                 const attenuation = 1.0 - opacitySensitivity;
                                 for (let y = y0; y <= y1; y++) {
@@ -1209,7 +1208,7 @@ let vertexCount = parseInt(/element vertex (\d+)\n/.exec(header)[1]);
 		);
 
                 console.time("calculate importance");
-                const IMPORTANCE_THRESHOLD = 0.00000000001;
+                const IMPORTANCE_THRESHOLD = 0.0;
                 let sizeList = [];
                 let sizeIndex = [];
                 for (row = 0; row < vertexCount; row++) {
