@@ -1068,8 +1068,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const gridRadius = ndcRadius * (GRID_SIZE * 0.5);
 
                                 const x0 = Math.max(0, Math.ceil(gridX - gridRadius));
-                                const x1 = Math.min(GRID_SIZE - 1, Math.floor(gridX + gridRadius));
                                 const y0 = Math.max(0, Math.ceil(gridY - gridRadius));
+                                const x1 = Math.min(GRID_SIZE - 1, Math.floor(gridX + gridRadius));
                                 const y1 = Math.min(GRID_SIZE - 1, Math.floor(gridY + gridRadius));
                                 if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
 
@@ -1084,7 +1084,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
 				const perceived = opacity * avgResidual;
-				if (perceived < 0.07) {
+				if (perceived < 0.08) {
     					discarded[discardCount++] = idx;
 				}
 
