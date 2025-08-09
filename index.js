@@ -568,9 +568,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.camera.getWorldQuaternion(this.tmpCameraQuat);
                 
-                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.004;
+                const camRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.tmpCameraQuat.dot(this.lastCameraQuat)))) > 0.003;
                 const objPosChanged = this.object.position.distanceToSquared(this.lastObjectPos) > 0.001;
-                const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.004;
+                const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.003;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 0.001;
 
                 if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged) {
@@ -831,7 +831,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 0.95 * edgeMultiplier && !skipCullBehind;
+                                const tooSmall = pixelThreshold < 1.0 * edgeMultiplier && !skipCullBehind;
 
                                 let f = fadeOpacities[i];
 
@@ -983,7 +983,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
-                const GRID_SIZE = 1024;
+                const GRID_SIZE = 900;
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
@@ -1085,7 +1085,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const thinness = Math.cbrt(maxRadius * (minRadius * minRadius)) * 1.26;
+                                const thinness = Math.cbrt(maxRadius * (minRadius * minRadius)) * 1.25;
 
                                 const radius = thinness * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
