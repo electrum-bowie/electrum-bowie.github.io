@@ -82,7 +82,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.tmpCameraQuat = new THREE.Quaternion();
                 this.viewRotationMatrix = new THREE.Matrix3();
 
-                this.splatsToDiscard = new Uint32Array(0);
+                this.splatsToDiscard = [];
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
@@ -329,7 +329,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.occlusionWorker.onmessage = (e) => {
                         if (e.data.method === "occlude") {
-                                this.splatsToDiscard = e.data.discard;
+                                const discarded = new Uint32Array(e.data.discard);
+                                this.splatsToDiscard = Array.from(discarded);
                                 this.occlusionReady = true;
                         }
                 };
@@ -660,18 +661,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                const discard = this.splatsToDiscard;
-                const transfers = [view.buffer, mvp.buffer];
-                if (discard && discard.buffer) transfers.push(discard.buffer);
-                this.worker.postMessage({
-                        method: "filter",
-                        view: view.buffer,
-                        mvp: mvp.buffer,
-                        scale: globalScale,
-                        focal: focal,
-                        discard
-                }, transfers);
-                this.splatsToDiscard = new Uint32Array(0);
+                this.worker.postMessage({ method: "filter", view: view.buffer, mvp: mvp.buffer, scale: globalScale, focal: focal, discard: this.splatsToDiscard }, [view.buffer, mvp.buffer]);
         },
 
         occludeSplatsNow: function () {
@@ -882,6 +872,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
+			console.warn(validCount);
+
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
@@ -913,13 +905,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                         return depthIndex;
                 };
 
-                self.onmessage = (e) => {
-                        if (e.data.method === "clear") {
+		self.onmessage = (e) => {
+                        if (e.data.method == "clear") {
                                 matrices = undefined;
                                 fadeOpacities = undefined;
                                 discardMark = null;
                         }
-                        if (e.data.method === "push") {
+                        if (e.data.method == "push") {
                                 new_matrices = new Float32Array(e.data.matrices);
                                 const newFade = new Float32Array(new_matrices.length / 16);
                                 newFade.fill(2.0);
@@ -937,13 +929,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         fadeResized.set(newFade, fadeOpacities.length);
                                         fadeOpacities = fadeResized;
                                 }
-                        }
-                        if (e.data.method === "filter") {
+			}
+                        if (e.data.method == "filter") {
                                 if (matrices !== undefined) {
                                         ensureCapacity(matrices.length / 16);
                                         const vertexCount = matrices.length / 16;
                                         discardMark.fill(0, 0, vertexCount);
-                                        const discarded = e.data.discard || null;
+                                        const discarded = e.data.discard ? new Uint32Array(e.data.discard) : null;
                                         if (discarded) {
                                                 for (let i = 0; i < discarded.length; i++) {
                                                         const idx = discarded[i];
@@ -958,7 +950,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 self.postMessage({ method: "filter" });
                         }
-                        if (e.data.method === "sort") {
+                        if (e.data.method == "sort") {
                                if (matrices === undefined) {
                                        const sortedIndexes = new Uint32Array(1);
                                        const fadeCopy = new Uint8Array(1);
@@ -1139,10 +1131,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
 
                 self.onmessage = (e) => {
-                        if (e.data.method === "clear") {
+                        if (e.data.method == "clear") {
                                 matrices = undefined;
                         }
-                        if (e.data.method === "push") {
+                        if (e.data.method == "push") {
                                 const new_matrices = new Float32Array(e.data.matrices);
                                 if (matrices === undefined) {
                                         matrices = new_matrices;
@@ -1153,7 +1145,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         matrices = resized;
                                 }
                         }
-                        if (e.data.method === "occlude") {
+                        if (e.data.method == "occlude") {
                                 let discard = new Uint32Array(0);
                                 if (matrices !== undefined) {
                                         const view = new Float32Array(e.data.view);
