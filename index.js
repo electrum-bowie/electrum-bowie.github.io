@@ -749,8 +749,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
                 let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
-                let discardSet = new Set();
-		let wasOccluded = null;
+                let discardMark = null;
+                let wasOccluded = null;
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -758,6 +758,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
+                        discardMark = new Uint8Array(n);
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -790,7 +791,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const fadeStep = 0.25;
                         const nearPlaneClip = -0.08;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
-                                //if (discardSet.has(i)) continue;
+                                //if (discardMark[i]) continue;
 
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
@@ -835,7 +836,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let f = fadeOpacities[i];
 
 				if (insideOfScreen) {
-					const isOccluded = discardSet.has(i);
+                                        const isOccluded = discardMark && discardMark[i] === 1;
 					const was = wasOccluded[i] === 1;
 
 					if (f === 2.0) f = (isOccluded || tooSmall) ? 0.0 : 1.0; // default unset value is 2.0
@@ -870,8 +871,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
                         }
-
-			console.warn(validCount);
 
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
@@ -908,7 +907,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method == "clear") {
                                 matrices = undefined;
                                 fadeOpacities = undefined;
-			}
+                                discardMark = null;
+                        }
                         if (e.data.method == "push") {
                                 new_matrices = new Float32Array(e.data.matrices);
                                 const newFade = new Float32Array(new_matrices.length / 16);
@@ -929,8 +929,17 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
 			}
                         if (e.data.method == "filter") {
-                                discardSet = new Set(e.data.discard || []);
                                 if (matrices !== undefined) {
+                                        ensureCapacity(matrices.length / 16);
+                                        const vertexCount = matrices.length / 16;
+                                        discardMark.fill(0, 0, vertexCount);
+                                        const discarded = e.data.discard ? new Uint32Array(e.data.discard) : null;
+                                        if (discarded) {
+                                                for (let i = 0; i < discarded.length; i++) {
+                                                        const idx = discarded[i];
+                                                        if (idx < vertexCount) discardMark[idx] = 1;
+                                                }
+                                        }
                                         const view = new Float32Array(e.data.view);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
@@ -962,16 +971,35 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const COUNT_SIZE = 4096;
 
+                let cache = {
+                        capacity: 0,
+                        depthList: null,
+                        sizeList: null,
+                        validIndexList: null,
+                };
+
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
+                const GRID_SIZE = 1024;
+                const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
+
+                const ensureCapacity = (n) => {
+                        if (cache.capacity >= n) return;
+                        cache.capacity = n;
+                        cache.depthList = new Float32Array(n);
+                        cache.sizeList = new Int32Array(cache.depthList.buffer);
+                        cache.validIndexList = new Int32Array(n);
+                };
+
                 const occludeSplats = function occludeSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
+                        ensureCapacity(vertexCount);
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
-                        let depthList =  new Float32Array(vertexCount);
-                        let sizeList =  new Int32Array(depthList.buffer);
-                        let validIndexList = new Int32Array(vertexCount);
+                        let depthList = cache.depthList;
+                        let sizeList = cache.sizeList;
+                        let validIndexList = cache.validIndexList;
                         let validCount = 0;
 
                         // cache matrix values locally for speed
@@ -1016,8 +1044,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion accumulation using a screen space grid
-                        const GRID_SIZE = 1024;
-                        const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
                         grid.fill(1.0); // remaining transparency for each cell
                         const discarded = new Uint32Array(validCount);
                         let discardCount = 0;
