@@ -1089,6 +1089,21 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const radius = thinness * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
+                                
+                                // -
+
+                                const radiusTransparencyProduct = radius * opacity;
+                                const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
+                                
+                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.6);
+                                
+                                const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
+                                const tooSmall = pixelThreshold < 1.0 * edgeMultiplier;
+
+                                if (tooSmall && !skipCullBehind) continue;
+                                
+                                // -
 
                                 const ndcRadius = radius / -depth;
                                 const gridX = (ndcX * 0.5 + 0.5) * GRID_SIZE;
