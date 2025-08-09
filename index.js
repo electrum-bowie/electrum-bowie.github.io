@@ -1085,7 +1085,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const thinness = Math.sqrt(maxRadius * minRadius);
+                                const thinness = Math.cbrt(maxRadius * (minRadius * minRadius)) * 1.26;
 
                                 const radius = thinness * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
@@ -1105,28 +1105,22 @@ AFRAME.registerComponent("gaussian_splatting", {
 				let cells = 0;
 				for (let y = y0; y <= y1; y++) {
     					const row = y * GRID_SIZE;
-                                        const cy = (y + 0.5) - gridY;
     					for (let x = x0; x <= x1; x++) {
-                                                const cx = (x + 0.5) - gridX;
-                                                if (cx*cx + cy*cy > gridRadius*gridRadius) continue; // outside splat
         					residual += grid[row + x];
         					cells++;
 					}
 				}
 				const avgResidual = residual / cells;
-				const opacityWithLowerOpaqueness = opacity > 0.5 ? opacity - 0.1 : opacity; // subtracting so that more opaque splats are more likely considered for culling
+				const opacityWithLowerOpaqueness = opacity > 0.5 ? opacity - 0.2 : opacity; // subtracting so that more opaque splats are more likely considered for culling
                                 const perceived = opacityWithLowerOpaqueness * avgResidual;
 				if (perceived < 0.05) {
     					discarded[discardCount++] = idx;
 				}
 
-				const attenuation = 1.0 - opacity;
+				const attenuation = 1.0 - (opacity ** 1.75);
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
-                                        const cy = (y + 0.5) - gridY
                                         for (let x = x0; x <= x1; x++) {
-                                                const cx = (x + 0.5) - gridX;
-                                                if (cx*cx + cy*cy > gridRadius*gridRadius) continue;
                                                 grid[row + x] *= attenuation;
                                         }
                                 }
