@@ -1105,14 +1105,17 @@ AFRAME.registerComponent("gaussian_splatting", {
 				let cells = 0;
 				for (let y = y0; y <= y1; y++) {
     					const row = y * GRID_SIZE;
+                                        const cy = (y + 0.5) - gridY;
     					for (let x = x0; x <= x1; x++) {
+                                                const cx = (x + 0.5) - gridX;
+                                                if (cx*cx + cy*cy > gridRadius*gridRadius) continue; // outside splat
         					residual += grid[row + x];
         					cells++;
 					}
 				}
 				const avgResidual = residual / cells;
-				const perceived = opacity * avgResidual;
-				if (perceived < 0.1) {
+				const perceived = opacity > 0.5 ? opacity - 0.1 : opacity * avgResidual; // subtracting so that more opaque splats are more likely considered for culling
+				if (perceived < 0.05) {
     					discarded[discardCount++] = idx;
 				}
 
