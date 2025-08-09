@@ -863,7 +863,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				fadeOpacities[i] = f;
 
-                                if (f < 0.1) continue;
+                                if (f <= 0.1) continue;
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
@@ -983,7 +983,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
-                const GRID_SIZE = 900;
+                const GRID_SIZE = 2048;
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
@@ -1085,7 +1085,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const thinness = Math.cbrt(maxRadius * (minRadius * minRadius)) * 1.25;
+                                const thinness = Math.cbrt(maxRadius * (minRadius * minRadius));
 
                                 const radius = thinness * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
@@ -1111,13 +1111,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 					}
 				}
 				const avgResidual = residual / cells;
-				const opacityWithLowerOpaqueness = opacity > 0.5 ? opacity - 0.2 : opacity; // subtracting so that more opaque splats are more likely considered for culling
+				const opacityWithLowerOpaqueness = opacity > 0.4 ? opacity - 0.2 : opacity; // subtracting so that more opaque splats are more likely considered for culling
                                 const perceived = opacityWithLowerOpaqueness * avgResidual;
-				if (perceived < 0.05) {
+				if (perceived < 0.08) {
     					discarded[discardCount++] = idx;
 				}
 
-				const attenuation = 1.0 - (opacity ** 1.75);
+				const attenuation = 1.0 - (opacity ** 2);
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
