@@ -1114,7 +1114,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 					}
 				}
 				const avgResidual = residual / cells;
-				const perceived = opacity > 0.5 ? opacity - 0.1 : opacity * avgResidual; // subtracting so that more opaque splats are more likely considered for culling
+				const opacityWithLowerOpaqueness = opacity > 0.5 ? opacity - 0.1 : opacity; // subtracting so that more opaque splats are more likely considered for culling
+                                const perceived = opacityWithLowerOpaqueness * avgResidual;
 				if (perceived < 0.05) {
     					discarded[discardCount++] = idx;
 				}
@@ -1124,7 +1125,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const attenuation = 1.0 - opacitySensitivity;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
+                                        const cy = (y + 0.5) - gridY
                                         for (let x = x0; x <= x1; x++) {
+                                                const cx = (x + 0.5) - gridX;
+                                                if (cx*cx + cy*cy > gridRadius*gridRadius) continue;
                                                 grid[row + x] *= attenuation;
                                         }
                                 }
