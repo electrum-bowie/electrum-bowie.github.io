@@ -971,7 +971,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
-                const COUNT_SIZE = 4096;
+                const COUNT_SIZE = 2048;
 
                 let cache = {
                         capacity: 0,
@@ -1087,7 +1087,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const thinness = Math.sqrt(maxRadius * minRadius);
 
-                                const radius = scaleFactor * thinness;
+                                const radius = thinness * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 const ndcRadius = radius / -depth;
@@ -1095,10 +1095,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const gridY = (ndcY * 0.5 + 0.5) * GRID_SIZE;
                                 const gridRadius = ndcRadius * (GRID_SIZE * 0.5);
 
-                                const x0 = Math.max(0, Math.ceil(gridX - gridRadius));
-                                const y0 = Math.max(0, Math.ceil(gridY - gridRadius));
-                                const x1 = Math.min(GRID_SIZE - 1, Math.floor(gridX + gridRadius));
-                                const y1 = Math.min(GRID_SIZE - 1, Math.floor(gridY + gridRadius));
+                                const x0 = Math.max(0, Math.floor(gridX - gridRadius));
+                                const y0 = Math.max(0, Math.floor(gridY - gridRadius));
+                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadius));
+                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadius));
                                 if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
@@ -1120,9 +1120,7 @@ AFRAME.registerComponent("gaussian_splatting", {
     					discarded[discardCount++] = idx;
 				}
 
-				const opacitySensitivity = opacity;
-
-                                const attenuation = 1.0 - opacitySensitivity;
+				const attenuation = 1.0 - opacity;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         const cy = (y + 0.5) - gridY
