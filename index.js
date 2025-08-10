@@ -1132,7 +1132,7 @@ AFRAME.registerComponent("gaussian_splatting", {
     					discarded[discardCount++] = idx;
 				}
 
-				const attenuation = 1.0 - (opacity ** 2);
+				const attenuation = 1.0 - opacity;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
