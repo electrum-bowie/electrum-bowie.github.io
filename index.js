@@ -32,11 +32,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                     gl.getExtension("OVR_multiview") ||
                                     gl.getExtension("OCULUS_multiview") ||
                                     gl.getExtension("WEBGL_multiview");
-                        if (ext && this.el.sceneEl.renderer.xr.setMultiviewEnabled) {
-                                this.el.sceneEl.renderer.xr.setMultiviewEnabled(true);
+                        if (ext && this.el.sceneEl.renderer.xr.isMultiview) {
                                 console.log("Multiview enabled");
+                                this.mesh.material.defines.IS_MULTIVIEW = ""; //Sets this flag in the shader to use Multiview code
+                                this.mesh.material.needsUpdate = true;        //then recompiles the shader to rerun the #ifdef's
                         } else {
-                                console.log("Multiview not supported");
+                                console.log("Multiview not supported or disabled");
                         }
 
                         this.applyFoveationLevel();
@@ -137,8 +138,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 focal: { value: 1000.0 }, // Dummy. will be overwritten
                                 centerAndScaleTexture: { value: this.centerAndScaleTexture },
                                 covAndColorTexture: { value: this.covAndColorTexture },
-                                gsProjectionMatrix: { value: this.getProjectionMatrix() },
+                                gsProjectionMatrix: { value: this.getProjectionMatrix() } ,
                                 gsModelViewMatrix: { value: this.getModelViewMatrix() },
+                                gsProjectionMatrixRight: { value: this.getProjectionMatrix() },
+                                gsModelViewMatrixRight: { value: this.getModelViewMatrix() },
                                 viewRotationMatrix: { value: new THREE.Matrix3() },
                         },
 			vertexShader: `
@@ -151,8 +154,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 				uniform mat4 gsProjectionMatrix;
 				uniform mat4 gsModelViewMatrix;
 				uniform mat3 viewRotationMatrix;
+				 #ifdef IS_MULTIVIEW
+				uniform mat4 gsProjectionMatrixRight;
+				uniform mat4 gsModelViewMatrixRight;
+                                #endif
 
-                                attribute uint splatIndex;
+                                attribute float splatIndex;
                                 attribute float fadeOpacity;
                                 uniform sampler2D centerAndScaleTexture;
                                 uniform usampler2D covAndColorTexture;
@@ -164,11 +171,24 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 
 				void main() {
-					ivec2 texPos = ivec2(int(splatIndex & 4095u), int(splatIndex >> 12));
+					ivec2 texPos = ivec2(int(splatIndex) & 4095, int(splatIndex) >> 12);
 					vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
 	
-					vec4 camspace = gsModelViewMatrix * vec4(centerAndScaleData.xyz, 1);
-					vec4 pos2d = gsProjectionMatrix * camspace;
+					vec4 camspace;
+                                        vec4 pos2d;
+
+                                        #ifdef IS_MULTIVIEW
+                                        if (gl_ViewID_OVR == 0u) {
+                                                camspace = gsModelViewMatrix * vec4(centerAndScaleData.xyz, 1);
+                                                pos2d = gsProjectionMatrix * camspace;
+                                        } else {
+                                                camspace = gsModelViewMatrixRight * vec4(centerAndScaleData.xyz, 1);
+                                                pos2d = gsProjectionMatrixRight * camspace;
+                                        }
+                                        #else
+                                        camspace = gsModelViewMatrix * vec4(centerAndScaleData.xyz, 1);
+                                        pos2d = gsProjectionMatrix * camspace;
+                                        #endif
 
                                         float bounds = pos2d.w;
 
@@ -252,10 +272,27 @@ AFRAME.registerComponent("gaussian_splatting", {
                 material.dithering = false;
 
 		material.onBeforeRender = ((renderer, scene, camera, geometry, object, group) => {
-			let projectionMatrix = this.getProjectionMatrix(camera);
-			mesh.material.uniforms.gsProjectionMatrix.value = projectionMatrix;
-                        const viewMatrix = this.getModelViewMatrix(camera);
-                        mesh.material.uniforms.gsModelViewMatrix.value = viewMatrix;
+                        let projectionMatrix;
+                        let viewMatrix;
+
+                        if (this.el.sceneEl.renderer.xr.isMultiview) {
+                                projectionMatrix = this.getProjectionMatrix(camera.cameras[0]);
+                                let rightProjectionMatrix = this.getProjectionMatrix(camera.cameras[1]);
+                                mesh.material.uniforms.gsProjectionMatrix.value = projectionMatrix;
+                                mesh.material.uniforms.gsProjectionMatrixRight.value = rightProjectionMatrix;
+
+                                viewMatrix = this.getModelViewMatrix(camera.cameras[0]);
+                                let rightViewMatrix = this.getModelViewMatrix(camera.cameras[1]);
+                                mesh.material.uniforms.gsModelViewMatrix.value = viewMatrix;
+                                mesh.material.uniforms.gsModelViewMatrixRight.value = rightViewMatrix;
+                        } else {
+                                projectionMatrix = this.getProjectionMatrix(camera);
+                                mesh.material.uniforms.gsProjectionMatrix.value = projectionMatrix;
+
+                                viewMatrix = this.getModelViewMatrix(camera);
+                                mesh.material.uniforms.gsModelViewMatrix.value = viewMatrix;
+                        }
+
                         this.viewRotationMatrix.setFromMatrix4(viewMatrix).transpose();
                         mesh.material.uniforms.viewRotationMatrix.value.copy(this.viewRotationMatrix);
 
@@ -287,14 +324,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.onmessage = (e) => {
                         if (e.data.method === "sort") {
                                 const indexes = new Uint32Array(e.data.sortedIndexes);
+                                const indexesFloat32 = new Float32Array(indexes); //Convert indexes to float for multiview warning
                                 let indexAttr = mesh.geometry.getAttribute('splatIndex');
                                 if (!indexAttr || indexAttr.array.length !== indexes.length) {
-                                        indexAttr = new THREE.InstancedBufferAttribute(indexes, 1, false);
+                                        indexAttr = new THREE.InstancedBufferAttribute(indexesFloat32, 1, false);
                                         indexAttr.setUsage(THREE.DynamicDrawUsage);
                                         mesh.geometry.setAttribute('splatIndex', indexAttr);
                                 } else {
-                                        indexAttr.array = indexes;
-                                        indexAttr.count = indexes.length;
+                                        indexAttr.array = indexesFloat32;
+                                        indexAttr.count = indexesFloat32.length;
                                         indexAttr.needsUpdate = true;
                                 }
                                 mesh.geometry.instanceCount = indexes.length;
@@ -872,7 +910,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-			console.warn(validCount);
+			//console.warn(validCount); spamming console - needs looked into
 
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
