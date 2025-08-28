@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="aframe-v1.7.1.min.js"></script>
+    <script src="aframe-multiview.min.js"></script>
     <script src="index.js"></script>
     <script src="jszip.js"></script>
     <script src="input.js"></script>
@@ -58,7 +58,7 @@
     </style>
 </head>
 <body>
-    <a-scene renderer="antialias: false; highRefreshRate: true; webgl2: true; multiviewStereo: true; dithering: false" webxr="optionalFeatures: hand-tracking, multiview, layers, dom-overlay" xr-mode-ui="XRMode: xr">
+    <a-scene renderer="antialias: false; highRefreshRate: true; webgl2: true; multiviewStereo: true; dithering: false" webxr="optionalFeatures: hand-tracking, layers, dom-overlay" xr-mode-ui="XRMode: xr">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
             <a-entity id="rightController" oculus-touch-controls="hand: right"></a-entity>
