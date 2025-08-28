@@ -909,7 +909,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-			//console.warn(validCount); spamming console - needs looked into
+			console.warn(validCount);
 
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
