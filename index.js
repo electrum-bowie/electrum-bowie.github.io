@@ -159,7 +159,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				uniform mat4 gsModelViewMatrixRight;
                                 #endif
 
-                                attribute float splatIndex;
+                                attribute uint splatIndex;
                                 attribute float fadeOpacity;
                                 uniform sampler2D centerAndScaleTexture;
                                 uniform usampler2D covAndColorTexture;
@@ -171,7 +171,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 
 				void main() {
-					ivec2 texPos = ivec2(int(splatIndex) & 4095, int(splatIndex) >> 12);
+					ivec2 texPos = ivec2(int(splatIndex & 4095u), int(splatIndex >> 12));
 					vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
 	
 					vec4 camspace;
@@ -324,15 +324,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.onmessage = (e) => {
                         if (e.data.method === "sort") {
                                 const indexes = new Uint32Array(e.data.sortedIndexes);
-                                const indexesFloat32 = new Float32Array(indexes); //Convert indexes to float for multiview warning
                                 let indexAttr = mesh.geometry.getAttribute('splatIndex');
                                 if (!indexAttr || indexAttr.array.length !== indexes.length) {
-                                        indexAttr = new THREE.InstancedBufferAttribute(indexesFloat32, 1, false);
+                                        indexAttr = new THREE.InstancedBufferAttribute(indexes, 1, false);
                                         indexAttr.setUsage(THREE.DynamicDrawUsage);
                                         mesh.geometry.setAttribute('splatIndex', indexAttr);
                                 } else {
-                                        indexAttr.array = indexesFloat32;
-                                        indexAttr.count = indexesFloat32.length;
+                                        indexAttr.array = indexes;
+                                        indexAttr.count = indexes.length;
                                         indexAttr.needsUpdate = true;
                                 }
                                 mesh.geometry.instanceCount = indexes.length;
