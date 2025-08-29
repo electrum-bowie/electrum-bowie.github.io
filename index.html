@@ -83,8 +83,12 @@
     <input type="file" id="fileInput">
     <script>
         let hideLogTimeout;
+        const TYPE_ERROR_MESSAGE = "Browser Memory Limit Reached: Please compress or use a different capture. (contact.earthquest.site)";
         function displayLogMessage(message) {
             const logMessageElement = document.getElementById('logMessage');
+            if (message.includes('TypeError')) {
+                message = TYPE_ERROR_MESSAGE;
+            }
             logMessageElement.textContent = message;
             logMessageElement.style.display = 'block';
             clearTimeout(hideLogTimeout);
@@ -98,8 +102,14 @@
         const origConsoleError = console.error;
 
         console.log = (...args) => {
-            origConsoleLog.apply(console, args);
-            displayLogMessage(args.join(' '));
+            const msg = args.join(' ');
+            if (msg.includes('TypeError')) {
+                origConsoleLog(TYPE_ERROR_MESSAGE);
+                displayLogMessage(TYPE_ERROR_MESSAGE);
+            } else {
+                origConsoleLog.apply(console, args);
+                displayLogMessage(msg);
+            }
         };
 
         console.warn = (...args) => {
@@ -107,13 +117,24 @@
             if (msg.includes('Timestamp from devicemotion outside expected range')) {
                 return;
             }
-            origConsoleWarn.apply(console, args);
-            displayLogMessage(msg);
+            if (msg.includes('TypeError')) {
+                origConsoleWarn(TYPE_ERROR_MESSAGE);
+                displayLogMessage(TYPE_ERROR_MESSAGE);
+            } else {
+                origConsoleWarn.apply(console, args);
+                displayLogMessage(msg);
+            }
         };
 
         console.error = (...args) => {
-            origConsoleError.apply(console, args);
-            displayLogMessage(args.join(' '));
+            const msg = args.join(' ');
+            if (msg.includes('TypeError')) {
+                origConsoleError(TYPE_ERROR_MESSAGE);
+                displayLogMessage(TYPE_ERROR_MESSAGE);
+            } else {
+                origConsoleError.apply(console, args);
+                displayLogMessage(msg);
+            }
         };
 
 
