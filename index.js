@@ -868,7 +868,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 1.0 * edgeMultiplier && !skipCullBehind;
+                                const tooSmall = pixelThreshold < 0.9 * edgeMultiplier && !skipCullBehind;
 
                                 let f = fadeOpacities[i];
 
@@ -1136,7 +1136,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 1.0 * edgeMultiplier;
+                                const tooSmall = pixelThreshold < 0.9 * edgeMultiplier;
 
                                 if (tooSmall && !skipCullBehind) continue;
                                 
@@ -1163,9 +1163,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 					}
 				}
 				const avgResidual = residual / cells;
-				const opacityWithLowerOpaqueness = opacity > 0.4 ? opacity - 0.2 : opacity; // subtracting so that more opaque splats are more likely considered for culling
+				const opacityWithLowerOpaqueness = opacity > 0.7 ? opacity - 0.1 : opacity; // subtracting so that more opaque splats are more likely considered for culling
                                 const perceived = opacityWithLowerOpaqueness * avgResidual;
-				if (perceived < 0.08) {
+				if (perceived < 0.1) {
     					discarded[discardCount++] = idx;
 				}
 
