@@ -900,7 +900,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				fadeOpacities[i] = f;
 
-                                if (f <= 0.1) continue;
+                                if (f < 0.1) continue;
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
@@ -1163,9 +1163,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 					}
 				}
 				const avgResidual = residual / cells;
-				const opacityWithLowerOpaqueness = opacity > 0.7 ? opacity - 0.1 : opacity; // subtracting so that more opaque splats are more likely considered for culling
+				const opacityWithLowerOpaqueness = opacity > 0.7 ? opacity - 0.2 : opacity; // subtracting so that more opaque splats are more likely considered for culling
                                 const perceived = opacityWithLowerOpaqueness * avgResidual;
-				if (perceived < 0.1) {
+				if (perceived < 0.07) {
     					discarded[discardCount++] = idx;
 				}
 
