@@ -1165,7 +1165,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const avgResidual = residual / cells;
 				const opacityWithLowerOpaqueness = opacity > 0.7 ? opacity - 0.2 : opacity; // subtracting so that more opaque splats are more likely considered for culling
                                 const perceived = opacityWithLowerOpaqueness * avgResidual;
-				if (perceived < 0.07) {
+				if (perceived < 0.08) {
     					discarded[discardCount++] = idx;
 				}
 
