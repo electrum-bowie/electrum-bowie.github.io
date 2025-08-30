@@ -1008,7 +1008,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
-                const COUNT_SIZE = 2048;
+                const COUNT_SIZE = 1024;
 
                 let cache = {
                         capacity: 0,
