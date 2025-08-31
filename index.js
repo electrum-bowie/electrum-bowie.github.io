@@ -1168,7 +1168,7 @@ AFRAME.registerComponent("gaussian_splatting", {
     					discarded[discardCount++] = idx;
 				}
 
-				const attenuation = 1.0 - (opacity ** 0.001); // power = more occlusion for each splat
+				const attenuation = 1.0 - (opacity ** 0.0007); // power = more occlusion for each splat
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
