@@ -2,9 +2,9 @@ AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
                 pixelRatio: { type: 'number', default: 1.0 },
-                xrPixelRatio: { type: 'number', default: 0.8 },
+                xrPixelRatio: { type: 'number', default: 1.0 },
                 // Fixed foveation level. Set to 0 to disable foveated rendering
-                foveation: { type: 'number', default: 1.0 },
+                foveation: { type: 'number', default: 0.0 }, // no perceived performance gains even with the maximum level
         },
         init: function () {
                 // aframe-specific data
