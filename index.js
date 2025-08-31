@@ -1164,13 +1164,14 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
                                 
-                                const clampedOpacity = opacity > 0.7 ? 0.7 : opacity;
+                                const clampedOpacity = opacity > 0.6 ? 0.6 : opacity;
+                                
                                 const perceived = thinness * (clampedOpacity * avgResidual);
 				if (perceived < 0.00001) {
     					discarded[discardCount++] = idx;
 				}
-
-				const attenuation = 1.0 - (opacity ** 0.01); // power = more occlusion for each splat
+                                
+				const attenuation = 1.0 - (clampedOpacity ** 0.05); // power = more occlusion for each splat
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
