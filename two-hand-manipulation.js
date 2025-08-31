@@ -1,4 +1,8 @@
 AFRAME.registerComponent('two-hand-manipulation', {
+    schema: {
+        minScale: { type: 'number', default: 0.00000001 },
+        maxScale: { type: 'number', default: 100000000000000000000 }
+    },
     init: function () {
         const sceneEl = this.el.sceneEl;
         this.leftController = sceneEl.querySelector('[oculus-touch-controls*="hand: left"]');
@@ -133,6 +137,22 @@ AFRAME.registerComponent('two-hand-manipulation', {
         [this.rightController, this.rightHand]
             .filter((el, idx, arr) => el && arr.indexOf(el) === idx)
             .forEach(el => bindGripEvents(el, 'right'));
+
+        this._onWheel = evt => {
+            if (this.isInteracting) return;
+            const factor = Math.pow(1.001, -evt.deltaY);
+            const current = this.el.object3D.scale.x;
+            let target = current * factor;
+            target = Math.min(this.data.maxScale, Math.max(this.data.minScale, target));
+            const applied = current !== 0 ? target / current : 1;
+            this.el.object3D.scale.multiplyScalar(applied);
+            evt.preventDefault();
+        };
+        window.addEventListener('wheel', this._onWheel, { passive: false });
+    },
+
+    remove: function () {
+        window.removeEventListener('wheel', this._onWheel);
     },
 
     startTwoHand: function () {
@@ -214,8 +234,12 @@ AFRAME.registerComponent('two-hand-manipulation', {
             this.startYaw = Math.atan2(this.startVector.x, this.startVector.z);
         }
 
-        const scaleFactor = currentDistance / this.startDistance;
+        let scaleFactor = currentDistance / this.startDistance;
         const newScale = this._tmpVec3.copy(this.startScale).multiplyScalar(scaleFactor);
+        newScale.x = Math.min(this.data.maxScale, Math.max(this.data.minScale, newScale.x));
+        newScale.y = Math.min(this.data.maxScale, Math.max(this.data.minScale, newScale.y));
+        newScale.z = Math.min(this.data.maxScale, Math.max(this.data.minScale, newScale.z));
+        scaleFactor = this.startScale.x !== 0 ? newScale.x / this.startScale.x : 1;
         this.el.object3D.scale.copy(newScale);
 
         const currentVector = this._tmpVec3.copy(rightPos).sub(leftPos).normalize();
