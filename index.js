@@ -880,10 +880,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 					if (tooSmall) f = Math.max(0, f - fadeStep);
 					
-					else if (isOccluded) f = Math.max(0, f - fadeStep * 1.75);
+					else if (isOccluded) f = Math.max(0, f - fadeStep * 1.6);
 
 					else {
-						const step = was ? fadeStep * 1.75 : fadeStep;
+						const step = was ? fadeStep * 1.6 : fadeStep;
 						f = Math.min(1, f + step);
 					}
 
@@ -1163,13 +1163,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 					}
 				}
 				const avgResidual = residual / cells;
-				const opacityWithLowerOpaqueness = opacity > 0.7 ? opacity - 0.2 : opacity; // subtracting so that more opaque splats are more likely considered for culling
-                                const perceived = opacityWithLowerOpaqueness * avgResidual;
-				if (perceived < 0.03) {
+                                const perceived = thinness * (opacity * avgResidual);
+				if (perceived < 0.000001) {
     					discarded[discardCount++] = idx;
 				}
 
-				const attenuation = 1.0 - opacity;
+				const attenuation = 1.0 - (opacity ** 0.001); // power = more occlusion for each splat
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
