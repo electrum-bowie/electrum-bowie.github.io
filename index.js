@@ -1022,7 +1022,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const GRID_SIZE = 2048;
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
-                const farthestIndices = new Int32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -1085,9 +1084,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         // Occlusion accumulation using a screen space grid
                         grid.fill(1.0); // remaining transparency for each cell
-                        farthestIndices.fill(-1);
                         const discarded = new Uint32Array(validCount);
-                        const discardFlags = new Uint8Array(vertexCount);
                         let discardCount = 0;
 
                         const nearPlaneClip = -0.08;
@@ -1157,27 +1154,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
-                                let cells = 0;
-                                for (let y = y0; y <= y1; y++) {
-                                        const row = y * GRID_SIZE;
-                                        for (let x = x0; x <= x1; x++) {
-                                                const cell = row + x;
-                                                residual += grid[cell];
-                                                cells++;
-                                                if (farthestIndices[cell] === -1) {
-                                                        farthestIndices[cell] = idx;
-                                                }
-                                        }
-                                }
-                                const avgResidual = residual / cells;
+				let cells = 0;
+				for (let y = y0; y <= y1; y++) {
+    					const row = y * GRID_SIZE;
+    					for (let x = x0; x <= x1; x++) {
+        					residual += grid[row + x];
+        					cells++;
+					}
+				}
+				const avgResidual = residual / cells;
                                                                 
                                 const clampedOpacity = opacity > 0.99 ? 0.99 : opacity;
 
                                 const perceived = clampedOpacity * avgResidual;
-                                if (perceived < 0.01) {
-                                        discarded[discardCount++] = idx;
-                                        discardFlags[idx] = 1;
-                                }
+				if (perceived < 0.01) {
+    					discarded[discardCount++] = idx;
+				}
 
 				const attenuation = 1.0 - clampedOpacity;
                                 for (let y = y0; y <= y1; y++) {
@@ -1185,14 +1177,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         for (let x = x0; x <= x1; x++) {
                                                 grid[row + x] *= attenuation;
                                         }
-                                }
-                        }
-
-                        for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
-                                const idx = farthestIndices[i];
-                                if (idx !== -1 && grid[i] < 0.01 && !discardFlags[idx]) {
-                                        discarded[discardCount++] = idx;
-                                        discardFlags[idx] = 1;
                                 }
                         }
 
