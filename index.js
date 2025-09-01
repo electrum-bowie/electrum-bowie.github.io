@@ -1122,35 +1122,37 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const thinness = Math.pow(maxRadius ** 4 * minRadius, 1/5);
-
-                                const radius = thinness * scaleFactor;
+                                const radiusX = maxRadius * scaleFactor;
+                                const radiusY = minRadius * scaleFactor;
+                                const radius = Math.max(radiusX, radiusY);
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
-                                
+
                                 // -
 
                                 const radiusTransparencyProduct = radius * opacity;
                                 const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
-                                
+
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
-                                
+
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 const tooSmall = pixelThreshold < 0.9 * edgeMultiplier;
 
                                 if (tooSmall && !skipCullBehind) continue;
-                                
+
                                 // -
 
-                                const ndcRadius = radius / -depth;
+                                const ndcRadiusX = radiusX / -depth;
+                                const ndcRadiusY = radiusY / -depth;
                                 const gridX = (ndcX * 0.5 + 0.5) * GRID_SIZE;
                                 const gridY = (ndcY * 0.5 + 0.5) * GRID_SIZE;
-                                const gridRadius = ndcRadius * (GRID_SIZE * 0.5);
+                                const gridRadiusX = ndcRadiusX * (GRID_SIZE * 0.5);
+                                const gridRadiusY = ndcRadiusY * (GRID_SIZE * 0.5);
 
-                                const x0 = Math.max(0, Math.floor(gridX - gridRadius));
-                                const y0 = Math.max(0, Math.floor(gridY - gridRadius));
-                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadius));
-                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadius));
+                                const x0 = Math.max(0, Math.floor(gridX - gridRadiusX));
+                                const y0 = Math.max(0, Math.floor(gridY - gridRadiusY));
+                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadiusX));
+                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadiusY));
                                 if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
