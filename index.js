@@ -1,7 +1,7 @@
 AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
-                pixelRatio: { type: 'number', default: 1.0 },
+                pixelRatio: { type: 'number', default: 0.8 },
                 xrPixelRatio: { type: 'number', default: 1.0 },
                 // Fixed foveation level. Set to 0 to disable foveated rendering
                 foveation: { type: 'number', default: 0.0 }, // no perceived performance gains even with the maximum level
@@ -1130,14 +1130,14 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const thinness = minRadius / maxRadius;
                                 const size = maxRadius;
-                                const scale = scaleFactor;
-                                const radius = size * scale;
+                                const radius = size * 'Factor;
+                          
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
                                 
                                 // -
 
                                 const radiusTransparencyProduct = radius * opacity;
-                                const skipCullBehind = (radiusTransparencyProduct / scale) > 0.3;
+                                const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
                                 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
@@ -1183,11 +1183,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clampedOpacity = opacity > 0.99 ? 0.99 : opacity;
 
                                 const perceived = clampedOpacity * avgResidual * avgThinness * avgSize * avgScale;
-				if (perceived < 0.01) {
+                          
+				if (perceived < 0.001) {
     					discarded[discardCount++] = idx;
 				}
 
-                                const attenuation = 1.0 - clampedOpacity;
+
+                                const attenuation = 1.0 - clampedOpacity ** 5;
+                          
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
