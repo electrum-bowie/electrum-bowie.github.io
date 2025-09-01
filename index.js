@@ -1021,7 +1021,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
                 const GRID_SIZE = 1700; // 2048
-                const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
+                const gridAlpha = new Float32Array(GRID_SIZE * GRID_SIZE);
+                const gridThinness = new Float32Array(GRID_SIZE * GRID_SIZE);
+                const gridSizeAccum = new Float32Array(GRID_SIZE * GRID_SIZE);
+                const gridScaleAccum = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -1083,7 +1086,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
                         // Occlusion accumulation using a screen space grid
-                        grid.fill(1.0); // remaining transparency for each cell
+                        gridAlpha.fill(1.0); // remaining transparency for each cell
+                        gridThinness.fill(0.0);
+                        gridSizeAccum.fill(0.0);
+                        gridScaleAccum.fill(0.0);
                         const discarded = new Uint32Array(validCount);
                         let discardCount = 0;
 
@@ -1122,9 +1128,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 				if (!insideOfScreen) continue;
 
-                                const thinness = Math.pow(maxRadius ** 4 * minRadius, 1/5);
-
-                                const radius = thinness * scaleFactor;
+                                const thinness = minRadius / maxRadius;
+                                const size = maxRadius;
+                                const radius = size * scaleFactor;
+                          
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
                                 
                                 // -
@@ -1154,28 +1161,43 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
-				let cells = 0;
-				for (let y = y0; y <= y1; y++) {
-    					const row = y * GRID_SIZE;
-    					for (let x = x0; x <= x1; x++) {
-        					residual += grid[row + x];
-        					cells++;
-					}
-				}
-				const avgResidual = residual / cells;
+                                let thinAccum = 0.0;
+                                let sizeAccum = 0.0;
+                                let scaleAccum = 0.0;
+                                let cells = 0;
+                                for (let y = y0; y <= y1; y++) {
+                                        const row = y * GRID_SIZE;
+                                        for (let x = x0; x <= x1; x++) {
+                                                residual += gridAlpha[row + x];
+                                                thinAccum += gridThinness[row + x];
+                                                sizeAccum += gridSizeAccum[row + x];
+                                                scaleAccum += gridScaleAccum[row + x];
+                                                cells++;
+                                        }
+                                }
+                                const avgResidual = residual / cells;
+                                const avgThinness = thinAccum / cells;
+                                const avgSize = sizeAccum / cells;
+                                const avgScale = scaleAccum / cells;
                                                                 
                                 const clampedOpacity = opacity > 0.99 ? 0.99 : opacity;
 
-                                const perceived = clampedOpacity * avgResidual;
+                                const perceived = clampedOpacity * avgResidual * avgThinness * avgSize * avgScale;
+                          
 				if (perceived < 0.001) {
     					discarded[discardCount++] = idx;
 				}
 
-				const attenuation = 1.0 - clampedOpacity ** 5;
+
+                                const attenuation = 1.0 - clampedOpacity ** 5;
+                          
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
-                                                grid[row + x] *= attenuation;
+                                                gridAlpha[row + x] *= attenuation;
+                                                gridThinness[row + x] += thinness;
+                                                gridSizeAccum[row + x] += size;
+                                                gridScaleAccum[row + x] += scaleFactor;
                                         }
                                 }
                         }
