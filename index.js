@@ -1020,7 +1020,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
-                const GRID_SIZE = 1700; // 2048
+                const GRID_SIZE = 4096; // less = more innacuracies and artifacts (unintended removals)
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
@@ -1166,14 +1166,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
                                                                 
-                                const clampedOpacity = opacity > 0.99 ? 0.99 : opacity;
-
-                                const perceived = clampedOpacity * avgResidual;
-				if (perceived < 0.001) {
+                                const perceived = opacity * avgResidual;
+				if (perceived < 0.01) {
     					discarded[discardCount++] = idx;
 				}
 
-				const attenuation = 1.0 - clampedOpacity ** 5;
+				const attenuation = 1.0 - opacity;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
