@@ -1022,6 +1022,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const GRID_SIZE = 1700; // 2048
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
+                const farthestIndex = new Int32Array(GRID_SIZE * GRID_SIZE);
+                const farthestOpacity = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -1034,6 +1036,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const occludeSplats = function occludeSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
                         ensureCapacity(vertexCount);
+                        const discardFlags = new Uint8Array(vertexCount);
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
                         let depthList = cache.depthList;
@@ -1084,6 +1087,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         // Occlusion accumulation using a screen space grid
                         grid.fill(1.0); // remaining transparency for each cell
+                        farthestIndex.fill(-1);
+                        farthestOpacity.fill(0.0);
                         const discarded = new Uint32Array(validCount);
                         let discardCount = 0;
 
@@ -1167,15 +1172,34 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clampedOpacity = opacity > 0.99 ? 0.99 : opacity;
 
                                 const perceived = clampedOpacity * avgResidual;
-				if (perceived < 0.01) {
-    					discarded[discardCount++] = idx;
-				}
+                                if (perceived < 0.01) {
+                                        if (!discardFlags[idx]) {
+                                                discardFlags[idx] = 1;
+                                                discarded[discardCount++] = idx;
+                                        }
+                                }
 
 				const attenuation = 1.0 - clampedOpacity;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
                                                 grid[row + x] *= attenuation;
+                                                farthestIndex[row + x] = idx;
+                                                farthestOpacity[row + x] = clampedOpacity;
+                                        }
+                                }
+                        }
+
+                        for (let i = 0; i < farthestIndex.length; i++) {
+                                const idx = farthestIndex[i];
+                                if (idx >= 0 && !discardFlags[idx]) {
+                                        const op = farthestOpacity[i];
+                                        const residualAfter = grid[i];
+                                        const residualBefore = residualAfter / (1.0 - op);
+                                        const perceived = op * residualBefore;
+                                        if (perceived < 0.01) {
+                                                discardFlags[idx] = 1;
+                                                discarded[discardCount++] = idx;
                                         }
                                 }
                         }
