@@ -825,7 +825,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        const fadeStep = 0.25;
+                        const fadeStep = 0.2;
                         const nearPlaneClip = -0.08;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
                                 //if (discardMark[i]) continue;
@@ -880,10 +880,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 					if (tooSmall) f = Math.max(0, f - fadeStep);
 					
-					else if (isOccluded) f = Math.max(0, f - fadeStep * 1.6);
+					else if (isOccluded) f = Math.max(0, f - fadeStep * 2.0);
 
 					else {
-						const step = was ? fadeStep * 1.6 : fadeStep;
+						const step = was ? fadeStep * 2.0 : fadeStep;
 						f = Math.min(1, f + step);
 					}
 
