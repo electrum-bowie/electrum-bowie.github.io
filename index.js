@@ -1130,7 +1130,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const thinness = minRadius / maxRadius;
                                 const size = maxRadius;
-                                const radius = size * 'Factor;
+                                const radius = size * scaleFactor;
                           
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
                                 
@@ -1197,7 +1197,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 gridAlpha[row + x] *= attenuation;
                                                 gridThinness[row + x] += thinness;
                                                 gridSizeAccum[row + x] += size;
-                                                gridScaleAccum[row + x] += scale;
+                                                gridScaleAccum[row + x] += scaleFactor;
                                         }
                                 }
                         }
