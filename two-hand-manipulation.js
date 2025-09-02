@@ -1,6 +1,6 @@
 AFRAME.registerComponent('two-hand-manipulation', {
     schema: {
-        minScale: { type: 'number', default: 0.01 },
+        minScale: { type: 'number', default: 0.001 },
         maxScale: { type: 'number', default: 70 },
         moveSpeed: { type: 'number', default: 1 }
     },
@@ -228,9 +228,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
             const camera = this.el.sceneEl.camera;
             const forward = this._tmpVec2;
             camera.getWorldDirection(forward);
-            forward.y = 0;
             forward.normalize();
-            const right = this._tmpVec3.crossVectors(forward, this._tmpVec4.set(0, 1, 0)).normalize();
+            const right = this._tmpVec3.crossVectors(forward, this._tmpVec4.set(0, -1, 0)).normalize();
             const move = forward.multiplyScalar(dir.z).add(right.multiplyScalar(dir.x)).multiplyScalar(this.data.moveSpeed * (delta / 1000));
             this.el.object3D.position.add(move);
             return;
