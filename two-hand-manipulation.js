@@ -1,7 +1,8 @@
 AFRAME.registerComponent('two-hand-manipulation', {
     schema: {
         minScale: { type: 'number', default: 0.01 },
-        maxScale: { type: 'number', default: 70 }
+        maxScale: { type: 'number', default: 70 },
+        moveSpeed: { type: 'number', default: 1 }
     },
     init: function () {
         const sceneEl = this.el.sceneEl;
@@ -149,10 +150,29 @@ AFRAME.registerComponent('two-hand-manipulation', {
             evt.preventDefault();
         };
         window.addEventListener('wheel', this._onWheel, { passive: false });
+
+        this._keys = {};
+        this._onKeyDown = evt => {
+            if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(evt.code)) {
+                this._keys[evt.code] = true;
+                evt.preventDefault();
+            }
+        };
+        this._onKeyUp = evt => {
+            if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(evt.code)) {
+                this._keys[evt.code] = false;
+                evt.preventDefault();
+            }
+        };
+        window.addEventListener('keydown', this._onKeyDown);
+        window.addEventListener('keyup', this._onKeyUp);
+        window.addEventListener('blur', () => { this._keys = {}; });
     },
 
     remove: function () {
         window.removeEventListener('wheel', this._onWheel);
+        window.removeEventListener('keydown', this._onKeyDown);
+        window.removeEventListener('keyup', this._onKeyUp);
     },
 
     startTwoHand: function () {
@@ -195,8 +215,26 @@ AFRAME.registerComponent('two-hand-manipulation', {
         }
     },
 
-    tick: function () {
-        if (!this.isInteracting) return;
+    tick: function (time, delta) {
+        if (!this.isInteracting) {
+            if (this.el.sceneEl.is('vr-mode')) return;
+            const dir = this._tmpVec1.set(0, 0, 0);
+            if (this._keys['KeyW']) dir.z -= 1;
+            if (this._keys['KeyS']) dir.z += 1;
+            if (this._keys['KeyA']) dir.x -= 1;
+            if (this._keys['KeyD']) dir.x += 1;
+            if (dir.lengthSq() === 0) return;
+            dir.normalize();
+            const camera = this.el.sceneEl.camera;
+            const forward = this._tmpVec2;
+            camera.getWorldDirection(forward);
+            forward.y = 0;
+            forward.normalize();
+            const right = this._tmpVec3.crossVectors(forward, this._tmpVec4.set(0, 1, 0)).normalize();
+            const move = forward.multiplyScalar(dir.z).add(right.multiplyScalar(dir.x)).multiplyScalar(this.data.moveSpeed * (delta / 1000));
+            this.el.object3D.position.add(move);
+            return;
+        }
         if (this.mode === 'single') {
             const obj = this.singleHand === 'left'
                 ? (this.leftSource || this.leftController || this.leftHand)
