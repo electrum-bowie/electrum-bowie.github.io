@@ -880,10 +880,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 					if (tooSmall) f = Math.max(0, f - fadeStep);
 					
-					else if (isOccluded) f = Math.max(0, f - fadeStep * 2.0);
+					else if (isOccluded) f = Math.max(0, f - fadeStep * 1.8);
 
 					else {
-						const step = was ? fadeStep * 2.0 : fadeStep;
+						const step = was ? fadeStep * 1.8 : fadeStep;
 						f = Math.min(1, f + step);
 					}
 
@@ -900,7 +900,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				fadeOpacities[i] = f;
 
-                                if (f < 0.1) continue;
+                                if (f < 0.15) continue;
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
@@ -1020,7 +1020,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
-                const GRID_SIZE = 1024; // less = more innacuracies and artifacts (unintended removals)
+                const GRID_SIZE = 1500; // less = more innacuracies and random artifacts (unintended removals)
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
@@ -1167,7 +1167,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const avgResidual = residual / cells;
                                                                 
                                 const perceived = opacity * avgResidual;
-				if (perceived < 0.01) {
+				if (perceived < 0.02) {
     					discarded[discardCount++] = idx;
 				}
 
