@@ -1020,7 +1020,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
-                const GRID_SIZE = 1500; // less = more innacuracies and random artifacts (unintended removals)
+                const GRID_SIZE = 1024; // 2048 // less = more innacuracies and random artifacts (unintended removals)
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
@@ -1149,10 +1149,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const gridRadiusX = ndcRadiusX * (GRID_SIZE * 0.5);
                                 const gridRadiusY = ndcRadiusY * (GRID_SIZE * 0.5);
 
-                                const x0 = Math.max(0, Math.floor(gridX - gridRadiusX));
-                                const y0 = Math.max(0, Math.floor(gridY - gridRadiusY));
-                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadiusX));
-                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadiusY));
+                                const x0 = Math.max(0, Math.round(gridX - gridRadiusX));
+                                const y0 = Math.max(0, Math.round(gridY - gridRadiusY));
+                                const x1 = Math.min(GRID_SIZE - 1, Math.round(gridX + gridRadiusX));
+                                const y1 = Math.min(GRID_SIZE - 1, Math.round(gridY + gridRadiusY));
                                 if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
@@ -1167,7 +1167,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const avgResidual = residual / cells;
                                                                 
                                 const perceived = opacity * avgResidual;
-				if (perceived < 0.02) {
+				if (perceived < 0.0001) {
     					discarded[discardCount++] = idx;
 				}
 
