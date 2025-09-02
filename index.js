@@ -1020,7 +1020,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
-                const GRID_SIZE = 4096; // less = more innacuracies and artifacts (unintended removals)
+                const GRID_SIZE = 2048; // less = more innacuracies and artifacts (unintended removals)
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
