@@ -610,10 +610,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const objRotChanged = 2 * Math.acos(Math.min(1, Math.abs(this.object.quaternion.dot(this.lastObjectQuat)))) > 0.003;
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 0.001;
 
-                if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged) {
+		if (this.lastExecTime === undefined) this.lastExecTime = time;
+		const forceExec = (time - this.lastExecTime) >= 600; // 600ms
+
+                if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged || forceExec) {
                         if (this.occlusionReady) this.occludeSplatsNow();
                         if (this.filterReady) this.filterSplatsNow();
                         if (this.sortReady) this.sortSplatsNow();
+
+			if (forceExec) this.lastExecTime = time; // reset after forced execution
+			else {
+				this.lastCameraPos.copy(this.tmpCameraPos);
+				this.lastCameraQuat.copy(this.tmpCameraQuat);
+				this.lastObjectPos.copy(this.object.position);
+				this.lastObjectQuat.copy(this.object.quaternion);
+				this.lastScale.copy(this.object.scale);
+			}
                 }
         },
         updateQuality: function () {
@@ -1297,7 +1309,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                        }
                        vertexCount = vertices.length;
 
-                       const IMPORTANCE_THRESHOLD = 0.0;
+                       const IMPORTANCE_THRESHOLD = 0.002;
                        let sizeList = [];
                        let sizeIndex = [];
                        for (let i = 0; i < vertexCount; i++) {
@@ -1307,13 +1319,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                                        sizeList.push(0);
                                        continue;
                                }
-                               const size =
-                                       Math.exp(a.scale_0) *
-                                       Math.exp(a.scale_1) *
-                                       Math.exp(a.scale_2);
+
+                               const s0 = Math.exp(a.scale_0);
+                               const s1 = Math.exp(a.scale_1);
+                               const s2 = Math.exp(a.scale_2);
+
+                               //const minScale = Math.min(s0, s1, s2);
+                               //const maxScale = Math.max(s0, s1, s2);
+
+                               const size = Math.exp(s0) * Math.exp(s1) * Math.exp(s2);
+
                                const opacity = "opacity" in a ? 1 / (1 + Math.exp(-a.opacity)) : 1;
-                               const importance = size * opacity;
+                               const importance = Math.pow(size * opacity ** 3, 1/4);
                                if (importance < IMPORTANCE_THRESHOLD) continue;
+
                                sizeIndex.push(i);
                                sizeList.push(importance);
                        }
@@ -1393,7 +1412,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                );
 
                console.time("calculate importance");
-               const IMPORTANCE_THRESHOLD = 0.0;
+               const IMPORTANCE_THRESHOLD = 0.002;
                let sizeList = [];
                let sizeIndex = [];
                for (row = 0; row < vertexCount; row++) {
@@ -1402,13 +1421,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                                sizeList.push(0);
                                continue;
                        }
-                       const size =
-                               Math.exp(attrs.scale_0) *
-                               Math.exp(attrs.scale_1) *
-                               Math.exp(attrs.scale_2);
+
+                       const s0 = Math.exp(attrs.scale_0);
+                       const s1 = Math.exp(attrs.scale_1);
+                       const s2 = Math.exp(attrs.scale_2);
+
+                       //const minScale = Math.min(s0, s1, s2);
+                       //const maxScale = Math.max(s0, s1, s2);
+
+                       const size = s0 * s1 * s2;
+
                        const opacity = 1 / (1 + Math.exp(-attrs.opacity));
-                       const importance = size * opacity;
+                       const importance = Math.pow(size * opacity ** 3, 1/4);
                        if (importance < IMPORTANCE_THRESHOLD) continue;
+
                        sizeIndex.push(row);
                        sizeList.push(importance);
                }
