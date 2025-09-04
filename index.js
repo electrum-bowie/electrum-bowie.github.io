@@ -1132,12 +1132,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const rCx = c00 * r0 + c01 * r1 + c02 * r2;
                                 const rCy = c10 * r0 + c11 * r1 + c12 * r2;
                                 const rCz = c20 * r0 + c21 * r1 + c22 * r2;
-                                const radiusX = Math.sqrt(r0 * rCx + r1 * rCy + r2 * rCz) * scaleFactor;
+                                const radiusX = Math.sqrt(r0 * rCx + r1 * rCy + r2 * rCz);
 
                                 const uCx = c00 * u0 + c01 * u1 + c02 * u2;
                                 const uCy = c10 * u0 + c11 * u1 + c12 * u2;
                                 const uCz = c20 * u0 + c21 * u1 + c22 * u2;
-                                const radiusY = Math.sqrt(u0 * uCx + u1 * uCy + u2 * uCz) * scaleFactor;
+                                const radiusY = Math.sqrt(u0 * uCx + u1 * uCy + u2 * uCz);
 
                                 const radius = maxRadius * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)

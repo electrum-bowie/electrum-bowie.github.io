@@ -1,7 +1,7 @@
 AFRAME.registerComponent('two-hand-manipulation', {
     schema: {
         minScale: { type: 'number', default: 0.001 },
-        maxScale: { type: 'number', default: 50 },
+        maxScale: { type: 'number', default: 70 },
         moveSpeed: { type: 'number', default: 1 }
     },
     init: function () {
