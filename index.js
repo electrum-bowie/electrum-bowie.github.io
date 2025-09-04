@@ -789,7 +789,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let matrices = undefined;
                 let fadeOpacities = undefined;
 
-                const COUNT_SIZE = 4194304; // 2048 x 2048
+                const COUNT_SIZE = 2048 * 2048;
 
                 let cache = {
                         capacity: 0,
@@ -1023,7 +1023,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
-                const COUNT_SIZE = 4194304; // 2048 x 2048
+                const COUNT_SIZE = 2048 * 2048;
 
                 let cache = {
                         capacity: 0,
