@@ -1188,11 +1188,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const gridRadiusX = ndcRadiusX * (GRID_SIZE * 0.5);
                                 const gridRadiusY = ndcRadiusY * (GRID_SIZE * 0.5);
 
-                                const x0 = Math.max(0, Math.round(gridX - gridRadiusX));
-                                const y0 = Math.max(0, Math.round(gridY - gridRadiusY));
-                                const x1 = Math.min(GRID_SIZE - 1, Math.round(gridX + gridRadiusX));
-                                const y1 = Math.min(GRID_SIZE - 1, Math.round(gridY + gridRadiusY));
-                                if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE) continue;
+                                const x0 = Math.max(0, Math.floor(gridX - gridRadiusX));
+                                const y0 = Math.max(0, Math.floor(gridY - gridRadiusY));
+                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadiusX) - 1);
+                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadiusY) - 1);
+                                if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE || x1 < x0 || y1 < y0) continue;
 
                                 let residual = 0.0;
 				let cells = 0;
