@@ -1047,7 +1047,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
-                const GRID_SIZE = 1024;
+                const GRID_SIZE = 256;
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
@@ -1192,7 +1192,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const y0 = Math.max(0, Math.floor(gridY - gridRadiusY));
                                 const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadiusX) - 1);
                                 const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadiusY) - 1);
-                                if (x1 < 0 || x0 >= GRID_SIZE || y1 < 0 || y0 >= GRID_SIZE || x1 < x0 || y1 < y0) continue;
+                                if (x1 < 0 || x1 < x0 || y1 < 0 || y1 < y0 || x0 >= GRID_SIZE || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
 				let cells = 0;
@@ -1211,7 +1211,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 
 				const attenuation = 1.0 - opacity;
-                                for (let y = y0; y <= y1; y++) {
+                                for (let y = y0; y < y1 - 1; y++) { // < y1 - 1 = fix for artifacts?
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
                                                 grid[row + x] *= attenuation;
