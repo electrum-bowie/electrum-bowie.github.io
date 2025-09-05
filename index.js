@@ -19,31 +19,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.needsQualityUpdate = false;
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
                 this.loadData(this.data.src);
-                if (this.el.sceneEl.renderer.xr.isPresenting) { //compile multiview if page is refreshed but xr is still running
-                        this.compileMultiview()
-                }
-
                 this.el.sceneEl.renderer.xr.addEventListener("sessionstart", async () => {
-                        await this.compileMultiview()
-                });
-                this.el.sceneEl.renderer.xr.addEventListener("sessionend", () => {
-                        this.applyFoveationLevel();
-                        this.currentXrPixelRatio = this.data.xrPixelRatio;
-                        this.updateXRScale();
-                });
-                this.el.sceneEl.addEventListener("enter-vr", () => {
-                        this.applyFoveationLevel();
-                        this.currentXrPixelRatio = this.data.xrPixelRatio;
-                        this.updateXRScale();
-                });
-                this.el.sceneEl.addEventListener("exit-vr", () => {
-                        this.applyFoveationLevel();
-                        this.currentXrPixelRatio = this.data.xrPixelRatio;
-                        this.updateXRScale();
-                });
-        },
-        compileMultiview: async function(){
-                const gl = this.el.sceneEl.renderer.getContext();
+                        const gl = this.el.sceneEl.renderer.getContext();
                         if (gl.makeXRCompatible) {
                                 try {
                                         await gl.makeXRCompatible();
@@ -66,6 +43,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.applyFoveationLevel();
                         this.currentXrPixelRatio = this.data.xrPixelRatio;
                         this.updateXRScale();
+                });
+                this.el.sceneEl.renderer.xr.addEventListener("sessionend", () => {
+                        this.applyFoveationLevel();
+                        this.currentXrPixelRatio = this.data.xrPixelRatio;
+                        this.updateXRScale();
+                });
+                this.el.sceneEl.addEventListener("enter-vr", () => {
+                        this.applyFoveationLevel();
+                        this.currentXrPixelRatio = this.data.xrPixelRatio;
+                        this.updateXRScale();
+                });
+                this.el.sceneEl.addEventListener("exit-vr", () => {
+                        this.applyFoveationLevel();
+                        this.currentXrPixelRatio = this.data.xrPixelRatio;
+                        this.updateXRScale();
+                });
         },
 	// also works from vanilla three.js
 	initGL: function (camera, object, renderer) {
