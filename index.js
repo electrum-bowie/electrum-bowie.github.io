@@ -1047,7 +1047,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
-                const GRID_SIZE = 256;
+                const GRID_SIZE = 300;
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
@@ -1206,11 +1206,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const avgResidual = residual / cells;
                                                                 
                                 const perceived = opacity * avgResidual;
-				if (perceived < 0.000001) {
+				if (perceived < 0.0000001) {
     					discarded[discardCount++] = idx;
 				}
 
-				const attenuation = 1.0 - opacity;
+				const attenuation = 1.0 - (opacity ** 2);
                                 for (let y = y0; y < y1 - 1; y++) { // < y1 - 1 = fix for artifacts?
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
@@ -1321,7 +1321,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                        }
                        vertexCount = vertices.length;
 
-                       const IMPORTANCE_THRESHOLD = 0.002;
+                       const IMPORTANCE_THRESHOLD = 0.003;
                        let sizeList = [];
                        let sizeIndex = [];
                        for (let i = 0; i < vertexCount; i++) {
@@ -1424,7 +1424,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                );
 
                console.time("calculate importance");
-               const IMPORTANCE_THRESHOLD = 0.002;
+               const IMPORTANCE_THRESHOLD = 0.003;
                let sizeList = [];
                let sizeIndex = [];
                for (row = 0; row < vertexCount; row++) {
