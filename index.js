@@ -28,18 +28,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         console.warn("makeXRCompatible failed", e);
                                 }
                         }
-                        const ext = gl.getExtension("OVR_multiview2") ||
-                                    gl.getExtension("OVR_multiview") ||
-                                    gl.getExtension("OCULUS_multiview") ||
-                                    gl.getExtension("WEBGL_multiview");
-                        if (ext && this.el.sceneEl.renderer.xr.isMultiview) {
-                                console.log("Multiview enabled");
-                                this.mesh.material.defines.IS_MULTIVIEW = ""; //Sets this flag in the shader to use Multiview code
-                                this.mesh.material.needsUpdate = true;        //then recompiles the shader to rerun the #ifdef's
-                        } else {
-                                console.log("Multiview not supported or disabled");
+                        const recompileShader = this.setMultiview();
+                        if (recompileShader){
+                                this.mesh.material.needsUpdate = true;
                         }
-
                         this.applyFoveationLevel();
                         this.currentXrPixelRatio = this.data.xrPixelRatio;
                         this.updateXRScale();
@@ -59,6 +51,21 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.currentXrPixelRatio = this.data.xrPixelRatio;
                         this.updateXRScale();
                 });
+        },
+        setMultiview: function(){
+                const gl = this.el.sceneEl.renderer.getContext();
+                const ext = gl.getExtension("OVR_multiview2") ||
+                                gl.getExtension("OVR_multiview") ||
+                                gl.getExtension("OCULUS_multiview") ||
+                                gl.getExtension("WEBGL_multiview");
+                if (ext && this.el.sceneEl.renderer.xr.isMultiview) {
+                        console.log("Multiview enabled");
+                        this.mesh.material.defines.IS_MULTIVIEW = ""; //Sets this flag in the shader to use Multiview code
+                        return true;
+                } else {
+                        console.log("Multiview not supported or disabled");
+                        return false;
+                }
         },
 	// also works from vanilla three.js
 	initGL: function (camera, object, renderer) {
@@ -312,6 +319,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                 mesh.frustumCulled = false;
                 this.object.add(mesh);
                 this.mesh = mesh;
+
+                if (this.el.sceneEl.renderer.xr.isPresenting) {
+                        console.log("Page refreshed with VR running - multiview flag is being reset");
+                        this.setMultiview();      //Set multiview on mesh if VR is already running
+                }
 
 		this.worker = new Worker(
 			URL.createObjectURL(
