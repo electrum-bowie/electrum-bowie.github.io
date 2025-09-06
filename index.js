@@ -1132,24 +1132,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const depth = f0 * px + f1 * py + f2 * pz + f3;
                                 if (depth >= 0.0) continue;
 
-                                const c00 = matrices[offset + 0], c01 = matrices[offset + 4], c02 = matrices[offset + 8];
-                                const c10 = matrices[offset + 1], c11 = matrices[offset + 5], c12 = matrices[offset + 9];
-                                const c20 = matrices[offset + 2], c21 = matrices[offset + 6], c22 = matrices[offset + 10];
-
-                                const fCx = c00 * f0 + c01 * f1 + c02 * f2;
-                                const fCy = c10 * f0 + c11 * f1 + c12 * f2;
-                                const fCz = c20 * f0 + c21 * f1 + c22 * f2;
-                                const forwardRadius = Math.sqrt(f0 * fCx + f1 * fCy + f2 * fCz);
-                                const minRadius = matrices[offset + 3];
-                                let orientationScale = 1.0;
-                                const radiusRange = maxRadius - minRadius;
-                                if (radiusRange > 1e-5) {
-                                        orientationScale = (maxRadius - forwardRadius) / radiusRange;
-                                        orientationScale = Math.max(0.0, Math.min(1.0, orientationScale));
-                                }
-                                const effectiveRadius = maxRadius * orientationScale;
-
-                                if (depth + effectiveRadius > nearPlaneClip) {
+                                if (depth + maxRadius > nearPlaneClip) {
                                         continue; // centre is inside the view and too close to the camera
                                 }
 
@@ -1163,8 +1146,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
 
-                                const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
-                                if (!insideOfScreen) continue;
+				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
+				if (!insideOfScreen) continue;
+
+                                const c00 = matrices[offset + 0], c01 = matrices[offset + 4], c02 = matrices[offset + 8];
+                                const c10 = matrices[offset + 1], c11 = matrices[offset + 5], c12 = matrices[offset + 9];
+                                const c20 = matrices[offset + 2], c21 = matrices[offset + 6], c22 = matrices[offset + 10];
 
                                 const rCx = c00 * r0 + c01 * r1 + c02 * r2;
                                 const rCy = c10 * r0 + c11 * r1 + c12 * r2;
@@ -1176,7 +1163,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const uCz = c20 * u0 + c21 * u1 + c22 * u2;
                                 const radiusY = Math.sqrt(u0 * uCx + u1 * uCy + u2 * uCz);
 
-                                const radius = effectiveRadius * scaleFactor;
+                                const radius = maxRadius * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 // -
