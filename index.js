@@ -1122,32 +1122,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const idx = depthIndex[di];
                                 const offset = idx * 16;
 
-                                const maxRadius = matrices[offset + 15];
-                                if (maxRadius > 1.75) continue;
-
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
 
                                 const depth = f0 * px + f1 * py + f2 * pz + f3;
                                 if (depth >= 0.0) continue;
-
-                                if (depth + maxRadius > nearPlaneClip) {
-                                        continue; // centre is inside the view and too close to the camera
-                                }
-
-                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
-                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
-                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
-                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-                                if (clip_w <= 0.0) continue;
-
-                                const invW  = 1.0 / clip_w;
-                                const ndcX  = clip_x * invW;
-                                const ndcY  = clip_y * invW;
-
-				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
-				if (!insideOfScreen) continue;
 
                                 const c00 = matrices[offset + 0], c01 = matrices[offset + 4], c02 = matrices[offset + 8];
                                 const c10 = matrices[offset + 1], c11 = matrices[offset + 5], c12 = matrices[offset + 9];
@@ -1163,7 +1143,31 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const uCz = c20 * u0 + c21 * u1 + c22 * u2;
                                 const radiusY = Math.sqrt(u0 * uCx + u1 * uCy + u2 * uCz);
 
-                                const radius = maxRadius * scaleFactor;
+                                const fCx = c00 * f0 + c01 * f1 + c02 * f2;
+                                const fCy = c10 * f0 + c11 * f1 + c12 * f2;
+                                const fCz = c20 * f0 + c21 * f1 + c22 * f2;
+                                const radiusZ = Math.sqrt(f0 * fCx + f1 * fCy + f2 * fCz);
+
+                                const maxRadius = Math.max(radiusX, radiusY, radiusZ) * scaleFactor;
+                                if (maxRadius > 1.75) continue;
+
+                                if (depth + radiusZ * scaleFactor > nearPlaneClip) {
+                                        continue; // centre is inside the view and too close to the camera
+                                }
+                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+                                if (clip_w <= 0.0) continue;
+
+                                const invW  = 1.0 / clip_w;
+                                const ndcX  = clip_x * invW;
+                                const ndcY  = clip_y * invW;
+
+                                const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
+                                if (!insideOfScreen) continue;
+
+                                const radius = Math.max(radiusX, radiusY) * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 // -
@@ -1181,8 +1185,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 // -
 
-                                const ndcRadiusX = radiusX / -depth;
-                                const ndcRadiusY = radiusY / -depth;
+                                const ndcRadiusX = (radiusX * scaleFactor) / -depth;
+                                const ndcRadiusY = (radiusY * scaleFactor) / -depth;
                                 const gridX = (ndcX * 0.5 + 0.5) * GRID_SIZE;
                                 const gridY = (ndcY * 0.5 + 0.5) * GRID_SIZE;
                                 const gridRadiusX = ndcRadiusX * (GRID_SIZE * 0.5);
