@@ -1072,9 +1072,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const f0 = forward[0], f1 = forward[1], f2 = forward[2], f3 = forward[3];
                         const r0 = right[0],   r1 = right[1],   r2 = right[2];
                         const u0 = up[0],      u1 = up[1],      u2 = up[2];
-
-                        const fLen = Math.hypot(f0, f1, f2);
-                        const nf0 = f0 / fLen, nf1 = f1 / fLen, nf2 = f2 / fLen;
                         const m0 = mvp[0],  m1 = mvp[1],  m2 = mvp[2],  m3 = mvp[3];
                         const m4 = mvp[4],  m5 = mvp[5],  m6 = mvp[6],  m7 = mvp[7];
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
@@ -1166,20 +1163,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const uCz = c20 * u0 + c21 * u1 + c22 * u2;
                                 const radiusY = Math.sqrt(u0 * uCx + u1 * uCy + u2 * uCz);
 
-                                const fCx = c00 * nf0 + c01 * nf1 + c02 * nf2;
-                                const fCy = c10 * nf0 + c11 * nf1 + c12 * nf2;
-                                const fCz = c20 * nf0 + c21 * nf1 + c22 * nf2;
-                                const radiusForward = Math.sqrt(nf0 * fCx + nf1 * fCy + nf2 * fCz);
-
-                                const minRadius = matrices[offset + 3];
-                                let facing = 1.0;
-                                if (maxRadius > minRadius) {
-                                        facing = (maxRadius - radiusForward) / (maxRadius - minRadius);
-                                        if (facing < 0.0) facing = 0.0;
-                                        else if (facing > 1.0) facing = 1.0;
-                                }
-
-                                const radius = maxRadius * scaleFactor * facing;
+                                const radius = maxRadius * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 // -
