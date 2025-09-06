@@ -1070,6 +1070,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         // cache matrix values locally for speed
                         const f0 = forward[0], f1 = forward[1], f2 = forward[2], f3 = forward[3];
+                        const invForwardLen = 1.0 / Math.sqrt(f0 * f0 + f1 * f1 + f2 * f2);
                         const r0 = right[0],   r1 = right[1],   r2 = right[2];
                         const u0 = up[0],      u1 = up[1],      u2 = up[2];
                         const m0 = mvp[0],  m1 = mvp[1],  m2 = mvp[2],  m3 = mvp[3];
@@ -1153,6 +1154,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const c10 = matrices[offset + 1], c11 = matrices[offset + 5], c12 = matrices[offset + 9];
                                 const c20 = matrices[offset + 2], c21 = matrices[offset + 6], c22 = matrices[offset + 10];
 
+                                const nLenSq = c20 * c20 + c21 * c21 + c22 * c22;
+                                const invNormalLen = nLenSq > 0 ? 1.0 / Math.sqrt(nLenSq) : 1.0;
+                                const facingFactor = Math.abs(f0 * c20 + f1 * c21 + f2 * c22) * invForwardLen * invNormalLen;
+
                                 const rCx = c00 * r0 + c01 * r1 + c02 * r2;
                                 const rCy = c10 * r0 + c11 * r1 + c12 * r2;
                                 const rCz = c20 * r0 + c21 * r1 + c22 * r2;
@@ -1163,7 +1168,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const uCz = c20 * u0 + c21 * u1 + c22 * u2;
                                 const radiusY = Math.sqrt(u0 * uCx + u1 * uCy + u2 * uCz);
 
-                                const radius = maxRadius * scaleFactor;
+                                const radius = maxRadius * scaleFactor * facingFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 // -
