@@ -1194,21 +1194,21 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadiusY) - 1);
                                 if (x1 < 0 || x1 < x0 || y1 < 0 || y1 < y0 || x0 >= GRID_SIZE || y0 >= GRID_SIZE) continue;
 
-                                // Find the most visible cell inside the splat's coverage
-                                // so that we only cull if every cell is fully occluded.
-                                let maxResidual = 0.0;
-                                for (let y = y0; y <= y1; y++) {
-                                        const row = y * GRID_SIZE;
-                                        for (let x = x0; x <= x1; x++) {
-                                                const cell = grid[row + x];
-                                                if (cell > maxResidual) maxResidual = cell;
-                                        }
-                                }
-
-                                const perceived = opacity * maxResidual;
-                                if (perceived < 0.0001) {
-                                        discarded[discardCount++] = idx;
-                                }
+                                let residual = 0.0;
+				let cells = 0;
+				for (let y = y0; y <= y1; y++) {
+    					const row = y * GRID_SIZE;
+    					for (let x = x0; x <= x1; x++) {
+        					residual += grid[row + x];
+        					cells++;
+					}
+				}
+				const avgResidual = residual / cells;
+                                                                
+                                const perceived = opacity * avgResidual;
+				if (perceived < 0.0001) {
+    					discarded[discardCount++] = idx;
+				}
 
 				const attenuation = 1.0 - (opacity ** 2);
                                 for (let y = y0; y < y1 - 1; y++) { // < y1 - 1 = fix for artifacts?
