@@ -1059,6 +1059,63 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
 
                 const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0) {
+                        const computeFacingFactor = function computeFacingFactor(
+                                c00, c01, c02,
+                                c10, c11, c12,
+                                c20, c21, c22,
+                                minRadius
+                        ) {
+                                const lambda = minRadius * minRadius;
+
+                                const s01 = 0.5 * (c01 + c10);
+                                const s02 = 0.5 * (c02 + c20);
+                                const s12 = 0.5 * (c12 + c21);
+
+                                const r0x = c00 - lambda;
+                                const r0y = s01;
+                                const r0z = s02;
+
+                                const r1x = s01;
+                                const r1y = c11 - lambda;
+                                const r1z = s12;
+
+                                const r2x = s02;
+                                const r2y = s12;
+                                const r2z = c22 - lambda;
+
+                                let nx = r0y * r1z - r0z * r1y;
+                                let ny = r0z * r1x - r0x * r1z;
+                                let nz = r0x * r1y - r0y * r1x;
+
+                                let lenSq = nx * nx + ny * ny + nz * nz;
+
+                                if (lenSq < 1e-12) {
+                                        nx = r0y * r2z - r0z * r2y;
+                                        ny = r0z * r2x - r0x * r2z;
+                                        nz = r0x * r2y - r0y * r2x;
+                                        lenSq = nx * nx + ny * ny + nz * nz;
+                                }
+
+                                if (lenSq < 1e-12) {
+                                        nx = r1y * r2z - r1z * r2y;
+                                        ny = r1z * r2x - r1x * r2z;
+                                        nz = r1x * r2y - r1y * r2x;
+                                        lenSq = nx * nx + ny * ny + nz * nz;
+                                }
+
+                                if (lenSq < 1e-12) {
+                                        return 1.0;
+                                }
+
+                                const invLen = 1.0 / Math.sqrt(lenSq);
+                                nx *= invLen;
+                                ny *= invLen;
+                                nz *= invLen;
+
+                                const dot = Math.abs(nx * nf0 + ny * nf1 + nz * nf2);
+                                return dot > 1.0 ? 1.0 : dot;
+                        };
+
                         const vertexCount = matrices.length / 16;
                         ensureCapacity(vertexCount);
                         let maxDepth = -Infinity;
@@ -1179,7 +1236,17 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         else if (facing > 1.0) facing = 1.0;
                                 }
 
-                                const radius = maxRadius * scaleFactor * facing;
+                                let facingFactor = 1.0;
+                                if (maxRadius > 0.0) {
+                                        facingFactor = computeFacingFactor(
+                                                c00, c01, c02,
+                                                c10, c11, c12,
+                                                c20, c21, c22,
+                                                minRadius
+                                        );
+                                }
+
+                                const radius = maxRadius * scaleFactor * facing * facingFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 // -
