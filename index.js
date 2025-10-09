@@ -88,7 +88,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.tmpCameraPos = new THREE.Vector3();
                 this.tmpCameraQuat = new THREE.Quaternion();
-                this.tmpCameraPosLocal = new THREE.Vector3();
                 this.viewRotationMatrix = new THREE.Matrix3();
 
                 this.splatsToDiscard = [];
@@ -711,7 +710,6 @@ AFRAME.registerComponent("gaussian_splatting", {
         filterSplatsNow: function () {
                 if (!this.filterReady) return;
                 this.filterReady = false;
-
                 const viewMatrix = this.getModelViewMatrix();
                 const projectionMatrix = this.getProjectionMatrix();
                 let camera_mtx = viewMatrix.elements;
@@ -730,7 +728,6 @@ AFRAME.registerComponent("gaussian_splatting", {
         occludeSplatsNow: function () {
                 if (!this.occlusionReady) return;
                 this.occlusionReady = false;
-                this.camera.getWorldPosition(this.tmpCameraPos);
                 const viewMatrix = this.getModelViewMatrix();
                 const projectionMatrix = this.getProjectionMatrix();
                 let camera_mtx = viewMatrix.elements;
@@ -739,10 +736,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let right = new Float32Array([camera_mtx[0], camera_mtx[4], camera_mtx[8]]);
                 let up = new Float32Array([camera_mtx[1], camera_mtx[5], camera_mtx[9]]);
 
-                const cameraLocal = this.tmpCameraPosLocal.copy(this.tmpCameraPos);
-                this.object.worldToLocal(cameraLocal);
-                let cameraPosition = new Float32Array([cameraLocal.x, cameraLocal.y, cameraLocal.z]);
-
                 const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
                 let mvp = new Float32Array(mvpMatrix.elements);
 
@@ -750,7 +743,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                this.occlusionWorker.postMessage({ method: "occlude", forward: forward.buffer, right: right.buffer, up: up.buffer, mvp: mvp.buffer, scale: globalScale, focal: focal, camera: cameraPosition.buffer }, [forward.buffer, right.buffer, up.buffer, mvp.buffer, cameraPosition.buffer]);
+                this.occlusionWorker.postMessage({ method: "occlude", forward: forward.buffer, right: right.buffer, up: up.buffer, mvp: mvp.buffer, scale: globalScale, focal: focal }, [forward.buffer, right.buffer, up.buffer, mvp.buffer]);
         },
 
         sortSplatsNow: function () {
@@ -1065,7 +1058,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                 };
 
-                const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0, cameraPosition = null) {
+                const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
                         ensureCapacity(vertexCount);
                         let maxDepth = -Infinity;
@@ -1125,10 +1118,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         const nearPlaneClip = -0.08;
 
-                        const camX = cameraPosition ? cameraPosition[0] : 0.0;
-                        const camY = cameraPosition ? cameraPosition[1] : 0.0;
-                        const camZ = cameraPosition ? cameraPosition[2] : 0.0;
-
                         for (let di = validCount - 1; di >= 0; di--) {
                                 const idx = depthIndex[di];
                                 const offset = idx * 16;
@@ -1177,35 +1166,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const radius = maxRadius * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
-                                let occlusionOpacity = opacity;
-                                if (cameraPosition) {
-                                        const toCameraX = camX - px;
-                                        const toCameraY = camY - py;
-                                        const toCameraZ = camZ - pz;
-                                        const distSq = toCameraX * toCameraX + toCameraY * toCameraY + toCameraZ * toCameraZ;
-                                        if (distSq > 1e-12) {
-                                                const invDist = 1.0 / Math.sqrt(distSq);
-                                                const viewX = toCameraX * invDist;
-                                                const viewY = toCameraY * invDist;
-                                                const viewZ = toCameraZ * invDist;
-
-                                                const vCx = c00 * viewX + c01 * viewY + c02 * viewZ;
-                                                const vCy = c10 * viewX + c11 * viewY + c12 * viewZ;
-                                                const vCz = c20 * viewX + c21 * viewY + c22 * viewZ;
-                                                const extentSq = viewX * vCx + viewY * vCy + viewZ * vCz;
-                                                if (extentSq > 0.0) {
-                                                        const extent = Math.sqrt(extentSq);
-                                                        const minScale = Math.max(1e-6, matrices[offset + 3]);
-                                                        const facingFactor = Math.max(0.0, Math.min(1.0, minScale / extent));
-                                                        occlusionOpacity *= facingFactor;
-                                                }
-                                        }
-                                }
-                                if (occlusionOpacity <= 0.0) continue;
-
                                 // -
 
-                                const radiusTransparencyProduct = radius * occlusionOpacity;
+                                const radiusTransparencyProduct = radius * opacity;
                                 const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
@@ -1242,12 +1205,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
                                                                 
-                                const perceived = occlusionOpacity * avgResidual;
+                                const perceived = opacity * avgResidual;
 				if (perceived < 0.001) {
     					discarded[discardCount++] = idx;
 				}
 
-                                const attenuation = 1.0 - occlusionOpacity;
+				const attenuation = 1.0 - opacity;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
@@ -1283,8 +1246,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        const camera = e.data.camera ? new Float32Array(e.data.camera) : null;
-                                        discard = occludeSplats(matrices, forward, right, up, mvp, scaleFactor, focal, camera);
+                                        discard = occludeSplats(matrices, forward, right, up, mvp, scaleFactor, focal);
                                 }
                                 self.postMessage({ method: "occlude", discard }, [discard.buffer]);
                         }
