@@ -736,6 +736,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let right = new Float32Array([camera_mtx[0], camera_mtx[4], camera_mtx[8]]);
                 let up = new Float32Array([camera_mtx[1], camera_mtx[5], camera_mtx[9]]);
 
+                const cameraWorldPos = this.tmpCameraPos;
+                this.camera.getWorldPosition(cameraWorldPos);
+                const cameraPos = new Float32Array([cameraWorldPos.x, cameraWorldPos.y, cameraWorldPos.z]);
+
                 const mvpMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
                 let mvp = new Float32Array(mvpMatrix.elements);
 
@@ -743,7 +747,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                this.occlusionWorker.postMessage({ method: "occlude", forward: forward.buffer, right: right.buffer, up: up.buffer, mvp: mvp.buffer, scale: globalScale, focal: focal }, [forward.buffer, right.buffer, up.buffer, mvp.buffer]);
+                this.occlusionWorker.postMessage({ method: "occlude", forward: forward.buffer, right: right.buffer, up: up.buffer, mvp: mvp.buffer, cameraPos: cameraPos.buffer, scale: globalScale, focal: focal }, [forward.buffer, right.buffer, up.buffer, mvp.buffer, cameraPos.buffer]);
         },
 
         sortSplatsNow: function () {
@@ -1058,7 +1062,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                 };
 
-                const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0) {
+                const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, cameraPos, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
                         ensureCapacity(vertexCount);
                         let maxDepth = -Infinity;
@@ -1076,6 +1080,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m4 = mvp[4],  m5 = mvp[5],  m6 = mvp[6],  m7 = mvp[7];
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
+
+                        const hasCameraPos = cameraPos && cameraPos.length >= 3;
+                        const camX = hasCameraPos ? cameraPos[0] : 0.0;
+                        const camY = hasCameraPos ? cameraPos[1] : 0.0;
+                        const camZ = hasCameraPos ? cameraPos[2] : 0.0;
 
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
                                 const px = matrices[offset + 12];
@@ -1153,6 +1162,26 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const c10 = matrices[offset + 1], c11 = matrices[offset + 5], c12 = matrices[offset + 9];
                                 const c20 = matrices[offset + 2], c21 = matrices[offset + 6], c22 = matrices[offset + 10];
 
+                                let facingWeight = 1.0;
+                                if (hasCameraPos) {
+                                        const vx = camX - px;
+                                        const vy = camY - py;
+                                        const vz = camZ - pz;
+                                        const viewLenSq = vx * vx + vy * vy + vz * vz;
+
+                                        const nx = c10 * c21 - c20 * c11;
+                                        const ny = c20 * c01 - c00 * c21;
+                                        const nz = c00 * c11 - c10 * c01;
+                                        const normalLenSq = nx * nx + ny * ny + nz * nz;
+
+                                        const denom = normalLenSq > 0.0 && viewLenSq > 0.0 ? Math.sqrt(normalLenSq * viewLenSq) : 0.0;
+                                        if (denom > 0.0) {
+                                                const dot = (nx * vx + ny * vy + nz * vz) / denom;
+                                                const clampedDot = Math.max(-1.0, Math.min(1.0, dot));
+                                                facingWeight = Math.max(0.0, Math.min(1.0, (clampedDot + 1.0) * 0.5));
+                                        }
+                                }
+
                                 const rCx = c00 * r0 + c01 * r1 + c02 * r2;
                                 const rCy = c10 * r0 + c11 * r1 + c12 * r2;
                                 const rCz = c20 * r0 + c21 * r1 + c22 * r2;
@@ -1165,6 +1194,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const radius = maxRadius * scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
+                                const effectiveOpacity = Math.max(0.0, Math.min(1.0, opacity * facingWeight));
 
                                 // -
 
@@ -1205,12 +1235,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 				const avgResidual = residual / cells;
                                                                 
-                                const perceived = opacity * avgResidual;
-				if (perceived < 0.00000001) {
-    					discarded[discardCount++] = idx;
-				}
+                                const perceived = effectiveOpacity * avgResidual;
+                                if (perceived < 0.00000001) {
+                                        discarded[discardCount++] = idx;
+                                }
 
-				const attenuation = 1.0 - opacity;
+                                const attenuation = 1.0 - effectiveOpacity;
                                 for (let y = y0; y < y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x < x1; x++) {
@@ -1244,9 +1274,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const right = new Float32Array(e.data.right);
                                         const up = new Float32Array(e.data.up);
                                         const mvp = new Float32Array(e.data.mvp);
+                                        const cameraPos = e.data.cameraPos ? new Float32Array(e.data.cameraPos) : null;
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        discard = occludeSplats(matrices, forward, right, up, mvp, scaleFactor, focal);
+                                        discard = occludeSplats(matrices, forward, right, up, mvp, cameraPos, scaleFactor, focal);
                                 }
                                 self.postMessage({ method: "occlude", discard }, [discard.buffer]);
                         }
