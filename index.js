@@ -1167,22 +1167,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
 
-                                let facingFactor = 1.0;
-                                if (hasNormals && hasCamera) {
-                                        const nx = normals[idx * 3 + 0];
-                                        const ny = normals[idx * 3 + 1];
-                                        const nz = normals[idx * 3 + 2];
-                                        const toCameraX = cameraX - px;
-                                        const toCameraY = cameraY - py;
-                                        const toCameraZ = cameraZ - pz;
-                                        const distSq = toCameraX * toCameraX + toCameraY * toCameraY + toCameraZ * toCameraZ;
-                                        if (distSq > 1.0) {
-                                        	const invLen = Math.sqrt(distSq);
-                                        	const dot = nx * toCameraX * invLen + ny * toCameraY * invLen + nz * toCameraZ * invLen;
-                                        	facingFactor = 1.0 - Math.max(0.0, dot);
-					}
-                                }
-
                                 const depth = f0 * px + f1 * py + f2 * pz + f3;
                                 if (depth >= 0.0) continue;
 
@@ -1243,6 +1227,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadiusX));
                                 const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadiusY));
                                 if (x1 <= 0 || x1 < x0 || y1 <= 0 || y1 < y0 || x0 >= GRID_SIZE || y0 >= GRID_SIZE) continue;
+
+				let facingFactor = 1.0;
+                                if (hasNormals && hasCamera) {
+                                        const nx = normals[idx * 3 + 0];
+                                        const ny = normals[idx * 3 + 1];
+                                        const nz = normals[idx * 3 + 2];
+                                        const toCameraX = cameraX - px;
+                                        const toCameraY = cameraY - py;
+                                        const toCameraZ = cameraZ - pz;
+                                        const distSq = toCameraX * toCameraX + toCameraY * toCameraY + toCameraZ * toCameraZ;
+                                        if (distSq > 1.0) {
+                                        	const invLen = Math.sqrt(distSq);
+                                        	const dot = nx * toCameraX * invLen + ny * toCameraY * invLen + nz * toCameraZ * invLen;
+                                        	facingFactor = 1.0 - Math.max(0.0, dot);
+					}
+                                }
 
                                 let residual = 0.0;
                                 let cells = 0;
