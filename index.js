@@ -32,6 +32,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (recompileShader){
                                 this.mesh.material.needsUpdate = true;
                         }
+
                         this.applyFoveationLevel();
                         this.currentXrPixelRatio = this.data.xrPixelRatio;
                         this.updateXRScale();
@@ -1267,8 +1268,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
-
+          
                 const GRID_SIZE = 500;
+          
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 let activeIndices = [];
@@ -1420,8 +1422,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const uCz = c20 * u0 + c21 * u1 + c22 * u2;
                                 const radiusY = Math.sqrt(u0 * uCx + u1 * uCy + u2 * uCz);
 
-                                const radius = maxRadius * scaleFactor;
-                                const opacity = matrices[offset + 11];
+                                const minRadius = matrices[offset + 3];
+
+                                // const thinness = Math.cbrt(maxRadius * maxRadius * minRadius);
+
+                                // ^ thinness prevents some occluded splats from being removed, consider removing it and using a proper direction calcution approach for thinness calcution.			
+
+                                const radius = scaleFactor * maxRadius;
+                                const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
+
+                                // -
 
                                 const radiusTransparencyProduct = radius * opacity;
                                 const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
@@ -1430,9 +1440,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 0.7 * edgeMultiplier;
+                                const tooSmall = pixelThreshold < 0.7 * edgeMultiplier && !skipCullBehind;
 
-                                if (tooSmall && !skipCullBehind) continue;
+                                if (tooSmall) continue;
 
                                 const ndcRadiusX = radiusX / -depth;
                                 const ndcRadiusY = radiusY / -depth;
@@ -1443,11 +1453,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const x0 = Math.max(0, Math.floor(gridX - gridRadiusX));
                                 const y0 = Math.max(0, Math.floor(gridY - gridRadiusY));
-                                const x1 = Math.min(GRID_SIZE, Math.ceil(gridX + gridRadiusX));
-                                const y1 = Math.min(GRID_SIZE, Math.ceil(gridY + gridRadiusY));
+                                const x1 = Math.min(GRID_SIZE - 1, Math.ceil(gridX + gridRadiusX));
+                                const y1 = Math.min(GRID_SIZE - 1, Math.ceil(gridY + gridRadiusY));
                                 if (x1 <= 0 || x1 < x0 || y1 <= 0 || y1 < y0 || x0 >= GRID_SIZE || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
+                          
                                 let cells = 0;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
@@ -1457,6 +1468,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         }
                                 }
                                 const avg = residual / cells;
+                                                                
+                                const perceived = opacity * avgResidual;
+                                
+                                if (perceived < 0.0000001) {
+                                    discarded[discardCount++] = idx;
+                                }
+                          
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
@@ -1603,7 +1621,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                        }
                        vertexCount = vertices.length;
 
-                       const IMPORTANCE_THRESHOLD = 0.003;
+                       const IMPORTANCE_THRESHOLD = 0.002;
                        let sizeList = [];
                        let sizeIndex = [];
                        for (let i = 0; i < vertexCount; i++) {
@@ -1706,7 +1724,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                );
 
                console.time("calculate importance");
-               const IMPORTANCE_THRESHOLD = 0.003;
+               const IMPORTANCE_THRESHOLD = 0.002;
                let sizeList = [];
                let sizeIndex = [];
                for (row = 0; row < vertexCount; row++) {
