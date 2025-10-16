@@ -364,6 +364,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 this.sortReady = true;
                         } else if (e.data.method === "filter") {
                                 this.filterReady = true;
+                        } else if (e.data.method === "deactivated") {
+                                const indexes = new Uint32Array(e.data.indexes);
+                                if (indexes.length > 0) {
+                                        this.occlusionWorker.postMessage({ method: "deactivate", indexes: indexes.buffer }, [indexes.buffer]);
+                                }
+                        } else if (e.data.method === "reactivated") {
+                                const indexes = new Uint32Array(e.data.indexes);
+                                if (indexes.length > 0) {
+                                        this.occlusionWorker.postMessage({ method: "activate", indexes: indexes.buffer }, [indexes.buffer]);
+                                }
                         }
                 };
                 this.sortReady = true;
@@ -803,6 +813,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let fadeOpacities = undefined;
 
                 const COUNT_SIZE = 2048 * 2048;
+                const INVISIBLE_FRAME_LIMIT = 600;
+                const REACTIVATION_BATCH_SIZE = 512;
 
                 let cache = {
                         capacity: 0,
@@ -817,46 +829,117 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let discardMark = null;
                 let wasOccluded = null;
 
-                const ensureCapacity = (n) => {
+                let inactiveFrames = [];
+                let activeIndices = [];
+                let activeLookup = [];
+                let inactiveIndices = [];
+                let inactiveLookup = [];
+                let reactivationCursor = 0;
+
+                const ensureCacheCapacity = (n) => {
                         if (cache.capacity >= n) return;
                         cache.capacity = n;
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
-                        discardMark = new Uint8Array(n);
                 };
 
-                const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
-                        const vertexCount = matrices.length / 16;
-                        if (!wasOccluded || !fadeOpacities || fadeOpacities.length < vertexCount) {
-                                const tmp = new Float32Array(vertexCount);
-                                tmp.fill(2.0);
-                                if (fadeOpacities) tmp.set(fadeOpacities.subarray(0, Math.min(fadeOpacities.length, vertexCount)));
-                                fadeOpacities = tmp;
-
-				wasOccluded = new Uint8Array(vertexCount);
+                const ensureDiscardCapacity = (n) => {
+                        if (!discardMark || discardMark.length < n) {
+                                const next = new Uint8Array(n);
+                                if (discardMark) next.set(discardMark.subarray(0, Math.min(discardMark.length, n)));
+                                discardMark = next;
                         }
+                };
 
-                        ensureCapacity(vertexCount);
+                const ensureOcclusionCapacity = (n) => {
+                        if (!wasOccluded || wasOccluded.length < n) {
+                                const next = new Uint8Array(n);
+                                if (wasOccluded) next.set(wasOccluded.subarray(0, Math.min(wasOccluded.length, n)));
+                                wasOccluded = next;
+                        }
+                };
 
-                        let maxDepth = -Infinity;
-                        let minDepth = Infinity;
-                        let depthList = cache.depthList;
-                        let sizeList = cache.sizeList;
-                        let validIndexList = cache.validIndexList;
-                        let validCount = 0;
+                const ensureVisibilityCapacity = (n) => {
+                        if (inactiveFrames.length < n) {
+                                const prev = inactiveFrames.length;
+                                inactiveFrames.length = n;
+                                for (let i = prev; i < n; i++) inactiveFrames[i] = 0;
+                        }
+                        if (activeLookup.length < n) {
+                                const prev = activeLookup.length;
+                                activeLookup.length = n;
+                                inactiveLookup.length = n;
+                                for (let i = prev; i < n; i++) {
+                                        activeLookup[i] = -1;
+                                        inactiveLookup[i] = -1;
+                                }
+                        }
+                };
 
-                        // cache matrix values locally for speed
+                const removeFromInactive = (idx) => {
+                        const pos = inactiveLookup[idx];
+                        if (pos === undefined || pos < 0) return;
+                        const lastIndex = inactiveIndices.length - 1;
+                        const last = inactiveIndices[lastIndex];
+                        inactiveIndices.pop();
+                        if (pos !== lastIndex) {
+                                inactiveIndices[pos] = last;
+                                inactiveLookup[last] = pos;
+                        }
+                        inactiveLookup[idx] = -1;
+                        if (reactivationCursor > pos) {
+                                reactivationCursor = Math.max(0, reactivationCursor - 1);
+                        }
+                        if (reactivationCursor > inactiveIndices.length) {
+                                reactivationCursor = inactiveIndices.length;
+                        }
+                };
+
+                const activateIndex = (idx) => {
+                        if (activeLookup[idx] !== -1) return false;
+                        removeFromInactive(idx);
+                        activeLookup[idx] = activeIndices.length;
+                        activeIndices.push(idx);
+                        return true;
+                };
+
+                const deactivateIndex = (idx) => {
+                        const pos = activeLookup[idx];
+                        if (pos === undefined || pos < 0) return false;
+                        const lastIndex = activeIndices.length - 1;
+                        const last = activeIndices[lastIndex];
+                        activeIndices.pop();
+                        if (pos !== lastIndex) {
+                                activeIndices[pos] = last;
+                                activeLookup[last] = pos;
+                        }
+                        activeLookup[idx] = -1;
+                        inactiveLookup[idx] = inactiveIndices.length;
+                        inactiveIndices.push(idx);
+                        return true;
+                };
+
+                const reactivateSplats = (matrices, view, mvp, scaleFactor, focal) => {
+                        if (inactiveIndices.length === 0) return null;
+
+                        const activated = [];
+                        const checks = Math.min(REACTIVATION_BATCH_SIZE, inactiveIndices.length);
+
                         const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
                         const m0 = mvp[0],  m1 = mvp[1],  m2 = mvp[2],  m3 = mvp[3];
                         const m4 = mvp[4],  m5 = mvp[5],  m6 = mvp[6],  m7 = mvp[7];
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        const fadeStep = 0.2;
                         const nearPlaneClip = -0.08;
-                        for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
-                                //if (discardMark[i]) continue;
+
+                        for (let processed = 0; processed < checks && inactiveIndices.length > 0; processed++) {
+                                if (reactivationCursor >= inactiveIndices.length) {
+                                        reactivationCursor = 0;
+                                }
+                                const idx = inactiveIndices[reactivationCursor];
+                                const offset = idx * 16;
 
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
@@ -867,14 +950,125 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_z = m2 * px + m6 * py + m10 * pz + m14;
                                 const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
-				const radius = matrices[offset + 15] * scaleFactor;
-                                const transparency = matrices[offset + 11]; // 0-1
+                                const radius = matrices[offset + 15] * scaleFactor;
+                                const transparency = matrices[offset + 11];
                                 const radiusTransparencyProduct = radius * transparency;
-                                
-                                const skipCullEdges = (radiusTransparencyProduct / scaleFactor) > 0.075;
-				const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
 
-                                if (clip_w < 0.0 && !skipCullBehind) continue;
+                                const skipCullEdges = (radiusTransparencyProduct / scaleFactor) > 0.075;
+                                const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
+
+                                let shouldReactivate = true;
+
+                                if (clip_w < 0.0 && !skipCullBehind) {
+                                        shouldReactivate = false;
+                                }
+
+                                if (shouldReactivate) {
+                                        const invW = 1.0 / clip_w;
+                                        const ndcX = clip_x * invW;
+                                        const ndcY = clip_y * invW;
+                                        const depth = v0 * px + v1 * py + v2 * pz + v3;
+
+                                        const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
+                                        if (!insideOfScreen && !skipCullEdges) {
+                                                shouldReactivate = false;
+                                        } else if (depth + radius > nearPlaneClip && insideOfScreen) {
+                                                shouldReactivate = false;
+                                        } else {
+                                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
+                                                const edgeMultiplier = 1.0 + (edgeDist * 0.6);
+                                                const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
+                                                const tooSmall = pixelThreshold < 0.7 * edgeMultiplier && !skipCullBehind;
+                                                if (!insideOfScreen || tooSmall) {
+                                                        shouldReactivate = false;
+                                                }
+                                        }
+                                }
+
+                                if (shouldReactivate) {
+                                        if (activateIndex(idx)) {
+                                                inactiveFrames[idx] = 0;
+                                                fadeOpacities[idx] = 2.0;
+                                                if (wasOccluded) wasOccluded[idx] = 0;
+                                                activated.push(idx);
+                                        }
+                                } else {
+                                        reactivationCursor++;
+                                }
+                        }
+
+                        if (activated.length === 0) return null;
+                        const result = new Uint32Array(activated.length);
+                        for (let i = 0; i < activated.length; i++) result[i] = activated[i];
+                        return result;
+                };
+
+                const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
+                        const totalCount = matrices.length / 16;
+                        ensureOcclusionCapacity(totalCount);
+                        ensureVisibilityCapacity(totalCount);
+
+                        if (!fadeOpacities || fadeOpacities.length < totalCount) {
+                                const tmp = new Float32Array(totalCount);
+                                tmp.fill(2.0);
+                                if (fadeOpacities) tmp.set(fadeOpacities.subarray(0, Math.min(fadeOpacities.length, totalCount)));
+                                fadeOpacities = tmp;
+                        }
+
+                        const activeCount = activeIndices.length;
+                        ensureCacheCapacity(activeCount);
+
+                        let maxDepth = -Infinity;
+                        let minDepth = Infinity;
+                        let depthList = cache.depthList;
+                        let sizeList = cache.sizeList;
+                        let validIndexList = cache.validIndexList;
+                        let validCount = 0;
+
+                        const removalSet = new Set();
+
+                        const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
+                        const m0 = mvp[0],  m1 = mvp[1],  m2 = mvp[2],  m3 = mvp[3];
+                        const m4 = mvp[4],  m5 = mvp[5],  m6 = mvp[6],  m7 = mvp[7];
+                        const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
+                        const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
+
+                        const fadeStep = 0.2;
+                        const nearPlaneClip = -0.08;
+
+                        const markInvisible = (idx) => {
+                                const current = inactiveFrames[idx] ?? 0;
+                                const next = Math.min(current + 1, INVISIBLE_FRAME_LIMIT + 1);
+                                inactiveFrames[idx] = next;
+                                if (next > INVISIBLE_FRAME_LIMIT) {
+                                        removalSet.add(idx);
+                                }
+                        };
+
+                        for (let ai = 0; ai < activeCount; ai++) {
+                                const idx = activeIndices[ai];
+                                const offset = idx * 16;
+
+                                const px = matrices[offset + 12];
+                                const py = matrices[offset + 13];
+                                const pz = matrices[offset + 14];
+
+                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+
+                                const radius = matrices[offset + 15] * scaleFactor;
+                                const transparency = matrices[offset + 11];
+                                const radiusTransparencyProduct = radius * transparency;
+
+                                const skipCullEdges = (radiusTransparencyProduct / scaleFactor) > 0.075;
+                                const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
+
+                                if (clip_w < 0.0 && !skipCullBehind) {
+                                        markInvisible(idx);
+                                        continue;
+                                }
 
                                 const invW  = 1.0 / clip_w;
 
@@ -883,72 +1077,101 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcZ  = clip_z * invW;
 
                                 let depth = v0 * px + v1 * py + v2 * pz + v3;
-				
-				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 
-				if (!insideOfScreen && !skipCullEdges) continue;
+                                const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
+
+                                if (!insideOfScreen && !skipCullEdges) {
+                                        markInvisible(idx);
+                                        continue;
+                                }
 
                                 if (depth + radius > nearPlaneClip && insideOfScreen) {
-                                        continue; // centre is inside the view and too close to the camera
+                                        markInvisible(idx);
+                                        continue;
                                 }
 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
-                                
+
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 const tooSmall = pixelThreshold < 0.7 * edgeMultiplier && !skipCullBehind;
 
-                                let f = fadeOpacities[i];
+                                let f = fadeOpacities[idx];
+                                let visibleCandidate = false;
 
-				if (insideOfScreen) {
-                                        const isOccluded = discardMark && discardMark[i] === 1;
-					const was = wasOccluded[i] === 1;
+                                if (insideOfScreen) {
+                                        const isOccluded = discardMark && discardMark[idx] === 1;
+                                        const was = wasOccluded[idx] === 1;
 
-					if (f === 2.0) f = (isOccluded || tooSmall) ? 0.0 : 1.0; // default unset value is 2.0
+                                        if (f === 2.0) f = (isOccluded || tooSmall) ? 0.0 : 1.0;
 
-					if (tooSmall) f = Math.max(0, f - fadeStep);
-					
-					else if (isOccluded) f = Math.max(0, f - fadeStep * 1.9);
+                                        if (tooSmall) f = Math.max(0, f - fadeStep);
 
-					else {
-						const step = was ? fadeStep * 1.9 : fadeStep;
-						f = Math.min(1, f + step);
-					}
+                                        else if (isOccluded) f = Math.max(0, f - fadeStep * 1.9);
 
-					if (isOccluded)
-						wasOccluded[i] = 1;
-					else if (was && f >= 1.0 - fadeStep)
-						wasOccluded[i] = 0;
+                                        else {
+                                                const step = was ? fadeStep * 1.9 : fadeStep;
+                                                f = Math.min(1, f + step);
+                                        }
+
+                                        if (isOccluded) {
+                                                wasOccluded[idx] = 1;
+                                        } else if (was && f >= 1.0 - fadeStep) {
+                                                wasOccluded[idx] = 0;
+                                        }
+
+                                        visibleCandidate = !isOccluded && !tooSmall;
+                                } else {
+                                        f = 2.0;
+                                        wasOccluded[idx] = 0;
                                 }
-				else
-				{
-                                	f = 2.0;
-                                        wasOccluded[i] = 0;
-				}
 
-				fadeOpacities[i] = f;
+                                fadeOpacities[idx] = f;
+
+                                if (!visibleCandidate) {
+                                        markInvisible(idx);
+                                } else {
+                                        inactiveFrames[idx] = 0;
+                                }
 
                                 if (f < 0.15) continue;
 
                                 depthList[validCount] = depth;
-                                validIndexList[validCount] = i;
+                                validIndexList[validCount] = idx;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-			console.warn(validCount);
+                        let removed = null;
+                        if (removalSet.size > 0) {
+                                removed = new Uint32Array(removalSet.size);
+                                let ri = 0;
+                                removalSet.forEach((idx) => {
+                                        if (deactivateIndex(idx)) {
+                                                inactiveFrames[idx] = INVISIBLE_FRAME_LIMIT + 1;
+                                                fadeOpacities[idx] = 2.0;
+                                                if (wasOccluded) wasOccluded[idx] = 0;
+                                                removed[ri++] = idx;
+                                        }
+                                });
+                                if (ri < removed.length) {
+                                        removed = removed.subarray(0, ri);
+                                }
+                        }
 
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
+
+                        return removed && removed.length > 0 ? removed : null;
                 };
 
                 const sortSplats = function sortSplats() {
                         const validCount = filterResult.count;
-                        let depthList = cache.depthList;
-                        let sizeList = cache.sizeList;
-                        let validIndexList = cache.validIndexList;
+                        const depthList = cache.depthList;
+                        const sizeList = cache.sizeList;
+                        const validIndexList = cache.validIndexList;
                         if (validCount === 0) {
                                 return new Uint32Array(0);
                         }
@@ -970,66 +1193,64 @@ AFRAME.registerComponent("gaussian_splatting", {
                         return depthIndex;
                 };
 
-		self.onmessage = (e) => {
+                self.onmessage = (e) => {
                         if (e.data.method == "clear") {
                                 matrices = undefined;
-                                fadeOpacities = undefined;
-                                discardMark = null;
+                                activeIndices = [];
+                                activeLookup = [];
+                                cache.capacity = 0;
+                                cache.depthList = null;
+                                cache.sizeList = null;
+                                cache.validIndexList = null;
                         }
                         if (e.data.method == "push") {
-                                new_matrices = new Float32Array(e.data.matrices);
-                                const newFade = new Float32Array(new_matrices.length / 16);
-                                newFade.fill(2.0);
+                                const new_matrices = new Float32Array(e.data.matrices);
+                                const startIndex = matrices ? matrices.length / 16 : 0;
                                 if (matrices === undefined) {
                                         matrices = new_matrices;
-                                        fadeOpacities = newFade;
                                 } else {
-                                        resized = new Float32Array(matrices.length + new_matrices.length);
+                                        const resized = new Float32Array(matrices.length + new_matrices.length);
                                         resized.set(matrices);
                                         resized.set(new_matrices, matrices.length);
                                         matrices = resized;
-
-                                        let fadeResized = new Float32Array(fadeOpacities.length + newFade.length);
-                                        fadeResized.set(fadeOpacities);
-                                        fadeResized.set(newFade, fadeOpacities.length);
-                                        fadeOpacities = fadeResized;
                                 }
-			}
-                        if (e.data.method == "filter") {
-                                if (matrices !== undefined) {
-                                        ensureCapacity(matrices.length / 16);
-                                        const vertexCount = matrices.length / 16;
-                                        discardMark.fill(0, 0, vertexCount);
-                                        const discarded = e.data.discard ? new Uint32Array(e.data.discard) : null;
-                                        if (discarded) {
-                                                for (let i = 0; i < discarded.length; i++) {
-                                                        const idx = discarded[i];
-                                                        if (idx < vertexCount) discardMark[idx] = 1;
-                                                }
+                                const totalCount = matrices.length / 16;
+                                ensureActiveCapacity(totalCount);
+                                for (let i = startIndex; i < totalCount; i++) {
+                                        activateIndex(i);
+                                }
+                        }
+                        if (e.data.method == "deactivate") {
+                                if (e.data.indexes) {
+                                        const indexes = new Uint32Array(e.data.indexes);
+                                        for (let i = 0; i < indexes.length; i++) {
+                                                deactivateIndex(indexes[i]);
                                         }
-                                        const view = new Float32Array(e.data.view);
+                                }
+                        }
+                        if (e.data.method == "activate") {
+                                if (e.data.indexes) {
+                                        const indexes = new Uint32Array(e.data.indexes);
+                                        ensureActiveCapacity(matrices ? matrices.length / 16 : 0);
+                                        for (let i = 0; i < indexes.length; i++) {
+                                                activateIndex(indexes[i]);
+                                        }
+                                }
+                        }
+                        if (e.data.method == "occlude") {
+                                if (matrices !== undefined && activeIndices.length > 0) {
+                                        const forward = new Float32Array(e.data.forward);
+                                        const right = new Float32Array(e.data.right);
+                                        const up = new Float32Array(e.data.up);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        filterSplats(matrices, view, mvp, scaleFactor, focal);
+                                        const discarded = occludeSplats(matrices, forward, right, up, mvp, scaleFactor, focal);
+                                        self.postMessage({ method: "occlude", discard: discarded.buffer }, [discarded.buffer]);
+                                } else {
+                                        const discarded = new Uint32Array(0);
+                                        self.postMessage({ method: "occlude", discard: discarded.buffer }, [discarded.buffer]);
                                 }
-                                self.postMessage({ method: "filter" });
-                        }
-                        if (e.data.method == "sort") {
-                               if (matrices === undefined) {
-                                       const sortedIndexes = new Uint32Array(1);
-                                       const fadeCopy = new Uint8Array(1);
-                                       fadeCopy[0] = 2.0;
-                                       self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
-                               } else {
-                                       const sortedIndexes = sortSplats();
-                                       const fadeCopy = new Uint8Array(sortedIndexes.length);
-                                       for (let i = 0; i < sortedIndexes.length; i++) {
-                                               const f = fadeOpacities[sortedIndexes[i]];
-                                               fadeCopy[i] = Math.round(Math.max(0, Math.min(1, f < 0 ? 1 : f)) * 255);
-                                       }
-                                       self.postMessage({ method: "sort", sortedIndexes, fadeOpacities: fadeCopy }, [sortedIndexes.buffer, fadeCopy.buffer]);
-                               }
                         }
                 };
         },
@@ -1047,9 +1268,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
-
-                const GRID_SIZE = 1024;
+          
+                const GRID_SIZE = 500;
+          
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
+
+                let activeIndices = [];
+                let activeLookup = [];
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
@@ -1059,8 +1284,39 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                 };
 
-                const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0) {
-                        const vertexCount = matrices.length / 16;
+                const ensureActiveCapacity = (n) => {
+                        if (activeLookup.length < n) {
+                                const prev = activeLookup.length;
+                                activeLookup.length = n;
+                                for (let i = prev; i < n; i++) activeLookup[i] = -1;
+                        }
+                };
+
+                const activateIndex = (idx) => {
+                        if (activeLookup[idx] !== -1) return;
+                        activeLookup[idx] = activeIndices.length;
+                        activeIndices.push(idx);
+                };
+
+                const deactivateIndex = (idx) => {
+                        const pos = activeLookup[idx];
+                        if (pos === undefined || pos < 0) return;
+                        const lastIndex = activeIndices.length - 1;
+                        const last = activeIndices[lastIndex];
+                        activeIndices.pop();
+                        if (pos !== lastIndex) {
+                                activeIndices[pos] = last;
+                                activeLookup[last] = pos;
+                        }
+                        activeLookup[idx] = -1;
+                };
+
+
+                const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0){
+                        const vertexCount = activeIndices.length;
+                        if (vertexCount === 0) {
+                                return new Uint32Array(0);
+                        }
                         ensureCapacity(vertexCount);
                         let maxDepth = -Infinity;
                         let minDepth = Infinity;
@@ -1078,7 +1334,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
+                        for (let ai = 0; ai < vertexCount; ai++) {
+                                const idx = activeIndices[ai];
+                                const offset = idx * 16;
+
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
@@ -1091,7 +1350,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const depth = f0 * px + f1 * py + f2 * pz + f3;
 
                                 depthList[validCount] = depth;
-                                validIndexList[validCount] = i;
+                                validIndexList[validCount] = idx;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
@@ -1112,8 +1371,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthIndex = new Uint32Array(validCount);
                         for (let i = 0; i < validCount; i++) depthIndex[starts0[sizeList[i]]++] = validIndexList[i];
 
-                        // Occlusion accumulation using a screen space grid
-                        grid.fill(1.0); // remaining transparency for each cell
+                        grid.fill(1.0);
                         const discarded = new Uint32Array(validCount);
                         let discardCount = 0;
 
@@ -1134,7 +1392,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth >= 0.0) continue;
 
                                 if (depth + maxRadius > nearPlaneClip) {
-                                        continue; // centre is inside the view and too close to the camera
+                                        continue;
                                 }
 
                                 const clip_x = m0 * px + m4 * py + m8  * pz + m12;
@@ -1147,8 +1405,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
 
-				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
-				if (!insideOfScreen) continue;
+                                const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
+                                if (!insideOfScreen) continue;
 
                                 const c00 = matrices[offset + 0], c01 = matrices[offset + 4], c02 = matrices[offset + 8];
                                 const c10 = matrices[offset + 1], c11 = matrices[offset + 5], c12 = matrices[offset + 9];
@@ -1166,11 +1424,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const minRadius = matrices[offset + 3];
 
-				// const thinness = Math.cbrt(maxRadius * maxRadius * minRadius);
+                                // const thinness = Math.cbrt(maxRadius * maxRadius * minRadius);
 
-				// ^ thinness prevents some occluded splats from being removed, consider removing it and using a proper direction calcution approach for thinness calcution.			
+                                // ^ thinness prevents some occluded splats from being removed, consider removing it and using a proper direction calcution approach for thinness calcution.			
 
-				const radius = scaleFactor * maxRadius;
+                                const radius = scaleFactor * maxRadius;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 // -
@@ -1186,8 +1444,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 if (tooSmall) continue;
 
-                                // -
-
                                 const ndcRadiusX = radiusX / -depth;
                                 const ndcRadiusY = radiusY / -depth;
                                 const gridX = (ndcX * 0.5 + 0.5) * GRID_SIZE;
@@ -1202,27 +1458,33 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (x1 <= 0 || x1 < x0 || y1 <= 0 || y1 < y0 || x0 >= GRID_SIZE || y0 >= GRID_SIZE) continue;
 
                                 let residual = 0.0;
-				let cells = 0;
-				for (let y = y0; y <= y1; y++) {
-    					const row = y * GRID_SIZE;
-    					for (let x = x0; x <= x1; x++) {
-        					residual += grid[row + x];
-        					cells++;
-					}
-				}
-				const avgResidual = residual / cells;
-                                                                
-                                const perceived = opacity * avgResidual;
-				if (perceived < 0.0000001) {
-    					discarded[discardCount++] = idx;
-				}
-
-				const attenuation = 1.0 - opacity;
+                          
+                                let cells = 0;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
-                                                grid[row + x] *= attenuation;
+                                                residual += grid[row + x];
+                                                cells++;
                                         }
+                                }
+                                const avg = residual / cells;
+                                                                
+                                const perceived = opacity * avgResidual;
+                                
+                                if (perceived < 0.0000001) {
+                                    discarded[discardCount++] = idx;
+                                }
+                          
+                                for (let y = y0; y <= y1; y++) {
+                                        const row = y * GRID_SIZE;
+                                        for (let x = x0; x <= x1; x++) {
+                                                const idxCell = row + x;
+                                                grid[idxCell] = Math.max(0.0, grid[idxCell] - opacity);
+                                        }
+                                }
+
+                                if (avg <= 0.01) {
+                                        discarded[discardCount++] = idx;
                                 }
                         }
 
@@ -1232,9 +1494,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                 self.onmessage = (e) => {
                         if (e.data.method == "clear") {
                                 matrices = undefined;
+                                activeIndices = [];
+                                activeLookup = [];
+                                cache.capacity = 0;
+                                cache.depthList = null;
+                                cache.sizeList = null;
+                                cache.validIndexList = null;
                         }
                         if (e.data.method == "push") {
                                 const new_matrices = new Float32Array(e.data.matrices);
+                                const startIndex = matrices ? matrices.length / 16 : 0;
                                 if (matrices === undefined) {
                                         matrices = new_matrices;
                                 } else {
@@ -1243,19 +1512,43 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         resized.set(new_matrices, matrices.length);
                                         matrices = resized;
                                 }
+                                const totalCount = matrices.length / 16;
+                                ensureActiveCapacity(totalCount);
+                                for (let i = startIndex; i < totalCount; i++) {
+                                        activateIndex(i);
+                                }
+                        }
+                        if (e.data.method == "deactivate") {
+                                if (e.data.indexes) {
+                                        const indexes = new Uint32Array(e.data.indexes);
+                                        for (let i = 0; i < indexes.length; i++) {
+                                                deactivateIndex(indexes[i]);
+                                        }
+                                }
+                        }
+                        if (e.data.method == "activate") {
+                                if (e.data.indexes) {
+                                        const indexes = new Uint32Array(e.data.indexes);
+                                        ensureActiveCapacity(matrices ? matrices.length / 16 : 0);
+                                        for (let i = 0; i < indexes.length; i++) {
+                                                activateIndex(indexes[i]);
+                                        }
+                                }
                         }
                         if (e.data.method == "occlude") {
-                                let discard = new Uint32Array(0);
-                                if (matrices !== undefined) {
+                                if (matrices !== undefined && activeIndices.length > 0) {
                                         const forward = new Float32Array(e.data.forward);
                                         const right = new Float32Array(e.data.right);
                                         const up = new Float32Array(e.data.up);
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        discard = occludeSplats(matrices, forward, right, up, mvp, scaleFactor, focal);
+                                        const discarded = occludeSplats(matrices, forward, right, up, mvp, scaleFactor, focal);
+                                        self.postMessage({ method: "occlude", discard: discarded.buffer }, [discarded.buffer]);
+                                } else {
+                                        const discarded = new Uint32Array(0);
+                                        self.postMessage({ method: "occlude", discard: discarded.buffer }, [discarded.buffer]);
                                 }
-                                self.postMessage({ method: "occlude", discard }, [discard.buffer]);
                         }
                 };
         },
