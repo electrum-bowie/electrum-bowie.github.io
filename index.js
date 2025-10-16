@@ -1166,11 +1166,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const minRadius = matrices[offset + 3];
 
-				const thinness = Math.cbrt(maxRadius * maxRadius * minRadius);
+				// const thinness = Math.cbrt(maxRadius * maxRadius * minRadius);
 
 				// ^ thinness prevents all occluded splats from being removed, consider removing it and using maxRadius instead. Use a proper direction calcution approach for thinness calcution.			
 
-				const radius = thinness * scaleFactor;
+				const radius = scaleFactor;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 // -
