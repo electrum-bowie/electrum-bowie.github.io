@@ -1176,11 +1176,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const toCameraY = cameraY - py;
                                         const toCameraZ = cameraZ - pz;
                                         const distSq = toCameraX * toCameraX + toCameraY * toCameraY + toCameraZ * toCameraZ;
-                                        if (distSq <= 1e-12) continue;
-                                        const invLen = 1.0 / Math.sqrt(distSq);
-                                        const dot = nx * toCameraX * invLen + ny * toCameraY * invLen + nz * toCameraZ * invLen;
-                                        facingFactor = Math.max(0.0, dot);
-                                        if (facingFactor <= 0.0) continue;
+                                        if (distSq > 1.0) {
+                                        	const invLen = Math.sqrt(distSq);
+                                        	const dot = nx * toCameraX * invLen + ny * toCameraY * invLen + nz * toCameraZ * invLen;
+                                        	facingFactor = 1.0 - Math.max(0.0, dot);
+					}
                                 }
 
                                 const depth = f0 * px + f1 * py + f2 * pz + f3;
@@ -1219,10 +1219,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const radius = scaleFactor * maxRadius;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
-                                const occlusionOpacity = Math.min(1.0, opacity * facingFactor);
-                                if (occlusionOpacity <= 0.0) continue;
 
-                                const radiusTransparencyProduct = radius * occlusionOpacity;
+                                const radiusTransparencyProduct = radius * opacity;
                                 const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
@@ -1257,12 +1255,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 const avgResidual = residual / cells;
 
-                                const perceived = occlusionOpacity * avgResidual;
-                                if (perceived < 0.0000001) {
+                                const perceived = opacity * avgResidual;
+                                if (perceived < 0.01) {
                                         discarded[discardCount++] = idx;
                                 }
 
-                                const attenuation = 1.0 - occlusionOpacity;
+                                const attenuation = 1.0 - (opacity * facingFactor);
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
