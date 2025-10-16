@@ -650,7 +650,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 0.001;
 
 		if (this.lastExecTime === undefined) this.lastExecTime = time;
-		const forceExec = (time - this.lastExecTime) >= 600; // 600ms
+		const forceExec = (time - this.lastExecTime) >= 300; // 300ms
 
                 if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged || forceExec) {
                         if (this.occlusionReady) this.occludeSplatsNow();
@@ -885,7 +885,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        const fadeStep = 0.2;
+                        const fadeStep = 0.16;
                         const nearPlaneClip = -0.08;
                         for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
                                 //if (discardMark[i]) continue;
@@ -1256,7 +1256,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const avgResidual = residual / cells;
 
                                 const perceived = opacity * avgResidual;
-                                if (perceived < 0.01) {
+                                if (perceived < 0.000000000001) {
                                         discarded[discardCount++] = idx;
                                 }
 
