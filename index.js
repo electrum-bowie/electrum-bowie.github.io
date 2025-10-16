@@ -1161,7 +1161,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const offset = idx * 16;
 
                                 const maxRadius = matrices[offset + 15];
-                                if (maxRadius > 1.75) continue;
+                                // if (maxRadius > 1.75) continue;
 
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
