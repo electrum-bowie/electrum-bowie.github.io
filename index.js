@@ -1182,9 +1182,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.6);
 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 0.7 * edgeMultiplier;
+                                const tooSmall = pixelThreshold < 0.7 * edgeMultiplier && !skipCullBehind;
 
-                                if (tooSmall && !skipCullBehind) continue;
+                                if (tooSmall) continue;
 
                                 // -
 
