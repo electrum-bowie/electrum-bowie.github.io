@@ -1080,7 +1080,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
-                const GRID_SIZE = 1024;
+                const GRID_SIZE = 2048;
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
@@ -1159,13 +1159,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                         for (let di = validCount - 1; di >= 0; di--) {
                                 const idx = depthIndex[di];
                                 const offset = idx * 16;
-
-                                const maxRadius = matrices[offset + 15];
-                                // if (maxRadius > 1.75) continue;
-
+                                
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
+
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+                                if (clip_w <= 0.0) continue;
+                                
+                                const maxRadius = matrices[offset + 15];
+                                // if (maxRadius > 1.75) continue;
 
                                 const depth = f0 * px + f1 * py + f2 * pz + f3;
                                 if (depth >= 0.0) continue;
@@ -1177,8 +1180,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const clip_x = m0 * px + m4 * py + m8  * pz + m12;
                                 const clip_y = m1 * px + m5 * py + m9  * pz + m13;
                                 const clip_z = m2 * px + m6 * py + m10 * pz + m14;
-                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-                                if (clip_w <= 0.0) continue;
 
                                 const invW  = 1.0 / clip_w;
                                 const ndcX  = clip_x * invW;
