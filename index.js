@@ -112,7 +112,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.covAndColorTexture.internalFormat = "RGBA32UI";
                 this.covAndColorTexture.needsUpdate = true;
 
-                let splatIndexArray = new Uint8Array(4096 * 4096);
+                let splatIndexArray = new Uint32Array(4096 * 4096);
                 const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
                 splatIndexes.setUsage(THREE.DynamicDrawUsage);
 
@@ -141,6 +141,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 geometry.instanceCount = 1;
 
                 const material = new THREE.ShaderMaterial({
+                        glslVersion: THREE.GLSL3,
                         uniforms: {
                                 viewport: { value: new Float32Array([1980, 1080]) }, // Dummy. will be overwritten
                                 viewportInv: { value: new Float32Array([1.0, 1.0]) },
@@ -168,8 +169,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 				uniform mat4 gsModelViewMatrixRight;
                                 #endif
 
-                                attribute uint splatIndex;
-                                attribute float fadeOpacity;
+                                in uint splatIndex;
+                                in float fadeOpacity;
                                 uniform sampler2D centerAndScaleTexture;
                                 uniform usampler2D covAndColorTexture;
 
@@ -264,12 +265,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 			fragmentShader: `
 				in vec4 vColor;
 				in vec2 vPosition;
+                                out vec4 out_FragColor;
 
                                 void main () {
                                         float len2 = dot(vPosition, vPosition);
                                         if (len2 > 4.0) discard;
                                         float B = exp(-len2) * vColor.a;
-                                        gl_FragColor = vec4(vColor.rgb, B);
+                                        out_FragColor = vec4(vColor.rgb, B);
                                 }
 			`,
 			blending: THREE.CustomBlending,
@@ -969,7 +971,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-			console.warn(validCount);
+			//console.warn(validCount);
 
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
