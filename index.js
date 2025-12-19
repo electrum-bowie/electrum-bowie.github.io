@@ -8,10 +8,17 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
         init: function () {
                 // aframe-specific data
+                this.xrPixelRatioBounds = { min: 0.75, max: 1.3 };
+                this.dynamicResolutionEnabled = this.isMetaQuestBrowser();
+                this.frameTimeSamples = [];
+                this.lastDynamicUpdate = 0;
+                this.targetFrameRate = 72;
+
                 const pixelRatio = this.data.pixelRatio < 0 ? window.devicePixelRatio : this.data.pixelRatio;
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
+                this.currentXrPixelRatio = this.clampPixelRatio(xrPixelRatio);
                 this.el.sceneEl.renderer.setPixelRatio(pixelRatio);
-                this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(xrPixelRatio);
+                this.el.sceneEl.renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
 
                 const gl = this.el.sceneEl.renderer.getContext();
                 gl.disable(gl.DITHER);
@@ -34,22 +41,28 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
 
                         this.applyFoveationLevel();
-                        this.currentXrPixelRatio = this.data.xrPixelRatio;
+                        this.targetFrameRate = this.extractTargetFrameRate();
+                        this.currentXrPixelRatio = this.clampPixelRatio(this.data.xrPixelRatio);
+                        this.resetFrameTiming();
                         this.updateXRScale();
                 });
                 this.el.sceneEl.renderer.xr.addEventListener("sessionend", () => {
                         this.applyFoveationLevel();
-                        this.currentXrPixelRatio = this.data.xrPixelRatio;
+                        this.targetFrameRate = 72;
+                        this.currentXrPixelRatio = this.clampPixelRatio(this.data.xrPixelRatio);
+                        this.resetFrameTiming();
                         this.updateXRScale();
                 });
                 this.el.sceneEl.addEventListener("enter-vr", () => {
                         this.applyFoveationLevel();
-                        this.currentXrPixelRatio = this.data.xrPixelRatio;
+                        this.currentXrPixelRatio = this.clampPixelRatio(this.data.xrPixelRatio);
+                        this.resetFrameTiming();
                         this.updateXRScale();
                 });
                 this.el.sceneEl.addEventListener("exit-vr", () => {
                         this.applyFoveationLevel();
-                        this.currentXrPixelRatio = this.data.xrPixelRatio;
+                        this.currentXrPixelRatio = this.clampPixelRatio(this.data.xrPixelRatio);
+                        this.resetFrameTiming();
                         this.updateXRScale();
                 });
         },
@@ -640,6 +653,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }, [matricesCopy.buffer, normals.buffer]);
 	},
         tick: function (time, timeDelta) {
+                this.updateDynamicResolution(time, timeDelta);
+
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 
                 const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 0.001;
@@ -733,6 +748,64 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                 } else {
                         renderer.xr.setFramebufferScaleFactor(this.currentXrPixelRatio);
+                }
+        },
+        clampPixelRatio: function (ratio) {
+                if (typeof ratio !== 'number') return this.xrPixelRatioBounds.min;
+                return Math.min(this.xrPixelRatioBounds.max, Math.max(this.xrPixelRatioBounds.min, ratio));
+        },
+        resetFrameTiming: function () {
+                this.frameTimeSamples = [];
+                this.lastDynamicUpdate = 0;
+        },
+        extractTargetFrameRate: function () {
+                const renderer = this.el.sceneEl.renderer;
+                const session = renderer.xr.getSession?.();
+                if (!session) return this.targetFrameRate;
+                const supported = session.supportedFrameRates;
+                if (supported && supported.length > 0) {
+                        const preferred = supported.includes(90) ? 90 : Math.max(...supported);
+                        if (session.updateTargetFrameRate) {
+                                session.updateTargetFrameRate(preferred).catch((e) => console.warn('Failed to set target frame rate', e));
+                        }
+                        return preferred;
+                }
+                if (session.frameRate) return session.frameRate;
+                return this.targetFrameRate;
+        },
+        isMetaQuestBrowser: function () {
+                if (typeof navigator === 'undefined' || !navigator.userAgent) return false;
+                return /Quest|OculusBrowser|Oculus.*Quest|Meta Quest/i.test(navigator.userAgent);
+        },
+        updateDynamicResolution: function (time, timeDelta) {
+                if (!this.dynamicResolutionEnabled) return;
+                if (!this.el.sceneEl.renderer.xr.isPresenting) return;
+                if (!timeDelta || timeDelta <= 0) return;
+
+                this.frameTimeSamples.push(timeDelta);
+                if (this.frameTimeSamples.length > 90) {
+                        this.frameTimeSamples.shift();
+                }
+
+                if (time - this.lastDynamicUpdate < 500) return;
+                this.lastDynamicUpdate = time;
+
+                const avgFrameTime = this.frameTimeSamples.reduce((sum, frame) => sum + frame, 0) / this.frameTimeSamples.length;
+                const fps = 1000 / avgFrameTime;
+                const target = this.targetFrameRate || 72;
+                const dropThreshold = target - 5;
+                const riseThreshold = target + 5;
+                let newRatio = this.currentXrPixelRatio;
+
+                if (fps < dropThreshold) {
+                        newRatio = this.clampPixelRatio(this.currentXrPixelRatio - 0.05);
+                } else if (fps > riseThreshold) {
+                        newRatio = this.clampPixelRatio(this.currentXrPixelRatio + 0.05);
+                }
+
+                if (newRatio !== this.currentXrPixelRatio) {
+                        this.currentXrPixelRatio = newRatio;
+                        this.updateXRScale();
                 }
         },
 
