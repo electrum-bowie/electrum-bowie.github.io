@@ -1258,8 +1258,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 const avgResidual = residual / cells;
 
-                                const perceived = opacity * (avgResidual ** 2);
-                                if (perceived < 0.0000000001) {
+                                const perceived = opacity * (avgResidual ** 0.75);
+                                if (perceived < 0.00000000001) {
                                         discarded[discardCount++] = idx;
                                 }
 
@@ -1389,7 +1389,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                        }
                        vertexCount = vertices.length;
 
-                       const IMPORTANCE_THRESHOLD = 0.003;
+                       const IMPORTANCE_THRESHOLD = 0.0015;
                        let sizeList = [];
                        let sizeIndex = [];
                        for (let i = 0; i < vertexCount; i++) {
@@ -1492,7 +1492,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                );
 
                console.time("calculate importance");
-               const IMPORTANCE_THRESHOLD = 0.003;
+               const IMPORTANCE_THRESHOLD = 0.0015;
                let sizeList = [];
                let sizeIndex = [];
                for (row = 0; row < vertexCount; row++) {
