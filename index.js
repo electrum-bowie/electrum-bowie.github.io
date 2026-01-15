@@ -5,9 +5,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 xrPixelRatio: { type: 'number', default: 0.8 },
                 // Fixed foveation level. Set to 0 to disable foveated rendering
                 foveation: { type: 'number', default: 0.0 }, // no perceived performance gains even with the maximum level
-                gridSize: { type: 'number', default: 1.0 },
-                lodLevels: { type: 'number', default: 4 },
-                lodDistanceSensitivity: { type: 'number', default: 0.6 },
         },
         init: function () {
                 // aframe-specific data
@@ -16,17 +13,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.frameTimeSamples = [];
                 this.lastDynamicUpdate = 0;
                 this.targetFrameRate = 72;
-                this.tiles = [];
-                this.tileMap = new Map();
-                this.lodDataReady = false;
-                this.lodRebuildInProgress = false;
-                this.pendingLodRebuild = false;
-                this.lastLodUpdate = 0;
-                this.lodLevelRatios = [];
-                this.originalBuffers = [];
-                this.originalBufferCounts = [];
-                this.cachedVertexCount = 0;
-                this.loadedVertexCount = 0;
 
                 const pixelRatio = this.data.pixelRatio < 0 ? window.devicePixelRatio : this.data.pixelRatio;
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
@@ -417,11 +403,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.occlusionReady = true;
         },
         loadData: function (src) {
+                this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-                this.resetLodState();
                 this.worker.postMessage({ method: "clear" });
                 this.occlusionWorker.postMessage({ method: "clear" });
+                this.originalBuffers = [];
                 this.isCaching = true;
+                const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 		fetch(src)
 			.then(async (data) => {
@@ -447,13 +435,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 						bytesDownloaded += value.length;
 						if (totalDownloadBytes != undefined) {
 							const mbps = (bytesDownloaded / 1024 / 1024) / ((Date.now() - start) / 1000);
-								const percent = bytesDownloaded / totalDownloadBytes * 100;
-								if (percent - lastReportedProgress > 1) {
-                                                                this.reportLoadingProgress("Download", percent);
+							const percent = bytesDownloaded / totalDownloadBytes * 100;
+							if (percent - lastReportedProgress > 1) {
+                                                        console.log("Progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
 								lastReportedProgress = percent;
 							}
 						} else {
-                                                        console.log("Progress:", bytesDownloaded, ", unknown total");
+                                                console.log("Progress:", bytesDownloaded, ", unknown total");
 						}
 						chunks.push(value);
 						if (!this.textureReady &&
@@ -479,7 +467,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 							}
 							const buffer = new Uint8Array(vertexCount * this.rowLength);
 							buffer.set(concatenatedChunksbuffer.subarray(0, buffer.byteLength), 0);
-							this.cacheDataBuffer(buffer.buffer, vertexCount);
+							this.pushDataBuffer(buffer.buffer, vertexCount);
 							bytesProcesses += vertexCount * this.rowLength;
 						}
 					} catch (error) {
@@ -501,7 +489,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 					if (isPly) {
 						concatenatedChunks = new Uint8Array(this.processPlyBuffer(concatenatedChunks.buffer));
 					}
-                                this.cacheDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
+                                this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
                                 }
                         })
                         .finally(() => {
@@ -510,272 +498,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         this.needsQualityUpdate = false;
                                         this.updateQuality();
                                 }
-                                this.finalizeSceneImport();
+                                this.occludeSplatsNow();
+                                this.filterSplatsNow();
+                                this.sortSplatsNow();
                         });
-        },
-        reportLoadingProgress: function (label, percent) {
-                if (!Number.isFinite(percent)) return;
-                const clamped = Math.max(0, Math.min(100, percent));
-                console.log(`${label} Progress: ${clamped.toFixed(2)}%`);
-        },
-        resetLodState: function () {
-                this.tiles = [];
-                this.tileMap.clear();
-                this.lodDataReady = false;
-                this.pendingLodRebuild = false;
-                this.lodRebuildInProgress = false;
-                this.lastLodUpdate = 0;
-                this.lodLevelRatios = [];
-                this.originalBuffers = [];
-                this.originalBufferCounts = [];
-                this.cachedVertexCount = 0;
-                this.loadedVertexCount = 0;
-                this.splatsToDiscard = [];
-                if (this.mesh && this.mesh.geometry) {
-                        this.mesh.geometry.instanceCount = 0;
-                }
-        },
-        cacheDataBuffer: function (buffer, vertexCount) {
-                if (vertexCount <= 0) return;
-                this.originalBuffers.push(buffer.slice(0));
-                this.originalBufferCounts.push(vertexCount);
-                this.cachedVertexCount += vertexCount;
-        },
-        finalizeSceneImport: function () {
-                if (!this.originalBuffers || this.originalBuffers.length === 0) return;
-                this.buildTileLods();
-        },
-        buildTileLods: function () {
-                if (this.lodDataReady) return;
-                const tileSize = Math.max(0.001, this.data.gridSize);
-                const totalBuffers = this.originalBuffers.length;
-                let minBounds = new THREE.Vector3(Infinity, Infinity, Infinity);
-                let maxBounds = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
-                for (let b = 0; b < totalBuffers; b++) {
-                        const buffer = this.originalBuffers[b];
-                        const vertexCount = this.originalBufferCounts[b];
-                        this.iterateBufferSplats(buffer, vertexCount, (center) => {
-                                minBounds.min(center);
-                                maxBounds.max(center);
-                        });
-                        if ((b + 1) % 5 === 0 || b === totalBuffers - 1) {
-                                const percent = ((b + 1) / totalBuffers) * 30;
-                                this.reportLoadingProgress("LOD Bounds", percent);
-                        }
-                }
-                const size = new THREE.Vector3().subVectors(maxBounds, minBounds);
-                const tileCounts = new THREE.Vector3(
-                        Math.max(1, Math.ceil(size.x / tileSize)),
-                        Math.max(1, Math.ceil(size.y / tileSize)),
-                        Math.max(1, Math.ceil(size.z / tileSize))
-                );
-                this.tileMap.clear();
-                this.tiles = [];
-                const totalSplats = this.cachedVertexCount || 1;
-                let processedSplats = 0;
-                for (let b = 0; b < totalBuffers; b++) {
-                        const buffer = this.originalBuffers[b];
-                        const vertexCount = this.originalBufferCounts[b];
-                        this.iterateBufferSplats(buffer, vertexCount, (center, maxScale, bufferRef, offset) => {
-                                const tileIndex = this.getTileIndex(center, minBounds, tileSize, tileCounts);
-                                const key = `${tileIndex.x},${tileIndex.y},${tileIndex.z}`;
-                                let tile = this.tileMap.get(key);
-                                if (!tile) {
-                                        tile = this.createTile(tileIndex, minBounds, tileSize);
-                                        this.tileMap.set(key, tile);
-                                        this.tiles.push(tile);
-                                }
-                                tile.splats.push({ size: maxScale, buffer: bufferRef, offset });
-                                processedSplats += 1;
-                                if (processedSplats % 25000 === 0) {
-                                        const percent = 30 + (processedSplats / totalSplats) * 40;
-                                        this.reportLoadingProgress("LOD Sorting", percent);
-                                }
-                        });
-                }
-                this.lodLevelRatios = this.buildLodLevelRatios();
-                for (const tile of this.tiles) {
-                        tile.splats.sort((a, b) => b.size - a.size);
-                        tile.lodLevels = this.buildTileLodLevels(tile.splats);
-                        tile.splats = [];
-                }
-                this.originalBuffers = [];
-                this.originalBufferCounts = [];
-                this.lodDataReady = true;
-                this.reportLoadingProgress("LOD Generation", 100);
-                this.updateTileLods(true);
-        },
-        buildLodLevelRatios: function () {
-                const levels = Math.max(1, Math.round(this.data.lodLevels));
-                const ratios = [];
-                for (let i = 0; i < levels; i++) {
-                        if (i === 0) {
-                                ratios.push(1);
-                        } else {
-                                ratios.push(Math.max(0.05, Math.pow(0.6, i)));
-                        }
-                }
-                return ratios;
-        },
-        buildTileLodLevels: function (splats) {
-                const total = splats.length;
-                const levels = this.lodLevelRatios.length;
-                const lodLevels = [];
-                for (let level = 0; level < levels; level++) {
-                        const ratio = this.lodLevelRatios[level];
-                        const count = Math.min(total, Math.floor(total * ratio));
-                        if (count <= 0) {
-                                lodLevels.push({ buffer: new Uint8Array(0), count: 0 });
-                                continue;
-                        }
-                        const combined = new Uint8Array(count * this.rowLength);
-                        for (let i = 0; i < count; i++) {
-                                const entry = splats[i];
-                                const source = new Uint8Array(entry.buffer, entry.offset, this.rowLength);
-                                combined.set(source, i * this.rowLength);
-                        }
-                        lodLevels.push({ buffer: combined, count });
-                }
-                return lodLevels;
-        },
-        iterateBufferSplats: function (buffer, vertexCount, onSplat) {
-                const f_buffer = new Float32Array(buffer);
-                for (let i = 0; i < vertexCount; i++) {
-                        const center = new THREE.Vector3(
-                                f_buffer[8 * i + 0],
-                                f_buffer[8 * i + 1],
-                                -f_buffer[8 * i + 2]
-                        );
-                        const scale = new THREE.Vector3(
-                                f_buffer[8 * i + 3 + 0],
-                                f_buffer[8 * i + 3 + 1],
-                                f_buffer[8 * i + 3 + 2]
-                        );
-                        const maxScale = Math.max(scale.x, scale.y, scale.z);
-                        if (maxScale > 100.0 || maxScale < 0.0001) {
-                                continue;
-                        }
-                        const offset = i * this.rowLength;
-                        onSplat(center, maxScale, buffer, offset);
-                }
-        },
-        getTileIndex: function (center, minBounds, tileSize, tileCounts) {
-                const x = Math.min(tileCounts.x - 1, Math.max(0, Math.floor((center.x - minBounds.x) / tileSize)));
-                const y = Math.min(tileCounts.y - 1, Math.max(0, Math.floor((center.y - minBounds.y) / tileSize)));
-                const z = Math.min(tileCounts.z - 1, Math.max(0, Math.floor((center.z - minBounds.z) / tileSize)));
-                return { x, y, z };
-        },
-        createTile: function (tileIndex, minBounds, tileSize) {
-                const base = new THREE.Vector3(
-                        minBounds.x + tileIndex.x * tileSize,
-                        minBounds.y + tileIndex.y * tileSize,
-                        minBounds.z + tileIndex.z * tileSize
-                );
-                const center = new THREE.Vector3(
-                        base.x + tileSize * 0.5,
-                        base.y + tileSize * 0.5,
-                        base.z + tileSize * 0.5
-                );
-                return {
-                        index: tileIndex,
-                        center,
-                        splats: [],
-                        lodLevels: [],
-                        currentLod: null,
-                };
-        },
-        updateTileLods: function (force = false) {
-                if (!this.lodDataReady || !this.camera) return;
-                const now = performance.now();
-                if (!force && now - this.lastLodUpdate < 200) return;
-                this.lastLodUpdate = now;
-                this.camera.getWorldPosition(this.tmpCameraPos);
-                this.tmpLocalCameraPos.copy(this.tmpCameraPos);
-                this.object.worldToLocal(this.tmpLocalCameraPos);
-                let lodChanged = false;
-                for (const tile of this.tiles) {
-                        const distance = tile.center.distanceTo(this.tmpLocalCameraPos);
-                        const desiredLod = this.getLodLevelForDistance(distance);
-                        if (tile.currentLod !== desiredLod) {
-                                tile.currentLod = desiredLod;
-                                lodChanged = true;
-                        }
-                }
-                if (lodChanged || force) {
-                        this.scheduleLodRebuild();
-                }
-        },
-        getLodLevelForDistance: function (distance) {
-                const levels = Math.max(1, Math.round(this.data.lodLevels));
-                if (levels === 1) return 0;
-                const base = Math.max(0.001, this.data.gridSize);
-                const scaled = (distance / base) * this.data.lodDistanceSensitivity;
-                const lodFloat = Math.log2(1 + scaled);
-                return Math.max(0, Math.min(levels - 1, Math.floor(lodFloat)));
-        },
-        scheduleLodRebuild: function () {
-                if (!this.lodDataReady) return;
-                this.pendingLodRebuild = true;
-                if (this.lodRebuildInProgress) return;
-                this.runLodRebuild();
-        },
-        runLodRebuild: async function () {
-                this.lodRebuildInProgress = true;
-                while (this.pendingLodRebuild) {
-                        this.pendingLodRebuild = false;
-                        await this.rebuildActiveSplats();
-                }
-                this.lodRebuildInProgress = false;
-        },
-        rebuildActiveSplats: async function () {
-                if (!this.lodDataReady) return;
-                this.resetSplatBuffers();
-                const activeTiles = this.tiles.filter(tile => tile.currentLod !== null && tile.lodLevels[tile.currentLod]);
-                const totalSplats = activeTiles.reduce((sum, tile) => sum + tile.lodLevels[tile.currentLod].count, 0);
-                let processed = 0;
-                let lastReport = 0;
-                for (let i = 0; i < activeTiles.length; i++) {
-                        const tile = activeTiles[i];
-                        const lodLevel = tile.lodLevels[tile.currentLod];
-                        if (lodLevel.count > 0) {
-                                this.pushDataBuffer(lodLevel.buffer.buffer, lodLevel.count);
-                                processed += lodLevel.count;
-                        }
-                        if (totalSplats > 0) {
-                                const percent = Math.min(100, (processed / totalSplats) * 100);
-                                if (percent - lastReport > 5) {
-                                        this.reportLoadingProgress("LOD Loading", percent);
-                                        lastReport = percent;
-                                }
-                        }
-                        if (i % 5 === 0) {
-                                await this.yieldToMainThread();
-                        }
-                }
-                this.reportLoadingProgress("LOD Loading", 100);
-                this.occludeSplatsNow();
-                this.filterSplatsNow();
-                this.sortSplatsNow();
-        },
-        yieldToMainThread: function () {
-                return new Promise(resolve => {
-                        if (typeof requestIdleCallback === "function") {
-                                requestIdleCallback(() => resolve());
-                        } else {
-                                setTimeout(resolve, 0);
-                        }
-                });
-        },
-        resetSplatBuffers: function () {
-                this.loadedVertexCount = 0;
-                this.centerAndScaleTexture.needsUpdate = true;
-                this.covAndColorTexture.needsUpdate = true;
-                if (this.mesh && this.mesh.geometry) {
-                        this.mesh.geometry.instanceCount = 0;
-                }
-                this.worker.postMessage({ method: "clear" });
-                this.occlusionWorker.postMessage({ method: "clear" });
-                this.splatsToDiscard = [];
         },
         pushDataBuffer: function (buffer, vertexCount) {
                 if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
@@ -944,7 +670,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 		const forceExec = (time - this.lastExecTime) >= 300; // 300ms
 
                 if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged || forceExec) {
-                        this.updateTileLods();
                         if (this.occlusionReady) this.occludeSplatsNow();
                         if (this.filterReady) this.filterSplatsNow();
                         if (this.sortReady) this.sortSplatsNow();
@@ -966,12 +691,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         return;
                 }
-                if (this.lodDataReady) {
-                        this.updateTileLods(true);
-                        return;
-                }
                 if (!this.originalBuffers || this.originalBuffers.length === 0) return;
-                this.resetSplatBuffers();
+                this.loadedVertexCount = 0;
+                if (this.mesh && this.mesh.geometry) {
+                        this.mesh.geometry.instanceCount = 0;
+                }
+                this.worker.postMessage({ method: "clear" });
+                this.centerAndScaleTexture.needsUpdate = true;
+                this.covAndColorTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
                         this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
                 }
@@ -1084,10 +811,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
         filterSplatsNow: function () {
                 if (!this.filterReady) return;
-                if (this.loadedVertexCount === 0) {
-                        this.filterReady = true;
-                        return;
-                }
                 this.filterReady = false;
                 const viewMatrix = this.getModelViewMatrix();
                 const projectionMatrix = this.getProjectionMatrix();
@@ -1106,10 +829,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
         occludeSplatsNow: function () {
                 if (!this.occlusionReady) return;
-                if (this.loadedVertexCount === 0) {
-                        this.occlusionReady = true;
-                        return;
-                }
                 this.occlusionReady = false;
                 const viewMatrix = this.getModelViewMatrix();
                 const projectionMatrix = this.getProjectionMatrix();
@@ -1136,17 +855,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
         sortSplatsNow: function () {
                 if (!this.sortReady) return;
-                if (this.loadedVertexCount === 0) {
-                        this.lastCameraMatrix.copy(this.camera.matrixWorld);
-                        this.lastObjectMatrix.copy(this.object.matrixWorld);
-                        this.lastScale.copy(this.object.scale);
-                        this.camera.getWorldPosition(this.lastCameraPos);
-                        this.camera.getWorldQuaternion(this.lastCameraQuat);
-                        this.lastObjectPos.copy(this.object.position);
-                        this.lastObjectQuat.copy(this.object.quaternion);
-                        this.sortReady = true;
-                        return;
-                }
                 this.sortReady = false;
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
                 this.lastObjectMatrix.copy(this.object.matrixWorld);
