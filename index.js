@@ -733,7 +733,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const scaleChanged = this.object.scale.distanceToSquared(this.lastScale) > 0.001;
 
 		if (this.lastExecTime === undefined) this.lastExecTime = time;
-		const forceExec = (time - this.lastExecTime) >= 300; // 300ms
+		const forceExec = (time - this.lastExecTime) >= 75; // in miliseconds
 
                 if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged || forceExec) {
                         if (this.occlusionReady) this.occludeSplatsNow();
@@ -1209,7 +1209,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
-                const COUNT_SIZE = 256 * 256;
+                const COUNT_SIZE = 64 * 64;
 
                 let cache = {
                         capacity: 0,
@@ -1522,7 +1522,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                const hasOpacity = Boolean(plyState.types["opacity"]);
                const hasFdc = Boolean(plyState.types["f_dc_0"]);
                const hasRgb = Boolean(plyState.types["red"]);
-               const IMPORTANCE_THRESHOLD = 0.0015;
+               const IMPORTANCE_THRESHOLD = 0.001;
                const clampByte = (value) => Math.max(0, Math.min(255, Math.round(value)));
                const getValue = (rowByteOffset, prop) => {
                        const type = plyState.types[prop];
@@ -1672,7 +1672,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                        }
                        vertexCount = vertices.length;
 
-                       const IMPORTANCE_THRESHOLD = 0.0015;
+                       const IMPORTANCE_THRESHOLD = 0.001;
                        let sizeList = [];
                        let sizeIndex = [];
                        for (let i = 0; i < vertexCount; i++) {
@@ -1775,7 +1775,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                );
 
                console.time("calculate importance");
-               const IMPORTANCE_THRESHOLD = 0.0015;
+               const IMPORTANCE_THRESHOLD = 0.001;
                let sizeList = [];
                let sizeIndex = [];
                for (row = 0; row < vertexCount; row++) {
