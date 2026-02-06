@@ -449,8 +449,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.initSplatTextures(nextSize);
         },
         loadData: function (src) {
-                this.loadRequestId = (this.loadRequestId || 0) + 1;
-                const loadRequestId = this.loadRequestId;
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
                 this.worker.postMessage({ method: "clear" });
@@ -578,73 +576,41 @@ AFRAME.registerComponent("gaussian_splatting", {
 					}
 				}
 
-				const flushPendingData = () => {
-					if (bytesDownloaded - bytesProcesses <= 0) {
-						return true;
-					}
+				if (bytesDownloaded - bytesProcesses > 0) {
 					if (isPly && plyState && plyState.format === "binary_little_endian") {
-						if (!this.textureReady) {
-							return false;
-						}
-						let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
-						const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
-						while (rowsAvailable > 0) {
-							const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
-							const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
-							if (result.vertexCount > 0) {
-								this.pushDataBuffer(result.buffer, result.vertexCount);
+						if (this.textureReady) {
+							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
+							while (rowsAvailable > 0) {
+								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
+								const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
+								if (result.vertexCount > 0) {
+									this.pushDataBuffer(result.buffer, result.vertexCount);
+								}
+								const consumedBytes = rowsToProcess * plyState.rowOffset;
+								plyPending = plyPending.slice(consumedBytes);
+								bytesProcesses += consumedBytes;
+								rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
 							}
-							const consumedBytes = rowsToProcess * plyState.rowOffset;
-							plyPending = plyPending.slice(consumedBytes);
-							bytesProcesses += consumedBytes;
-							rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
 						}
-						return true;
-					}
-					if (isPly) {
+					} else if (isPly) {
 						const plyBuffer = plyPending.buffer.slice(
 							plyPending.byteOffset,
 							plyPending.byteOffset + plyPending.byteLength,
 						);
 						let concatenatedChunks = new Uint8Array(this.processPlyBuffer(plyBuffer));
 						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
-						return true;
-					}
-					// Concatenate the chunks into a single Uint8Array
-					let concatenatedChunks = new Uint8Array(
-						chunks.reduce((acc, chunk) => acc + chunk.length, 0)
-					);
-					let offset = 0;
-					for (const chunk of chunks) {
-						concatenatedChunks.set(chunk, offset);
-						offset += chunk.length;
-					}
-					this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
-					return true;
-				};
-
-				const scheduleFlushWhenReady = () => {
-					if (this.loadRequestId !== loadRequestId) {
-						return;
-					}
-					if (!this.textureReady) {
-						requestAnimationFrame(scheduleFlushWhenReady);
-						return;
-					}
-					const wasFlushed = flushPendingData();
-					if (!wasFlushed) {
-						requestAnimationFrame(scheduleFlushWhenReady);
-					}
-				};
-
-				if (bytesDownloaded - bytesProcesses > 0) {
-					if (isPly && plyState && plyState.format === "binary_little_endian") {
-						const wasFlushed = flushPendingData();
-						if (!wasFlushed) {
-							scheduleFlushWhenReady();
-						}
 					} else {
-						flushPendingData();
+						// Concatenate the chunks into a single Uint8Array
+						let concatenatedChunks = new Uint8Array(
+							chunks.reduce((acc, chunk) => acc + chunk.length, 0)
+						);
+						let offset = 0;
+						for (const chunk of chunks) {
+							concatenatedChunks.set(chunk, offset);
+							offset += chunk.length;
+						}
+						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
 					}
 				}
                         })
