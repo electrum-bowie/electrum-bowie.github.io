@@ -106,21 +106,17 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.viewRotationMatrix = new THREE.Matrix3();
 
                 this.splatsToDiscard = [];
-                const maxTextureSize = this.renderer.getContext().getParameter(this.renderer.getContext().MAX_TEXTURE_SIZE);
-                const MAX_SPLAT_TEXTURE_SIZE = 8192;
-                this.splatTextureSize = Math.min(maxTextureSize, MAX_SPLAT_TEXTURE_SIZE);
-                this.maxSplatCount = this.splatTextureSize * this.splatTextureSize;
 
-		this.centerAndScaleData = new Float32Array(this.maxSplatCount * 4);
-		this.covAndColorData = new Uint32Array(this.maxSplatCount * 4);
-		this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, this.splatTextureSize, this.splatTextureSize, THREE.RGBA, THREE.FloatType);
+		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
+		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
+		this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
                 
                 this.centerAndScaleTexture.generateMipmaps = false;
 		this.centerAndScaleTexture.minFilter = THREE.NearestFilter;
                 this.centerAndScaleTexture.magFilter = THREE.NearestFilter;
                 
                 this.centerAndScaleTexture.needsUpdate = true;
-                this.covAndColorTexture = new THREE.DataTexture(this.covAndColorData, this.splatTextureSize, this.splatTextureSize, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
+                this.covAndColorTexture = new THREE.DataTexture(this.covAndColorData, 4096, 4096, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
 
                 this.covAndColorTexture.generateMipmaps = false;
                 this.covAndColorTexture.minFilter = THREE.NearestFilter;
@@ -129,7 +125,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.covAndColorTexture.internalFormat = "RGBA32UI";
                 this.covAndColorTexture.needsUpdate = true;
 
-                let splatIndexArray = new Uint32Array(this.maxSplatCount);
+                let splatIndexArray = new Uint32Array(4096 * 4096);
                 const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
                 splatIndexes.setUsage(THREE.DynamicDrawUsage);
 
@@ -170,7 +166,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 gsProjectionMatrixRight: { value: this.getProjectionMatrix() },
                                 gsModelViewMatrixRight: { value: this.getModelViewMatrix() },
                                 viewRotationMatrix: { value: new THREE.Matrix3() },
-                                splatTextureSize: { value: this.splatTextureSize },
                         },
 			vertexShader: `
                                 precision highp usampler2D;
@@ -182,7 +177,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 				uniform mat4 gsProjectionMatrix;
 				uniform mat4 gsModelViewMatrix;
 				uniform mat3 viewRotationMatrix;
-                                uniform uint splatTextureSize;
 				 #ifdef IS_MULTIVIEW
 				uniform mat4 gsProjectionMatrixRight;
 				uniform mat4 gsModelViewMatrixRight;
@@ -200,9 +194,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 
 				void main() {
-                                        uint texX = splatIndex % splatTextureSize;
-                                        uint texY = splatIndex / splatTextureSize;
-					ivec2 texPos = ivec2(int(texX), int(texY));
+					ivec2 texPos = ivec2(int(splatIndex & 4095u), int(splatIndex >> 12));
 					vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
 	
 					vec4 camspace;
@@ -578,8 +570,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         });
         },
         pushDataBuffer: function (buffer, vertexCount) {
-                if (this.loadedVertexCount + vertexCount > this.maxSplatCount) {
-                        vertexCount = this.maxSplatCount - this.loadedVertexCount;
+                if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
+                        vertexCount = 4096 * 4096 - this.loadedVertexCount;
                 }
                 if (vertexCount <= 0) {
                         return;
@@ -690,16 +682,16 @@ AFRAME.registerComponent("gaussian_splatting", {
 		while (vertexCount > 0) {
 			let width = 0;
 			let height = 0;
-			let xoffset = (this.loadedVertexCount % this.splatTextureSize);
-			let yoffset = Math.floor(this.loadedVertexCount / this.splatTextureSize);
-			if (this.loadedVertexCount % this.splatTextureSize != 0) {
-				width = Math.min(this.splatTextureSize, xoffset + vertexCount) - xoffset;
+			let xoffset = (this.loadedVertexCount % 4096);
+			let yoffset = Math.floor(this.loadedVertexCount / 4096);
+			if (this.loadedVertexCount % 4096 != 0) {
+				width = Math.min(4096, xoffset + vertexCount) - xoffset;
 				height = 1;
-			} else if (Math.floor(vertexCount / this.splatTextureSize) > 0) {
-				width = this.splatTextureSize;
-				height = Math.floor(vertexCount / this.splatTextureSize);
+			} else if (Math.floor(vertexCount / 4096) > 0) {
+				width = 4096;
+				height = Math.floor(vertexCount / 4096);
 			} else {
-				width = vertexCount % this.splatTextureSize;
+				width = vertexCount % 4096;
 				height = 1;
 			}
 
