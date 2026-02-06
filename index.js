@@ -1069,7 +1069,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.5);
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 0.6 * edgeMultiplier && !skipCullBehind;
+                                const tooSmall = pixelThreshold < 0.5 * edgeMultiplier && !skipCullBehind;
 
                                 let f = fadeOpacities[i];
 
@@ -1209,7 +1209,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
-                const COUNT_SIZE = 64 * 64;
+                const COUNT_SIZE = 256 * 256;
 
                 let cache = {
                         capacity: 0,
@@ -1221,7 +1221,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
-                const GRID_SIZE = 1024;
+                const GRID_SIZE = 2048;
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
@@ -1353,7 +1353,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const edgeMultiplier = 1.0 + (edgeDist * 0.5);
 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 0.6 * edgeMultiplier && !skipCullBehind;
+                                const tooSmall = pixelThreshold < 0.5 * edgeMultiplier && !skipCullBehind;
 
                                 if (tooSmall) continue;
 
