@@ -472,16 +472,56 @@ AFRAME.registerComponent("gaussian_splatting", {
 				let isPly = null;
 				let plyState = null;
 				let capacityEstimated = false;
-				let plyPending = new Uint8Array(0);
+				let plyPendingChunks = [];
+				let plyPendingBytes = 0;
+				let plyPendingOffset = 0;
 				const maxPlyBatchBytes = 64 * 1024 * 1024;
-				const appendPending = (pending, chunk) => {
-					if (pending.length === 0) {
-						return chunk;
+				const appendPlyChunk = (chunk) => {
+					if (!chunk || chunk.length === 0) {
+						return;
 					}
-					const combined = new Uint8Array(pending.length + chunk.length);
-					combined.set(pending, 0);
-					combined.set(chunk, pending.length);
-					return combined;
+					plyPendingChunks.push(chunk);
+					plyPendingBytes += chunk.length;
+				};
+				const peekPlyBytes = (byteCount) => {
+					const clamped = Math.min(byteCount, plyPendingBytes);
+					const out = new Uint8Array(clamped);
+					let remaining = clamped;
+					let outOffset = 0;
+					let chunkIndex = 0;
+					let offset = plyPendingOffset;
+					while (remaining > 0 && chunkIndex < plyPendingChunks.length) {
+						const chunk = plyPendingChunks[chunkIndex];
+						const available = chunk.length - offset;
+						const toCopy = Math.min(available, remaining);
+						out.set(chunk.subarray(offset, offset + toCopy), outOffset);
+						outOffset += toCopy;
+						remaining -= toCopy;
+						chunkIndex += 1;
+						offset = 0;
+					}
+					return out;
+				};
+				const consumePlyBytes = (byteCount) => {
+					const out = new Uint8Array(byteCount);
+					let remaining = byteCount;
+					let outOffset = 0;
+					while (remaining > 0 && plyPendingChunks.length > 0) {
+						const chunk = plyPendingChunks[0];
+						const available = chunk.length - plyPendingOffset;
+						const toCopy = Math.min(available, remaining);
+						out.set(chunk.subarray(plyPendingOffset, plyPendingOffset + toCopy), outOffset);
+						outOffset += toCopy;
+						remaining -= toCopy;
+						plyPendingOffset += toCopy;
+						if (plyPendingOffset >= chunk.length) {
+							plyPendingChunks.shift();
+							plyPendingOffset = 0;
+						}
+					}
+					const consumed = byteCount - remaining;
+					plyPendingBytes = Math.max(0, plyPendingBytes - consumed);
+					return remaining > 0 ? out.subarray(0, consumed) : out;
 				};
 
 				while (true) {
@@ -512,7 +552,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         }
 						}
 						if (isPly) {
-							plyPending = appendPending(plyPending, value);
+							appendPlyChunk(value);
 						} else {
 							chunks.push(value);
 						}
@@ -523,30 +563,36 @@ AFRAME.registerComponent("gaussian_splatting", {
 						}
 
 						if (isPly && !plyState) {
-							plyState = this.parsePlyHeader(plyPending.buffer);
+							const headerProbe = peekPlyBytes(1024 * 256);
+							plyState = this.parsePlyHeader(
+								headerProbe.buffer.slice(
+									headerProbe.byteOffset,
+									headerProbe.byteOffset + headerProbe.byteLength,
+								),
+							);
                                                         if (plyState && plyState.vertexCount && !capacityEstimated) {
                                                                 this.ensureSplatCapacity(plyState.vertexCount);
                                                                 capacityEstimated = true;
                                                         }
 							if (plyState && plyState.format === "binary_little_endian") {
-								plyPending = plyPending.slice(plyState.headerByteLength);
+								consumePlyBytes(plyState.headerByteLength);
 								bytesProcesses += plyState.headerByteLength;
 							}
 						}
 
 						if (isPly && plyState && plyState.format === "binary_little_endian" && this.textureReady) {
-							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+							let rowsAvailable = Math.floor(plyPendingBytes / plyState.rowOffset);
 							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
 							while (rowsAvailable > 0) {
 								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
-								const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
+								const batchBytes = consumePlyBytes(rowsToProcess * plyState.rowOffset);
+								const result = this.buildPlyBinaryBatch(plyState, batchBytes, rowsToProcess);
 								if (result.vertexCount > 0) {
 									this.pushDataBuffer(result.buffer, result.vertexCount);
 								}
 								const consumedBytes = rowsToProcess * plyState.rowOffset;
-								plyPending = plyPending.slice(consumedBytes);
 								bytesProcesses += consumedBytes;
-								rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+								rowsAvailable = Math.floor(plyPendingBytes / plyState.rowOffset);
 							}
 						}
 
@@ -579,25 +625,22 @@ AFRAME.registerComponent("gaussian_splatting", {
 				if (bytesDownloaded - bytesProcesses > 0) {
 					if (isPly && plyState && plyState.format === "binary_little_endian") {
 						if (this.textureReady) {
-							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+							let rowsAvailable = Math.floor(plyPendingBytes / plyState.rowOffset);
 							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
 							while (rowsAvailable > 0) {
 								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
-								const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
+								const batchBytes = consumePlyBytes(rowsToProcess * plyState.rowOffset);
+								const result = this.buildPlyBinaryBatch(plyState, batchBytes, rowsToProcess);
 								if (result.vertexCount > 0) {
 									this.pushDataBuffer(result.buffer, result.vertexCount);
 								}
 								const consumedBytes = rowsToProcess * plyState.rowOffset;
-								plyPending = plyPending.slice(consumedBytes);
 								bytesProcesses += consumedBytes;
-								rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+								rowsAvailable = Math.floor(plyPendingBytes / plyState.rowOffset);
 							}
 						}
 					} else if (isPly) {
-						const plyBuffer = plyPending.buffer.slice(
-							plyPending.byteOffset,
-							plyPending.byteOffset + plyPending.byteLength,
-						);
+						const plyBuffer = consumePlyBytes(plyPendingBytes).buffer;
 						let concatenatedChunks = new Uint8Array(this.processPlyBuffer(plyBuffer));
 						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
 					} else {
@@ -1517,7 +1560,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
        parsePlyHeader: function (inputBuffer) {
                const ubuf = new Uint8Array(inputBuffer);
-               const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 10));
+               const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 256));
                let header_end = "end_header\n";
                let header_end_index = header.indexOf(header_end);
                if (header_end_index < 0) {
@@ -1661,8 +1704,8 @@ AFRAME.registerComponent("gaussian_splatting", {
        },
        processPlyBuffer: function (inputBuffer) {
                const ubuf = new Uint8Array(inputBuffer);
-               // 10KB ought to be enough for a header...
-               const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 10));
+               // 256KB ought to be enough for a header...
+               const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 256));
                let header_end = "end_header\n";
                let header_end_index = header.indexOf(header_end);
                if (header_end_index < 0) {
