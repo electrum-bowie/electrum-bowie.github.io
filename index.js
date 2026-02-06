@@ -1522,12 +1522,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 const avgResidual = residual / cells;
 
-                                const perceived = opacity * (avgResidual ** 0.75);
-                                if (perceived < 0.00000000001) {
+                                const perceived = opacity * avgResidual;
+                                if (perceived < 0.00000001) {
                                         discarded[discardCount++] = idx;
                                 }
 
-                                const attenuation = 1.0 - (opacity * facingFactor);
+                                const attenuation = 1.0 - opacity * facingFactor;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
