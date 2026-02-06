@@ -1642,6 +1642,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                const buffer = new ArrayBuffer(rowLength * rowCount);
                const outFloats = new Float32Array(buffer);
                const outBytes = new Uint8Array(buffer);
+               if (!this.plyReaders) {
+                       this.plyReaders = {
+                               getFloat64: (dv, offset) => dv.getFloat64(offset, true),
+                               getInt32: (dv, offset) => dv.getInt32(offset, true),
+                               getUint32: (dv, offset) => dv.getUint32(offset, true),
+                               getFloat32: (dv, offset) => dv.getFloat32(offset, true),
+                               getInt16: (dv, offset) => dv.getInt16(offset, true),
+                               getUint16: (dv, offset) => dv.getUint16(offset, true),
+                               getUint8: (dv, offset) => dv.getUint8(offset),
+                               getInt8: (dv, offset) => dv.getInt8(offset),
+                       };
+               }
+               const readers = this.plyReaders;
                const offsets = plyState.offsets;
                const types = plyState.types;
                const hasScale = Boolean(types["scale_0"]);
@@ -1666,23 +1679,23 @@ AFRAME.registerComponent("gaussian_splatting", {
                const redMethod = types["red"];
                const greenMethod = types["green"];
                const blueMethod = types["blue"];
-               const getX = xMethod ? dataView[xMethod].bind(dataView) : null;
-               const getY = yMethod ? dataView[yMethod].bind(dataView) : null;
-               const getZ = zMethod ? dataView[zMethod].bind(dataView) : null;
-               const getScale0 = scale0Method ? dataView[scale0Method].bind(dataView) : null;
-               const getScale1 = scale1Method ? dataView[scale1Method].bind(dataView) : null;
-               const getScale2 = scale2Method ? dataView[scale2Method].bind(dataView) : null;
-               const getOpacity = opacityMethod ? dataView[opacityMethod].bind(dataView) : null;
-               const getRot0 = rot0Method ? dataView[rot0Method].bind(dataView) : null;
-               const getRot1 = rot1Method ? dataView[rot1Method].bind(dataView) : null;
-               const getRot2 = rot2Method ? dataView[rot2Method].bind(dataView) : null;
-               const getRot3 = rot3Method ? dataView[rot3Method].bind(dataView) : null;
-               const getFdc0 = fdc0Method ? dataView[fdc0Method].bind(dataView) : null;
-               const getFdc1 = fdc1Method ? dataView[fdc1Method].bind(dataView) : null;
-               const getFdc2 = fdc2Method ? dataView[fdc2Method].bind(dataView) : null;
-               const getRed = redMethod ? dataView[redMethod].bind(dataView) : null;
-               const getGreen = greenMethod ? dataView[greenMethod].bind(dataView) : null;
-               const getBlue = blueMethod ? dataView[blueMethod].bind(dataView) : null;
+               const getX = xMethod ? readers[xMethod] : null;
+               const getY = yMethod ? readers[yMethod] : null;
+               const getZ = zMethod ? readers[zMethod] : null;
+               const getScale0 = scale0Method ? readers[scale0Method] : null;
+               const getScale1 = scale1Method ? readers[scale1Method] : null;
+               const getScale2 = scale2Method ? readers[scale2Method] : null;
+               const getOpacity = opacityMethod ? readers[opacityMethod] : null;
+               const getRot0 = rot0Method ? readers[rot0Method] : null;
+               const getRot1 = rot1Method ? readers[rot1Method] : null;
+               const getRot2 = rot2Method ? readers[rot2Method] : null;
+               const getRot3 = rot3Method ? readers[rot3Method] : null;
+               const getFdc0 = fdc0Method ? readers[fdc0Method] : null;
+               const getFdc1 = fdc1Method ? readers[fdc1Method] : null;
+               const getFdc2 = fdc2Method ? readers[fdc2Method] : null;
+               const getRed = redMethod ? readers[redMethod] : null;
+               const getGreen = greenMethod ? readers[greenMethod] : null;
+               const getBlue = blueMethod ? readers[blueMethod] : null;
                const xOffset = offsets["x"] || 0;
                const yOffset = offsets["y"] || 0;
                const zOffset = offsets["z"] || 0;
@@ -1703,32 +1716,34 @@ AFRAME.registerComponent("gaussian_splatting", {
                const IMPORTANCE_THRESHOLD = 0.0015;
                const SH_C0 = 0.28209479177387814;
                const clampByte = (value) => Math.max(0, Math.min(255, Math.round(value)));
+               const exp = Math.exp;
+               const sqrt = Math.sqrt;
                let writeIndex = 0;
                for (let row = 0; row < rowCount; row++) {
                        const rowByteOffset = row * plyState.rowOffset;
-                       const x = getX ? getX(rowByteOffset + xOffset, true) : 0;
-                       const y = getY ? getY(rowByteOffset + yOffset, true) : 0;
-                       const z = getZ ? getZ(rowByteOffset + zOffset, true) : 0;
+                       const x = getX ? getX(dataView, rowByteOffset + xOffset) : 0;
+                       const y = getY ? getY(dataView, rowByteOffset + yOffset) : 0;
+                       const z = getZ ? getZ(dataView, rowByteOffset + zOffset) : 0;
                        let s0 = 0.01;
                        let s1 = 0.01;
                        let s2 = 0.01;
                        let opacity = 1;
                        if (hasScale) {
-                               s0 = Math.exp(getScale0 ? getScale0(rowByteOffset + scale0Offset, true) : 0);
-                               s1 = Math.exp(getScale1 ? getScale1(rowByteOffset + scale1Offset, true) : 0);
-                               s2 = Math.exp(getScale2 ? getScale2(rowByteOffset + scale2Offset, true) : 0);
+                               s0 = exp(getScale0 ? getScale0(dataView, rowByteOffset + scale0Offset) : 0);
+                               s1 = exp(getScale1 ? getScale1(dataView, rowByteOffset + scale1Offset) : 0);
+                               s2 = exp(getScale2 ? getScale2(dataView, rowByteOffset + scale2Offset) : 0);
                                if (hasOpacity) {
-                                       const rawOpacity = getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0;
+                                       const rawOpacity = getOpacity ? getOpacity(dataView, rowByteOffset + opacityOffset) : 0;
                                        opacity = 1 / (1 + Math.exp(-rawOpacity));
                                }
                                const size = s0 * s1 * s2;
                                const opacityCubed = opacity * opacity * opacity;
-                               const importance = Math.sqrt(Math.sqrt(size * opacityCubed));
+                               const importance = sqrt(sqrt(size * opacityCubed));
                                if (importance < IMPORTANCE_THRESHOLD) {
                                        continue;
                                }
                        } else if (hasOpacity) {
-                               const rawOpacity = getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0;
+                               const rawOpacity = getOpacity ? getOpacity(dataView, rowByteOffset + opacityOffset) : 0;
                                opacity = 1 / (1 + Math.exp(-rawOpacity));
                        }
                        const floatIndex = (writeIndex * rowLength) / 4;
@@ -1741,11 +1756,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                        const byteIndex = writeIndex * rowLength;
                        if (hasRotation) {
-                               const r0 = getRot0 ? getRot0(rowByteOffset + rot0Offset, true) : 0;
-                               const r1 = getRot1 ? getRot1(rowByteOffset + rot1Offset, true) : 0;
-                               const r2 = getRot2 ? getRot2(rowByteOffset + rot2Offset, true) : 0;
-                               const r3 = getRot3 ? getRot3(rowByteOffset + rot3Offset, true) : 0;
-                               const qlen = Math.sqrt(r0 ** 2 + r1 ** 2 + r2 ** 2 + r3 ** 2) || 1;
+                               const r0 = getRot0 ? getRot0(dataView, rowByteOffset + rot0Offset) : 0;
+                               const r1 = getRot1 ? getRot1(dataView, rowByteOffset + rot1Offset) : 0;
+                               const r2 = getRot2 ? getRot2(dataView, rowByteOffset + rot2Offset) : 0;
+                               const r3 = getRot3 ? getRot3(dataView, rowByteOffset + rot3Offset) : 0;
+                               const qlen = sqrt(r0 ** 2 + r1 ** 2 + r2 ** 2 + r3 ** 2) || 1;
                                outBytes[byteIndex + 28] = clampByte((r0 / qlen) * 128 + 128);
                                outBytes[byteIndex + 29] = clampByte((r1 / qlen) * 128 + 128);
                                outBytes[byteIndex + 30] = clampByte((r2 / qlen) * 128 + 128);
@@ -1758,13 +1773,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                        }
 
                        if (hasFdc) {
-                               outBytes[byteIndex + 24] = clampByte((0.5 + SH_C0 * (getFdc0 ? getFdc0(rowByteOffset + fdc0Offset, true) : 0)) * 255);
-                               outBytes[byteIndex + 25] = clampByte((0.5 + SH_C0 * (getFdc1 ? getFdc1(rowByteOffset + fdc1Offset, true) : 0)) * 255);
-                               outBytes[byteIndex + 26] = clampByte((0.5 + SH_C0 * (getFdc2 ? getFdc2(rowByteOffset + fdc2Offset, true) : 0)) * 255);
+                               outBytes[byteIndex + 24] = clampByte((0.5 + SH_C0 * (getFdc0 ? getFdc0(dataView, rowByteOffset + fdc0Offset) : 0)) * 255);
+                               outBytes[byteIndex + 25] = clampByte((0.5 + SH_C0 * (getFdc1 ? getFdc1(dataView, rowByteOffset + fdc1Offset) : 0)) * 255);
+                               outBytes[byteIndex + 26] = clampByte((0.5 + SH_C0 * (getFdc2 ? getFdc2(dataView, rowByteOffset + fdc2Offset) : 0)) * 255);
                        } else if (hasRgb) {
-                               outBytes[byteIndex + 24] = clampByte(getRed ? getRed(rowByteOffset + redOffset, true) : 0);
-                               outBytes[byteIndex + 25] = clampByte(getGreen ? getGreen(rowByteOffset + greenOffset, true) : 0);
-                               outBytes[byteIndex + 26] = clampByte(getBlue ? getBlue(rowByteOffset + blueOffset, true) : 0);
+                               outBytes[byteIndex + 24] = clampByte(getRed ? getRed(dataView, rowByteOffset + redOffset) : 0);
+                               outBytes[byteIndex + 25] = clampByte(getGreen ? getGreen(dataView, rowByteOffset + greenOffset) : 0);
+                               outBytes[byteIndex + 26] = clampByte(getBlue ? getBlue(dataView, rowByteOffset + blueOffset) : 0);
                        } else {
                                outBytes[byteIndex + 24] = 0;
                                outBytes[byteIndex + 25] = 0;
