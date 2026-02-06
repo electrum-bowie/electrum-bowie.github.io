@@ -107,25 +107,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.splatsToDiscard = [];
 
-		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
-		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
-		this.centerAndScaleTexture = new THREE.DataTexture(this.centerAndScaleData, 4096, 4096, THREE.RGBA, THREE.FloatType);
-                
-                this.centerAndScaleTexture.generateMipmaps = false;
-		this.centerAndScaleTexture.minFilter = THREE.NearestFilter;
-                this.centerAndScaleTexture.magFilter = THREE.NearestFilter;
-                
-                this.centerAndScaleTexture.needsUpdate = true;
-                this.covAndColorTexture = new THREE.DataTexture(this.covAndColorData, 4096, 4096, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
+                this.configureSplatStorage(1);
 
-                this.covAndColorTexture.generateMipmaps = false;
-                this.covAndColorTexture.minFilter = THREE.NearestFilter;
-                this.covAndColorTexture.magFilter = THREE.NearestFilter;
-
-                this.covAndColorTexture.internalFormat = "RGBA32UI";
-                this.covAndColorTexture.needsUpdate = true;
-
-                let splatIndexArray = new Uint32Array(4096 * 4096);
+                let splatIndexArray = new Uint32Array(1);
                 const splatIndexes = new THREE.InstancedBufferAttribute(splatIndexArray, 1, false);
                 splatIndexes.setUsage(THREE.DynamicDrawUsage);
 
@@ -161,6 +145,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 focal: { value: 1000.0 }, // Dummy. will be overwritten
                                 centerAndScaleTexture: { value: this.centerAndScaleTexture },
                                 covAndColorTexture: { value: this.covAndColorTexture },
+                                splatTextureWidth: { value: this.textureWidth },
                                 gsProjectionMatrix: { value: this.getProjectionMatrix() } ,
                                 gsModelViewMatrix: { value: this.getModelViewMatrix() },
                                 gsProjectionMatrixRight: { value: this.getProjectionMatrix() },
@@ -173,10 +158,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 				out vec4 vColor;
 				out vec2 vPosition;
 				uniform vec2 viewportInv;
-				uniform float focal;
-				uniform mat4 gsProjectionMatrix;
-				uniform mat4 gsModelViewMatrix;
-				uniform mat3 viewRotationMatrix;
+                                uniform float focal;
+                                uniform mat4 gsProjectionMatrix;
+                                uniform mat4 gsModelViewMatrix;
+                                uniform mat3 viewRotationMatrix;
+                                uniform int splatTextureWidth;
 				 #ifdef IS_MULTIVIEW
 				uniform mat4 gsProjectionMatrixRight;
 				uniform mat4 gsModelViewMatrixRight;
@@ -194,7 +180,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 
 				void main() {
-					ivec2 texPos = ivec2(int(splatIndex & 4095u), int(splatIndex >> 12));
+                                        uint textureWidth = uint(splatTextureWidth);
+					ivec2 texPos = ivec2(int(splatIndex % textureWidth), int(splatIndex / textureWidth));
 					vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
 	
 					vec4 camspace;
@@ -402,6 +389,82 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
                 this.occlusionReady = true;
         },
+        configureSplatStorage: function (targetCount) {
+                const safeTarget = Math.max(1, targetCount || 1);
+                const maxTextureSize = this.renderer.capabilities.maxTextureSize || 4096;
+                const nextPow2 = (value) => Math.pow(2, Math.ceil(Math.log2(value)));
+                const targetDim = Math.min(
+                        maxTextureSize,
+                        nextPow2(Math.ceil(Math.sqrt(safeTarget))),
+                );
+                const maxCount = targetDim * targetDim;
+                if (this.textureWidth === targetDim && this.textureHeight === targetDim) {
+                        return;
+                }
+                if (maxCount < safeTarget) {
+                        console.warn("Splat count exceeds texture capacity.", {
+                                safeTarget,
+                                maxCount,
+                                maxTextureSize,
+                        });
+                }
+
+                const previousCenter = this.centerAndScaleData;
+                const previousCov = this.covAndColorData;
+
+                this.textureWidth = targetDim;
+                this.textureHeight = targetDim;
+                this.maxSplatCount = maxCount;
+                this.centerAndScaleData = new Float32Array(maxCount * 4);
+                this.covAndColorData = new Uint32Array(maxCount * 4);
+                if (previousCenter) {
+                        this.centerAndScaleData.set(
+                                previousCenter.subarray(0, this.centerAndScaleData.length),
+                        );
+                }
+                if (previousCov) {
+                        this.covAndColorData.set(
+                                previousCov.subarray(0, this.covAndColorData.length),
+                        );
+                }
+
+                this.centerAndScaleTexture = new THREE.DataTexture(
+                        this.centerAndScaleData,
+                        targetDim,
+                        targetDim,
+                        THREE.RGBA,
+                        THREE.FloatType,
+                );
+                this.centerAndScaleTexture.generateMipmaps = false;
+                this.centerAndScaleTexture.minFilter = THREE.NearestFilter;
+                this.centerAndScaleTexture.magFilter = THREE.NearestFilter;
+                this.centerAndScaleTexture.needsUpdate = true;
+
+                this.covAndColorTexture = new THREE.DataTexture(
+                        this.covAndColorData,
+                        targetDim,
+                        targetDim,
+                        THREE.RGBAIntegerFormat,
+                        THREE.UnsignedIntType,
+                );
+                this.covAndColorTexture.generateMipmaps = false;
+                this.covAndColorTexture.minFilter = THREE.NearestFilter;
+                this.covAndColorTexture.magFilter = THREE.NearestFilter;
+                this.covAndColorTexture.internalFormat = "RGBA32UI";
+                this.covAndColorTexture.needsUpdate = true;
+
+                if (this.mesh && this.mesh.material && this.mesh.material.uniforms) {
+                        this.mesh.material.uniforms.centerAndScaleTexture.value =
+                                this.centerAndScaleTexture;
+                        this.mesh.material.uniforms.covAndColorTexture.value =
+                                this.covAndColorTexture;
+                        if (this.mesh.material.uniforms.splatTextureWidth) {
+                                this.mesh.material.uniforms.splatTextureWidth.value = targetDim;
+                        }
+                }
+
+                this.textureReady = false;
+        },
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
@@ -426,6 +489,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 				let isPly = null;
 				let plyState = null;
 				let plyPending = new Uint8Array(0);
+                                let storageConfigured = false;
 				const maxPlyBatchBytes = 64 * 1024 * 1024;
 				const appendPending = (pending, chunk) => {
 					if (pending.length === 0) {
@@ -458,7 +522,20 @@ AFRAME.registerComponent("gaussian_splatting", {
 						if (isPly === null) {
 							const probe = new TextDecoder().decode(value.slice(0, 4));
 							isPly = probe.startsWith("ply");
+                                                        if (!isPly && !storageConfigured && totalDownloadBytes !== undefined) {
+                                                                const estimatedCount = Math.floor(totalDownloadBytes / this.rowLength);
+                                                                if (estimatedCount > 0) {
+                                                                        this.configureSplatStorage(estimatedCount);
+                                                                        storageConfigured = true;
+                                                                }
+                                                        }
 						}
+                                                if (!isPly && totalDownloadBytes === undefined) {
+                                                        const estimatedCount = Math.floor(bytesDownloaded / this.rowLength);
+                                                        if (estimatedCount > this.maxSplatCount) {
+                                                                this.configureSplatStorage(estimatedCount);
+                                                        }
+                                                }
 						if (isPly) {
 							plyPending = appendPending(plyPending, value);
 						} else {
@@ -472,6 +549,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 						if (isPly && !plyState) {
 							plyState = this.parsePlyHeader(plyPending.buffer);
+                                                        if (plyState && !storageConfigured) {
+                                                                this.configureSplatStorage(plyState.vertexCount);
+                                                                storageConfigured = true;
+                                                        }
 							if (plyState && plyState.format === "binary_little_endian") {
 								plyPending = plyPending.slice(plyState.headerByteLength);
 								bytesProcesses += plyState.headerByteLength;
@@ -570,8 +651,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         });
         },
         pushDataBuffer: function (buffer, vertexCount) {
-                if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
-                        vertexCount = 4096 * 4096 - this.loadedVertexCount;
+                if (this.loadedVertexCount + vertexCount > this.maxSplatCount) {
+                        vertexCount = this.maxSplatCount - this.loadedVertexCount;
                 }
                 if (vertexCount <= 0) {
                         return;
@@ -682,16 +763,16 @@ AFRAME.registerComponent("gaussian_splatting", {
 		while (vertexCount > 0) {
 			let width = 0;
 			let height = 0;
-			let xoffset = (this.loadedVertexCount % 4096);
-			let yoffset = Math.floor(this.loadedVertexCount / 4096);
-			if (this.loadedVertexCount % 4096 != 0) {
-				width = Math.min(4096, xoffset + vertexCount) - xoffset;
+			let xoffset = (this.loadedVertexCount % this.textureWidth);
+			let yoffset = Math.floor(this.loadedVertexCount / this.textureWidth);
+			if (this.loadedVertexCount % this.textureWidth != 0) {
+				width = Math.min(this.textureWidth, xoffset + vertexCount) - xoffset;
 				height = 1;
-			} else if (Math.floor(vertexCount / 4096) > 0) {
-				width = 4096;
-				height = Math.floor(vertexCount / 4096);
+			} else if (Math.floor(vertexCount / this.textureWidth) > 0) {
+				width = this.textureWidth;
+				height = Math.floor(vertexCount / this.textureWidth);
 			} else {
-				width = vertexCount % 4096;
+				width = vertexCount % this.textureWidth;
 				height = 1;
 			}
 
