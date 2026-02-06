@@ -1515,44 +1515,18 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                 };
         },
-        findPlyHeaderEnd: function (ubuf) {
-                const endHeader = [101, 110, 100, 95, 104, 101, 97, 100, 101, 114, 10]; // end_header\n
-                const endHeaderCrlf = [101, 110, 100, 95, 104, 101, 97, 100, 101, 114, 13, 10]; // end_header\r\n
-                const maxIndex = ubuf.length - endHeader.length;
-                for (let i = 0; i <= maxIndex; i++) {
-                        let matched = true;
-                        for (let j = 0; j < endHeader.length; j++) {
-                                if (ubuf[i + j] !== endHeader[j]) {
-                                        matched = false;
-                                        break;
-                                }
-                        }
-                        if (matched) {
-                                return { headerEndIndex: i, headerByteLength: i + endHeader.length };
-                        }
-                        if (i + endHeaderCrlf.length <= ubuf.length) {
-                                matched = true;
-                                for (let j = 0; j < endHeaderCrlf.length; j++) {
-                                        if (ubuf[i + j] !== endHeaderCrlf[j]) {
-                                                matched = false;
-                                                break;
-                                        }
-                                }
-                                if (matched) {
-                                        return { headerEndIndex: i, headerByteLength: i + endHeaderCrlf.length };
-                                }
-                        }
-                }
-                return null;
-        },
        parsePlyHeader: function (inputBuffer) {
                const ubuf = new Uint8Array(inputBuffer);
-               const headerInfo = this.findPlyHeaderEnd(ubuf);
-               if (!headerInfo) {
+               const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 10));
+               let header_end = "end_header\n";
+               let header_end_index = header.indexOf(header_end);
+               if (header_end_index < 0) {
+                       header_end = "end_header\r\n";
+                       header_end_index = header.indexOf(header_end);
+               }
+               if (header_end_index < 0) {
                        return null;
                }
-               const header = new TextDecoder().decode(ubuf.slice(0, headerInfo.headerByteLength));
-               const header_end_index = headerInfo.headerEndIndex;
                const formatMatch = /format (ascii|binary_little_endian) 1\.0/.exec(header);
                const format = formatMatch ? formatMatch[1] : "binary_little_endian";
                const vertexMatch = /element vertex (\d+)/.exec(header);
@@ -1586,7 +1560,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                        rowOffset: row_offset,
                        offsets,
                        types,
-                       headerByteLength: headerInfo.headerByteLength,
+                       headerByteLength: header_end_index + header_end.length,
                };
        },
        buildPlyBinaryBatch: function (plyState, pending, rowCount) {
@@ -1687,12 +1661,16 @@ AFRAME.registerComponent("gaussian_splatting", {
        },
        processPlyBuffer: function (inputBuffer) {
                const ubuf = new Uint8Array(inputBuffer);
-               const headerInfo = this.findPlyHeaderEnd(ubuf);
-               if (!headerInfo) {
-                       throw new Error("Unable to read .ply file header");
+               // 10KB ought to be enough for a header...
+               const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 10));
+               let header_end = "end_header\n";
+               let header_end_index = header.indexOf(header_end);
+               if (header_end_index < 0) {
+                       header_end = "end_header\r\n";
+                       header_end_index = header.indexOf(header_end);
                }
-               const header = new TextDecoder().decode(ubuf.slice(0, headerInfo.headerByteLength));
-               const header_end_index = headerInfo.headerEndIndex;
+               if (header_end_index < 0)
+                       throw new Error("Unable to read .ply file header");
                const formatMatch = /format (ascii|binary_little_endian) 1\.0/.exec(header);
                const format = formatMatch ? formatMatch[1] : "binary_little_endian";
                let vertexCount = parseInt(/element vertex (\d+)/.exec(header)[1]);
@@ -1725,7 +1703,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                if (format === "ascii") {
                        const bodyStr = new TextDecoder().decode(
-                               ubuf.slice(headerInfo.headerByteLength),
+                               ubuf.slice(header_end_index + header_end.length),
                        );
                        const lines = bodyStr.split(/\r?\n/);
                        const vertices = [];
@@ -1836,7 +1814,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                // Binary little-endian path (original implementation)
                let dataView = new DataView(
                        inputBuffer,
-                       headerInfo.headerByteLength,
+                       header_end_index + header_end.length,
                );
                let row = 0;
                const attrs = new Proxy(
