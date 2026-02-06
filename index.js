@@ -576,6 +576,22 @@ AFRAME.registerComponent("gaussian_splatting", {
 					}
 				}
 
+				if (!this.textureReady) {
+					const maxWaitMs = 2000;
+					const waitStart = Date.now();
+					while (!this.textureReady && (Date.now() - waitStart) < maxWaitMs) {
+						if (this.renderer.properties.get(this.centerAndScaleTexture) &&
+							this.renderer.properties.get(this.covAndColorTexture)) {
+							this.textureReady = true;
+							break;
+						}
+						await sleep(16);
+					}
+					if (!this.textureReady) {
+						console.warn("Textures not ready after import; pending data may be incomplete.");
+					}
+				}
+
 				if (bytesDownloaded - bytesProcesses > 0) {
 					if (isPly && plyState && plyState.format === "binary_little_endian") {
 						if (this.textureReady) {
