@@ -640,6 +640,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 		let f_buffer = new Float32Array(buffer);
                 let matrices = new Float32Array(vertexCount * 16);
                 let normals = new Float32Array(vertexCount * 3);
+                let writeIndex = 0;
 
                 const axisX = new THREE.Vector3();
                 const axisY = new THREE.Vector3();
@@ -694,9 +695,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 smallestValue = scale.z;
                         }
                         let chosenAxis = smallestAxisIndex === 0 ? axisX : smallestAxisIndex === 1 ? axisY : axisZ;
-                        normals[i * 3 + 0] = chosenAxis.x;
-                        normals[i * 3 + 1] = chosenAxis.y;
-                        normals[i * 3 + 2] = chosenAxis.z;
+                        normals[writeIndex * 3 + 0] = chosenAxis.x;
+                        normals[writeIndex * 3 + 1] = chosenAxis.y;
+                        normals[writeIndex * 3 + 2] = chosenAxis.z;
 
 			let cov_indexes = [0, 1, 2, 5, 6, 10];
 			let max_value = 0.0;
@@ -706,19 +707,20 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 			}
 
-			let destOffset = this.loadedVertexCount * 4 + i * 4;
+                        const outputIndex = this.loadedVertexCount + writeIndex;
+			let destOffset = outputIndex * 4;
 			this.centerAndScaleData[destOffset + 0] = center.x;
 			this.centerAndScaleData[destOffset + 1] = center.y;
 			this.centerAndScaleData[destOffset + 2] = center.z;
 			this.centerAndScaleData[destOffset + 3] = max_value / 32767.0;
 
-			destOffset = this.loadedVertexCount * 8 + i * 4 * 2;
+			destOffset = outputIndex * 8;
 			for (let j = 0; j < cov_indexes.length; j++) {
 				covAndColorData_int16[destOffset + j] = parseInt(mtx.elements[cov_indexes[j]] * 32767.0 / max_value);
 			}
 
 			// RGBA
-			destOffset = this.loadedVertexCount * 16 + (i * 4 + 3) * 4;
+			destOffset = outputIndex * 16 + 12;
 			covAndColorData_uint8[destOffset + 0] = u_buffer[32 * i + 24 + 0];
 			covAndColorData_uint8[destOffset + 1] = u_buffer[32 * i + 24 + 1];
 			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
@@ -730,9 +732,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                         mtx.elements[11] = u_buffer[32*i + 24 + 3] / 255.0;
 
 			for (let j = 0; j < 16; j++) {
-				matrices[i * 16 + j] = mtx.elements[j];
+				matrices[writeIndex * 16 + j] = mtx.elements[j];
 			}
+                        writeIndex++;
 		}
+
+                if (writeIndex < vertexCount) {
+                        matrices = matrices.slice(0, writeIndex * 16);
+                        normals = normals.slice(0, writeIndex * 3);
+                }
+                vertexCount = writeIndex;
+                if (vertexCount <= 0) {
+                        return;
+                }
 
 		const gl = this.renderer.getContext();
 		while (vertexCount > 0) {
