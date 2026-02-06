@@ -5,9 +5,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 xrPixelRatio: { type: 'number', default: 0.8 },
                 // Fixed foveation level. Set to 0 to disable foveated rendering
                 foveation: { type: 'number', default: 0.0 }, // no perceived performance gains even with the maximum level
-                gridSize: { type: 'number', default: 2.5 },
-                lodLevels: { type: 'number', default: 4 },
-                lodSensitivity: { type: 'number', default: 1.0 },
         },
         init: function () {
                 // aframe-specific data
@@ -109,7 +106,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.viewRotationMatrix = new THREE.Matrix3();
 
                 this.splatsToDiscard = [];
-                this.resetLodState();
 
 		this.centerAndScaleData = new Float32Array(4096 * 4096 * 4);
 		this.covAndColorData = new Uint32Array(4096 * 4096 * 4);
@@ -412,8 +408,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.postMessage({ method: "clear" });
                 this.occlusionWorker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
-                this.isCaching = false;
-                this.resetLodState();
+                this.isCaching = true;
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 		fetch(src)
@@ -456,7 +451,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 						}
 
 						const bytesRemains = bytesDownloaded - bytesProcesses;
-						if (!isPly && bytesRemains > this.rowLength) {
+						if (!isPly && this.textureReady && bytesRemains > this.rowLength) {
 							let vertexCount = Math.floor(bytesRemains / this.rowLength);
 							const concatenatedChunksbuffer = new Uint8Array(bytesRemains);
 							let offset = 0;
@@ -472,7 +467,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 							}
 							const buffer = new Uint8Array(vertexCount * this.rowLength);
 							buffer.set(concatenatedChunksbuffer.subarray(0, buffer.byteLength), 0);
-							this.collectSplatBuffer(buffer.buffer, vertexCount);
+							this.pushDataBuffer(buffer.buffer, vertexCount);
 							bytesProcesses += vertexCount * this.rowLength;
 						}
 					} catch (error) {
@@ -494,231 +489,19 @@ AFRAME.registerComponent("gaussian_splatting", {
 					if (isPly) {
 						concatenatedChunks = new Uint8Array(this.processPlyBuffer(concatenatedChunks.buffer));
 					}
-                                this.collectSplatBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
+                                this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
                                 }
                         })
                         .finally(() => {
-                                this.finalizeLodImport();
-                        });
-        },
-        resetLodState: function () {
-                this.lodGenerated = false;
-                this.lodTiles = new Map();
-                this.lodTileList = [];
-                this.lodSplatEntries = [];
-                this.lodBoundsMin = new THREE.Vector3(Infinity, Infinity, Infinity);
-                this.lodBoundsMax = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
-                this.lastLodUpdate = 0;
-                this.activeLodSplatCount = 0;
-        },
-        collectSplatBuffer: function (buffer, vertexCount) {
-                if (!buffer || vertexCount <= 0) return;
-                const IMPORTANCE_THRESHOLD = 0.0015;
-                const rowLength = this.rowLength;
-                const u_buffer = new Uint8Array(buffer);
-                const f_buffer = new Float32Array(buffer);
-                const maxScale = 100.0;
-                const minScale = 0.0001;
-
-                for (let i = 0; i < vertexCount; i++) {
-                        const baseIndex = i * 8;
-                        const x = f_buffer[baseIndex + 0];
-                        const y = f_buffer[baseIndex + 1];
-                        const z = f_buffer[baseIndex + 2];
-                        const sx = f_buffer[baseIndex + 3];
-                        const sy = f_buffer[baseIndex + 4];
-                        const sz = f_buffer[baseIndex + 5];
-
-                        const maxAxis = Math.max(sx, sy, sz);
-                        if (maxAxis > maxScale || maxAxis < minScale) {
-                                continue;
-                        }
-
-                        const opacity = u_buffer[32 * i + 24 + 3] / 255.0;
-                        const size = sx * sy * sz;
-                        const importance = Math.pow(size * opacity ** 3, 1 / 4);
-                        if (importance < IMPORTANCE_THRESHOLD) continue;
-
-                        this.lodBoundsMin.x = Math.min(this.lodBoundsMin.x, x);
-                        this.lodBoundsMin.y = Math.min(this.lodBoundsMin.y, y);
-                        this.lodBoundsMin.z = Math.min(this.lodBoundsMin.z, z);
-                        this.lodBoundsMax.x = Math.max(this.lodBoundsMax.x, x);
-                        this.lodBoundsMax.y = Math.max(this.lodBoundsMax.y, y);
-                        this.lodBoundsMax.z = Math.max(this.lodBoundsMax.z, z);
-
-                        const offset = i * rowLength;
-                        const row = new Uint8Array(rowLength);
-                        row.set(u_buffer.subarray(offset, offset + rowLength));
-                        this.lodSplatEntries.push({
-                                position: new THREE.Vector3(x, y, z),
-                                importance,
-                                row,
-                        });
-                }
-        },
-        finalizeLodImport: function () {
-                if (this.lodGenerated) return;
-                if (!this.lodSplatEntries || this.lodSplatEntries.length === 0) {
-                        console.warn("No splats collected for LOD generation.");
-                        return;
-                }
-                this.buildLodTiles();
-                this.needsQualityUpdate = false;
-                this.updateTileLods(performance.now(), true);
-        },
-        buildLodTiles: function () {
-                if (this.lodGenerated) return;
-                const tileSize = Math.max(0.01, this.data.gridSize);
-                const levels = Math.max(2, Math.floor(this.data.lodLevels));
-                const boundsMin = this.lodBoundsMin;
-                const boundsMax = this.lodBoundsMax;
-
-                const dims = new THREE.Vector3(
-                        Math.max(1, Math.ceil((boundsMax.x - boundsMin.x) / tileSize)),
-                        Math.max(1, Math.ceil((boundsMax.y - boundsMin.y) / tileSize)),
-                        Math.max(1, Math.ceil((boundsMax.z - boundsMin.z) / tileSize)),
-                );
-
-                const totalSplats = this.lodSplatEntries.length;
-                let processed = 0;
-                let lastReported = 0;
-
-                for (const entry of this.lodSplatEntries) {
-                        const tx = Math.min(dims.x - 1, Math.max(0, Math.floor((entry.position.x - boundsMin.x) / tileSize)));
-                        const ty = Math.min(dims.y - 1, Math.max(0, Math.floor((entry.position.y - boundsMin.y) / tileSize)));
-                        const tz = Math.min(dims.z - 1, Math.max(0, Math.floor((entry.position.z - boundsMin.z) / tileSize)));
-                        const key = `${tx},${ty},${tz}`;
-                        let tile = this.lodTiles.get(key);
-                        if (!tile) {
-                                tile = {
-                                        index: new THREE.Vector3(tx, ty, tz),
-                                        center: new THREE.Vector3(
-                                                boundsMin.x + (tx + 0.5) * tileSize,
-                                                boundsMin.y + (ty + 0.5) * tileSize,
-                                                boundsMin.z + (tz + 0.5) * tileSize,
-                                        ),
-                                        splats: [],
-                                        lodBuffers: new Array(levels),
-                                        lodCounts: new Array(levels).fill(0),
-                                        activeLod: null,
-                                };
-                                this.lodTiles.set(key, tile);
-                        }
-                        tile.splats.push(entry);
-                        processed++;
-                        const percent = Math.floor((processed / totalSplats) * 100);
-                        if (percent - lastReported >= 10) {
-                                lastReported = percent;
-                                console.log(`LOD Tile Assignment: ${percent}%`);
-                        }
-                }
-
-                const tileList = Array.from(this.lodTiles.values());
-                let tileIndex = 0;
-                for (const tile of tileList) {
-                        tile.splats.sort((a, b) => b.importance - a.importance);
-                        const total = tile.splats.length;
-                        for (let level = 0; level < levels; level++) {
-                                const fraction = this.getLodFraction(level, levels);
-                                let count = Math.max(1, Math.round(total * fraction));
-                                count = Math.min(count, total);
-                                const buffer = new Uint8Array(count * this.rowLength);
-                                for (let i = 0; i < count; i++) {
-                                        buffer.set(tile.splats[i].row, i * this.rowLength);
+                                this.isCaching = false;
+                                if (this.needsQualityUpdate) {
+                                        this.needsQualityUpdate = false;
+                                        this.updateQuality();
                                 }
-                                tile.lodBuffers[level] = buffer;
-                                tile.lodCounts[level] = count;
-                        }
-                        tile.splats = null;
-                        tileIndex++;
-                        const percent = Math.floor((tileIndex / tileList.length) * 100);
-                        if (percent - lastReported >= 10) {
-                                lastReported = percent;
-                                console.log(`LOD Buffer Build: ${percent}%`);
-                        }
-                }
-
-                this.lodSplatEntries = [];
-                this.lodTileList = tileList;
-                this.lodGenerated = true;
-                console.log("LOD generation complete.");
-        },
-        getLodFraction: function (level, levels) {
-                const decay = 0.6;
-                const fraction = Math.pow(decay, level);
-                const minFraction = 1 / Math.max(8, levels * 4);
-                return Math.max(minFraction, Math.min(1, fraction));
-        },
-        getLodLevel: function (distance) {
-                const levels = Math.max(2, Math.floor(this.data.lodLevels));
-                const tileSize = Math.max(0.01, this.data.gridSize);
-                const sensitivity = Math.max(0.1, this.data.lodSensitivity);
-                const baseDistance = tileSize * 2.5;
-                const scaledDistance = distance * sensitivity;
-                return Math.min(levels - 1, Math.max(0, Math.floor(scaledDistance / baseDistance)));
-        },
-        updateTileLods: function (time, force = false) {
-                if (!this.lodGenerated || !this.lodTileList || this.lodTileList.length === 0) return;
-                if (!force && time - this.lastLodUpdate < 250) return;
-                this.lastLodUpdate = time;
-
-                this.camera.getWorldPosition(this.tmpCameraPos);
-                this.tmpLocalCameraPos.copy(this.tmpCameraPos);
-                this.object.worldToLocal(this.tmpLocalCameraPos);
-                const cameraLocal = this.tmpLocalCameraPos;
-
-                let needsRebuild = false;
-                for (const tile of this.lodTileList) {
-                        const distance = cameraLocal.distanceTo(tile.center);
-                        const nextLod = this.getLodLevel(distance);
-                        if (tile.activeLod === null || tile.activeLod !== nextLod) {
-                                tile.activeLod = nextLod;
-                                needsRebuild = true;
-                        }
-                }
-                if (needsRebuild) {
-                        this.rebuildActiveSplats();
-                }
-        },
-        rebuildActiveSplats: function () {
-                this.loadedVertexCount = 0;
-                if (this.mesh && this.mesh.geometry) {
-                        this.mesh.geometry.instanceCount = 0;
-                }
-                this.worker.postMessage({ method: "clear" });
-                this.occlusionWorker.postMessage({ method: "clear" });
-                this.centerAndScaleTexture.needsUpdate = true;
-                this.covAndColorTexture.needsUpdate = true;
-                this.sortReady = true;
-                this.filterReady = true;
-                this.occlusionReady = true;
-
-                let totalCount = 0;
-                for (const tile of this.lodTileList) {
-                        if (tile.activeLod === null) continue;
-                        totalCount += tile.lodCounts[tile.activeLod] || 0;
-                }
-
-                this.activeLodSplatCount = totalCount;
-                if (totalCount === 0) {
-                        console.warn("No splats selected for current LODs.");
-                        return;
-                }
-
-                const combined = new Uint8Array(totalCount * this.rowLength);
-                let offset = 0;
-                for (const tile of this.lodTileList) {
-                        const buffer = tile.lodBuffers[tile.activeLod];
-                        if (!buffer || buffer.length === 0) continue;
-                        combined.set(buffer, offset);
-                        offset += buffer.length;
-                }
-
-                console.log(`LOD Active Splats: ${totalCount}`);
-                this.pushDataBuffer(combined.buffer, totalCount);
-                this.occludeSplatsNow();
-                this.filterSplatsNow();
-                this.sortSplatsNow();
+                                this.occludeSplatsNow();
+                                this.filterSplatsNow();
+                                this.sortSplatsNow();
+                        });
         },
         pushDataBuffer: function (buffer, vertexCount) {
                 if (this.loadedVertexCount + vertexCount > 4096 * 4096) {
@@ -873,7 +656,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.updateDynamicResolution(time, timeDelta);
 
                 this.camera.getWorldPosition(this.tmpCameraPos);
-                this.updateTileLods(time);
                 
                 const camPosChanged = this.tmpCameraPos.distanceToSquared(this.lastCameraPos) > 0.001;
 
@@ -903,11 +685,24 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
         },
         updateQuality: function () {
-                if (!this.lodGenerated) {
-                        this.needsQualityUpdate = true;
+                if (this.isCaching) {
+                        if (this.originalBuffers && this.originalBuffers.length > 0) {
+                                this.needsQualityUpdate = true;
+                        }
                         return;
                 }
-                this.updateTileLods(performance.now(), true);
+                if (!this.originalBuffers || this.originalBuffers.length === 0) return;
+                this.loadedVertexCount = 0;
+                if (this.mesh && this.mesh.geometry) {
+                        this.mesh.geometry.instanceCount = 0;
+                }
+                this.worker.postMessage({ method: "clear" });
+                this.centerAndScaleTexture.needsUpdate = true;
+                this.covAndColorTexture.needsUpdate = true;
+                for (const buf of this.originalBuffers) {
+                        this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
+                }
+                this.sortReady = true;
         },
 
         // Apply the configured foveation level to the current XR session.
