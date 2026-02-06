@@ -1623,12 +1623,44 @@ AFRAME.registerComponent("gaussian_splatting", {
                        offsets[name] = row_offset;
                        row_offset += info.size;
                }
+               const fastFloat32Props = [
+                       "x",
+                       "y",
+                       "z",
+                       "scale_0",
+                       "scale_1",
+                       "scale_2",
+                       "opacity",
+                       "rot_0",
+                       "rot_1",
+                       "rot_2",
+                       "rot_3",
+                       "f_dc_0",
+                       "f_dc_1",
+                       "f_dc_2",
+                       "red",
+                       "green",
+                       "blue",
+               ];
+               const canUseFloat32 =
+                       row_offset % 4 === 0 &&
+                       fastFloat32Props.every((name) => {
+                               if (!(name in types)) {
+                                       return true;
+                               }
+                               if (types[name] !== "getFloat32") {
+                                       return false;
+                               }
+                               return offsets[name] % 4 === 0;
+                       });
                return {
                        format,
                        vertexCount,
                        rowOffset: row_offset,
+                       rowOffsetFloats: row_offset / 4,
                        offsets,
                        types,
+                       fastFloat32: canUseFloat32,
                        headerByteLength: header_end_index + header_end.length,
                };
        },
@@ -1639,6 +1671,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                        pending.byteOffset,
                        rowCount * plyState.rowOffset,
                );
+               const useFloat32 = plyState.fastFloat32;
+               const rowOffsetFloats = plyState.rowOffsetFloats;
+               const floatView = useFloat32
+                       ? new Float32Array(
+                               pending.buffer,
+                               pending.byteOffset,
+                               rowCount * rowOffsetFloats,
+                       )
+                       : null;
                const buffer = new ArrayBuffer(rowLength * rowCount);
                const outFloats = new Float32Array(buffer);
                const outBytes = new Uint8Array(buffer);
@@ -1700,25 +1741,77 @@ AFRAME.registerComponent("gaussian_splatting", {
                const redOffset = offsets["red"] || 0;
                const greenOffset = offsets["green"] || 0;
                const blueOffset = offsets["blue"] || 0;
+               const xOffsetFloat = useFloat32 ? xOffset >> 2 : 0;
+               const yOffsetFloat = useFloat32 ? yOffset >> 2 : 0;
+               const zOffsetFloat = useFloat32 ? zOffset >> 2 : 0;
+               const scale0OffsetFloat = useFloat32 ? scale0Offset >> 2 : 0;
+               const scale1OffsetFloat = useFloat32 ? scale1Offset >> 2 : 0;
+               const scale2OffsetFloat = useFloat32 ? scale2Offset >> 2 : 0;
+               const opacityOffsetFloat = useFloat32 ? opacityOffset >> 2 : 0;
+               const rot0OffsetFloat = useFloat32 ? rot0Offset >> 2 : 0;
+               const rot1OffsetFloat = useFloat32 ? rot1Offset >> 2 : 0;
+               const rot2OffsetFloat = useFloat32 ? rot2Offset >> 2 : 0;
+               const rot3OffsetFloat = useFloat32 ? rot3Offset >> 2 : 0;
+               const fdc0OffsetFloat = useFloat32 ? fdc0Offset >> 2 : 0;
+               const fdc1OffsetFloat = useFloat32 ? fdc1Offset >> 2 : 0;
+               const fdc2OffsetFloat = useFloat32 ? fdc2Offset >> 2 : 0;
+               const redOffsetFloat = useFloat32 ? redOffset >> 2 : 0;
+               const greenOffsetFloat = useFloat32 ? greenOffset >> 2 : 0;
+               const blueOffsetFloat = useFloat32 ? blueOffset >> 2 : 0;
                const IMPORTANCE_THRESHOLD = 0.0015;
                const SH_C0 = 0.28209479177387814;
                const clampByte = (value) => Math.max(0, Math.min(255, Math.round(value)));
                let writeIndex = 0;
                for (let row = 0; row < rowCount; row++) {
                        const rowByteOffset = row * plyState.rowOffset;
-                       const x = getX ? getX(rowByteOffset + xOffset, true) : 0;
-                       const y = getY ? getY(rowByteOffset + yOffset, true) : 0;
-                       const z = getZ ? getZ(rowByteOffset + zOffset, true) : 0;
+                       const rowFloatOffset = useFloat32 ? row * rowOffsetFloats : 0;
+                       const x = getX
+                               ? useFloat32
+                                       ? floatView[rowFloatOffset + xOffsetFloat]
+                                       : getX(rowByteOffset + xOffset, true)
+                               : 0;
+                       const y = getY
+                               ? useFloat32
+                                       ? floatView[rowFloatOffset + yOffsetFloat]
+                                       : getY(rowByteOffset + yOffset, true)
+                               : 0;
+                       const z = getZ
+                               ? useFloat32
+                                       ? floatView[rowFloatOffset + zOffsetFloat]
+                                       : getZ(rowByteOffset + zOffset, true)
+                               : 0;
                        let s0 = 0.01;
                        let s1 = 0.01;
                        let s2 = 0.01;
                        let opacity = 1;
                        if (hasScale) {
-                               s0 = Math.exp(getScale0 ? getScale0(rowByteOffset + scale0Offset, true) : 0);
-                               s1 = Math.exp(getScale1 ? getScale1(rowByteOffset + scale1Offset, true) : 0);
-                               s2 = Math.exp(getScale2 ? getScale2(rowByteOffset + scale2Offset, true) : 0);
+                               s0 = Math.exp(
+                                       getScale0
+                                               ? useFloat32
+                                                       ? floatView[rowFloatOffset + scale0OffsetFloat]
+                                                       : getScale0(rowByteOffset + scale0Offset, true)
+                                               : 0,
+                               );
+                               s1 = Math.exp(
+                                       getScale1
+                                               ? useFloat32
+                                                       ? floatView[rowFloatOffset + scale1OffsetFloat]
+                                                       : getScale1(rowByteOffset + scale1Offset, true)
+                                               : 0,
+                               );
+                               s2 = Math.exp(
+                                       getScale2
+                                               ? useFloat32
+                                                       ? floatView[rowFloatOffset + scale2OffsetFloat]
+                                                       : getScale2(rowByteOffset + scale2Offset, true)
+                                               : 0,
+                               );
                                if (hasOpacity) {
-                                       const rawOpacity = getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0;
+                                       const rawOpacity = getOpacity
+                                               ? useFloat32
+                                                       ? floatView[rowFloatOffset + opacityOffsetFloat]
+                                                       : getOpacity(rowByteOffset + opacityOffset, true)
+                                               : 0;
                                        opacity = 1 / (1 + Math.exp(-rawOpacity));
                                }
                                const size = s0 * s1 * s2;
@@ -1728,7 +1821,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                        continue;
                                }
                        } else if (hasOpacity) {
-                               const rawOpacity = getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0;
+                               const rawOpacity = getOpacity
+                                       ? useFloat32
+                                               ? floatView[rowFloatOffset + opacityOffsetFloat]
+                                               : getOpacity(rowByteOffset + opacityOffset, true)
+                                       : 0;
                                opacity = 1 / (1 + Math.exp(-rawOpacity));
                        }
                        const floatIndex = (writeIndex * rowLength) / 4;
@@ -1741,10 +1838,26 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                        const byteIndex = writeIndex * rowLength;
                        if (hasRotation) {
-                               const r0 = getRot0 ? getRot0(rowByteOffset + rot0Offset, true) : 0;
-                               const r1 = getRot1 ? getRot1(rowByteOffset + rot1Offset, true) : 0;
-                               const r2 = getRot2 ? getRot2(rowByteOffset + rot2Offset, true) : 0;
-                               const r3 = getRot3 ? getRot3(rowByteOffset + rot3Offset, true) : 0;
+                               const r0 = getRot0
+                                       ? useFloat32
+                                               ? floatView[rowFloatOffset + rot0OffsetFloat]
+                                               : getRot0(rowByteOffset + rot0Offset, true)
+                                       : 0;
+                               const r1 = getRot1
+                                       ? useFloat32
+                                               ? floatView[rowFloatOffset + rot1OffsetFloat]
+                                               : getRot1(rowByteOffset + rot1Offset, true)
+                                       : 0;
+                               const r2 = getRot2
+                                       ? useFloat32
+                                               ? floatView[rowFloatOffset + rot2OffsetFloat]
+                                               : getRot2(rowByteOffset + rot2Offset, true)
+                                       : 0;
+                               const r3 = getRot3
+                                       ? useFloat32
+                                               ? floatView[rowFloatOffset + rot3OffsetFloat]
+                                               : getRot3(rowByteOffset + rot3Offset, true)
+                                       : 0;
                                const qlen = Math.sqrt(r0 ** 2 + r1 ** 2 + r2 ** 2 + r3 ** 2) || 1;
                                outBytes[byteIndex + 28] = clampByte((r0 / qlen) * 128 + 128);
                                outBytes[byteIndex + 29] = clampByte((r1 / qlen) * 128 + 128);
@@ -1758,13 +1871,43 @@ AFRAME.registerComponent("gaussian_splatting", {
                        }
 
                        if (hasFdc) {
-                               outBytes[byteIndex + 24] = clampByte((0.5 + SH_C0 * (getFdc0 ? getFdc0(rowByteOffset + fdc0Offset, true) : 0)) * 255);
-                               outBytes[byteIndex + 25] = clampByte((0.5 + SH_C0 * (getFdc1 ? getFdc1(rowByteOffset + fdc1Offset, true) : 0)) * 255);
-                               outBytes[byteIndex + 26] = clampByte((0.5 + SH_C0 * (getFdc2 ? getFdc2(rowByteOffset + fdc2Offset, true) : 0)) * 255);
+                               const fdc0 = getFdc0
+                                       ? useFloat32
+                                               ? floatView[rowFloatOffset + fdc0OffsetFloat]
+                                               : getFdc0(rowByteOffset + fdc0Offset, true)
+                                       : 0;
+                               const fdc1 = getFdc1
+                                       ? useFloat32
+                                               ? floatView[rowFloatOffset + fdc1OffsetFloat]
+                                               : getFdc1(rowByteOffset + fdc1Offset, true)
+                                       : 0;
+                               const fdc2 = getFdc2
+                                       ? useFloat32
+                                               ? floatView[rowFloatOffset + fdc2OffsetFloat]
+                                               : getFdc2(rowByteOffset + fdc2Offset, true)
+                                       : 0;
+                               outBytes[byteIndex + 24] = clampByte((0.5 + SH_C0 * fdc0) * 255);
+                               outBytes[byteIndex + 25] = clampByte((0.5 + SH_C0 * fdc1) * 255);
+                               outBytes[byteIndex + 26] = clampByte((0.5 + SH_C0 * fdc2) * 255);
                        } else if (hasRgb) {
-                               outBytes[byteIndex + 24] = clampByte(getRed ? getRed(rowByteOffset + redOffset, true) : 0);
-                               outBytes[byteIndex + 25] = clampByte(getGreen ? getGreen(rowByteOffset + greenOffset, true) : 0);
-                               outBytes[byteIndex + 26] = clampByte(getBlue ? getBlue(rowByteOffset + blueOffset, true) : 0);
+                               const red = getRed
+                                       ? useFloat32
+                                               ? floatView[rowFloatOffset + redOffsetFloat]
+                                               : getRed(rowByteOffset + redOffset, true)
+                                       : 0;
+                               const green = getGreen
+                                       ? useFloat32
+                                               ? floatView[rowFloatOffset + greenOffsetFloat]
+                                               : getGreen(rowByteOffset + greenOffset, true)
+                                       : 0;
+                               const blue = getBlue
+                                       ? useFloat32
+                                               ? floatView[rowFloatOffset + blueOffsetFloat]
+                                               : getBlue(rowByteOffset + blueOffset, true)
+                                       : 0;
+                               outBytes[byteIndex + 24] = clampByte(red);
+                               outBytes[byteIndex + 25] = clampByte(green);
+                               outBytes[byteIndex + 26] = clampByte(blue);
                        } else {
                                outBytes[byteIndex + 24] = 0;
                                outBytes[byteIndex + 25] = 0;
