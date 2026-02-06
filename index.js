@@ -472,17 +472,89 @@ AFRAME.registerComponent("gaussian_splatting", {
 				let isPly = null;
 				let plyState = null;
 				let capacityEstimated = false;
-				let plyPending = new Uint8Array(0);
-				const maxPlyBatchBytes = 64 * 1024 * 1024;
-				const appendPending = (pending, chunk) => {
-					if (pending.length === 0) {
-						return chunk;
-					}
-					const combined = new Uint8Array(pending.length + chunk.length);
-					combined.set(pending, 0);
-					combined.set(chunk, pending.length);
-					return combined;
+				const plyPending = {
+					chunks: [],
+					length: 0,
+					append(chunk) {
+						if (chunk && chunk.length) {
+							this.chunks.push(chunk);
+							this.length += chunk.length;
+						}
+					},
+					getByteLength() {
+						return this.length;
+					},
+					peekBytes(count) {
+						if (this.length === 0) {
+							return new Uint8Array(0);
+						}
+						const needed = Math.min(count, this.length);
+						const head = this.chunks[0];
+						if (head.length >= needed) {
+							return head.subarray(0, needed);
+						}
+						const out = new Uint8Array(needed);
+						let offset = 0;
+						for (const chunk of this.chunks) {
+							const toCopy = Math.min(chunk.length, needed - offset);
+							out.set(chunk.subarray(0, toCopy), offset);
+							offset += toCopy;
+							if (offset >= needed) {
+								break;
+							}
+						}
+						return out;
+					},
+					consumeBytes(count) {
+						const actual = Math.min(count, this.length);
+						if (actual <= 0) {
+							return new Uint8Array(0);
+						}
+						const head = this.chunks[0];
+						if (head.length >= actual) {
+							const out = head.subarray(0, actual);
+							if (head.length === actual) {
+								this.chunks.shift();
+							} else {
+								this.chunks[0] = head.subarray(actual);
+							}
+							this.length -= actual;
+							return out;
+						}
+						const out = new Uint8Array(actual);
+						let offset = 0;
+						while (offset < actual) {
+							const chunk = this.chunks[0];
+							const toCopy = Math.min(chunk.length, actual - offset);
+							out.set(chunk.subarray(0, toCopy), offset);
+							offset += toCopy;
+							if (toCopy === chunk.length) {
+								this.chunks.shift();
+							} else {
+								this.chunks[0] = chunk.subarray(toCopy);
+							}
+						}
+						this.length -= actual;
+						return out;
+					},
+					discard(count) {
+						this.consumeBytes(count);
+					},
+					toUint8Array() {
+						if (this.length === 0) {
+							return new Uint8Array(0);
+						}
+						const out = new Uint8Array(this.length);
+						let offset = 0;
+						for (const chunk of this.chunks) {
+							out.set(chunk, offset);
+							offset += chunk.length;
+						}
+						return out;
+					},
 				};
+				const maxPlyBatchBytes = 64 * 1024 * 1024;
+				const decoder = new TextDecoder();
 
 				while (true) {
 					try {
@@ -503,7 +575,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 console.log("Progress:", bytesDownloaded, ", unknown total");
 						}
 						if (isPly === null) {
-							const probe = new TextDecoder().decode(value.slice(0, 4));
+							const probe = decoder.decode(value.subarray(0, 4));
 							isPly = probe.startsWith("ply");
                                                         if (!isPly && totalDownloadBytes && !capacityEstimated) {
                                                                 const estimatedCount = Math.floor(totalDownloadBytes / this.rowLength);
@@ -512,7 +584,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         }
 						}
 						if (isPly) {
-							plyPending = appendPending(plyPending, value);
+							plyPending.append(value);
 						} else {
 							chunks.push(value);
 						}
@@ -523,30 +595,30 @@ AFRAME.registerComponent("gaussian_splatting", {
 						}
 
 						if (isPly && !plyState) {
-							plyState = this.parsePlyHeader(plyPending.buffer);
+							plyState = this.parsePlyHeader(plyPending.peekBytes(1024 * 10));
                                                         if (plyState && plyState.vertexCount && !capacityEstimated) {
                                                                 this.ensureSplatCapacity(plyState.vertexCount);
                                                                 capacityEstimated = true;
                                                         }
 							if (plyState && plyState.format === "binary_little_endian") {
-								plyPending = plyPending.slice(plyState.headerByteLength);
+								plyPending.discard(plyState.headerByteLength);
 								bytesProcesses += plyState.headerByteLength;
 							}
 						}
 
 						if (isPly && plyState && plyState.format === "binary_little_endian" && this.textureReady) {
-							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+							let rowsAvailable = Math.floor(plyPending.getByteLength() / plyState.rowOffset);
 							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
 							while (rowsAvailable > 0) {
 								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
-								const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
+								const batchBytes = rowsToProcess * plyState.rowOffset;
+								const batchData = plyPending.consumeBytes(batchBytes);
+								const result = this.buildPlyBinaryBatch(plyState, batchData, rowsToProcess);
 								if (result.vertexCount > 0) {
 									this.pushDataBuffer(result.buffer, result.vertexCount);
 								}
-								const consumedBytes = rowsToProcess * plyState.rowOffset;
-								plyPending = plyPending.slice(consumedBytes);
-								bytesProcesses += consumedBytes;
-								rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+								bytesProcesses += batchBytes;
+								rowsAvailable = Math.floor(plyPending.getByteLength() / plyState.rowOffset);
 							}
 						}
 
@@ -579,25 +651,22 @@ AFRAME.registerComponent("gaussian_splatting", {
 				if (bytesDownloaded - bytesProcesses > 0) {
 					if (isPly && plyState && plyState.format === "binary_little_endian") {
 						if (this.textureReady) {
-							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+							let rowsAvailable = Math.floor(plyPending.getByteLength() / plyState.rowOffset);
 							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
 							while (rowsAvailable > 0) {
 								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
-								const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
+								const batchBytes = rowsToProcess * plyState.rowOffset;
+								const batchData = plyPending.consumeBytes(batchBytes);
+								const result = this.buildPlyBinaryBatch(plyState, batchData, rowsToProcess);
 								if (result.vertexCount > 0) {
 									this.pushDataBuffer(result.buffer, result.vertexCount);
 								}
-								const consumedBytes = rowsToProcess * plyState.rowOffset;
-								plyPending = plyPending.slice(consumedBytes);
-								bytesProcesses += consumedBytes;
-								rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+								bytesProcesses += batchBytes;
+								rowsAvailable = Math.floor(plyPending.getByteLength() / plyState.rowOffset);
 							}
 						}
 					} else if (isPly) {
-						const plyBuffer = plyPending.buffer.slice(
-							plyPending.byteOffset,
-							plyPending.byteOffset + plyPending.byteLength,
-						);
+						const plyBuffer = plyPending.toUint8Array().buffer;
 						let concatenatedChunks = new Uint8Array(this.processPlyBuffer(plyBuffer));
 						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
 					} else {
@@ -1516,7 +1585,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
         },
        parsePlyHeader: function (inputBuffer) {
-               const ubuf = new Uint8Array(inputBuffer);
+               const ubuf = inputBuffer instanceof Uint8Array ? inputBuffer : new Uint8Array(inputBuffer);
                const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 10));
                let header_end = "end_header\n";
                let header_end_index = header.indexOf(header_end);
