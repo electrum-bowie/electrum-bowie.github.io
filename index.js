@@ -1683,7 +1683,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                const redOffset = offsets["red"] || 0;
                const greenOffset = offsets["green"] || 0;
                const blueOffset = offsets["blue"] || 0;
-               const IMPORTANCE_THRESHOLD = 0.001;
+               const IMPORTANCE_THRESHOLD = 0.0015;
                const SH_C0 = 0.28209479177387814;
                const clampByte = (value) => Math.max(0, Math.min(255, Math.round(value)));
                const readValue = (method, offset, rowByteOffset) => {
@@ -1833,7 +1833,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                        }
                        vertexCount = vertices.length;
 
-                       const IMPORTANCE_THRESHOLD = 0.001;
+                       const IMPORTANCE_THRESHOLD = 0.0015;
                        let sizeList = [];
                        let sizeIndex = [];
                        for (let i = 0; i < vertexCount; i++) {
@@ -1936,7 +1936,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                );
 
                console.time("calculate importance");
-               const IMPORTANCE_THRESHOLD = 0.001;
+               const IMPORTANCE_THRESHOLD = 0.0015;
                let sizeList = [];
                let sizeIndex = [];
                for (row = 0; row < vertexCount; row++) {
