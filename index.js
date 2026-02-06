@@ -1601,7 +1601,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                const vertexMatch = /element vertex (\d+)/.exec(header);
                const vertexCount = vertexMatch ? parseInt(vertexMatch[1]) : 0;
                let row_offset = 0;
-               let allFloat32 = true;
                const offsets = {};
                const types = {};
                const TYPE_MAP = {
@@ -1623,15 +1622,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                        types[name] = info.method;
                        offsets[name] = row_offset;
                        row_offset += info.size;
-                       if (type !== "float" || info.size !== 4) {
-                               allFloat32 = false;
-                       }
                }
                return {
                        format,
                        vertexCount,
                        rowOffset: row_offset,
-                       floatStride: allFloat32 && row_offset % 4 === 0 && row_offset > 0 ? row_offset / 4 : null,
                        offsets,
                        types,
                        headerByteLength: header_end_index + header_end.length,
@@ -1639,181 +1634,91 @@ AFRAME.registerComponent("gaussian_splatting", {
        },
        buildPlyBinaryBatch: function (plyState, pending, rowCount) {
                const rowLength = this.rowLength;
+               const dataView = new DataView(
+                       pending.buffer,
+                       pending.byteOffset,
+                       rowCount * plyState.rowOffset,
+               );
                const buffer = new ArrayBuffer(rowLength * rowCount);
                const outFloats = new Float32Array(buffer);
                const outBytes = new Uint8Array(buffer);
                const offsets = plyState.offsets;
                const types = plyState.types;
-               const floatStride = plyState.floatStride;
-               const useFloatView = Number.isFinite(floatStride);
                const hasScale = Boolean(types["scale_0"]);
                const hasRotation = Boolean(types["rot_0"]);
                const hasOpacity = Boolean(types["opacity"]);
                const hasFdc = Boolean(types["f_dc_0"]);
                const hasRgb = Boolean(types["red"]);
-               const xOffset = offsets["x"];
-               const yOffset = offsets["y"];
-               const zOffset = offsets["z"];
-               const scale0Offset = offsets["scale_0"];
-               const scale1Offset = offsets["scale_1"];
-               const scale2Offset = offsets["scale_2"];
-               const opacityOffset = offsets["opacity"];
-               const rot0Offset = offsets["rot_0"];
-               const rot1Offset = offsets["rot_1"];
-               const rot2Offset = offsets["rot_2"];
-               const rot3Offset = offsets["rot_3"];
-               const fdc0Offset = offsets["f_dc_0"];
-               const fdc1Offset = offsets["f_dc_1"];
-               const fdc2Offset = offsets["f_dc_2"];
-               const redOffset = offsets["red"];
-               const greenOffset = offsets["green"];
-               const blueOffset = offsets["blue"];
-               const hasX = Object.prototype.hasOwnProperty.call(offsets, "x");
-               const hasY = Object.prototype.hasOwnProperty.call(offsets, "y");
-               const hasZ = Object.prototype.hasOwnProperty.call(offsets, "z");
-               let dataView = null;
-               let getX = null;
-               let getY = null;
-               let getZ = null;
-               let getScale0 = null;
-               let getScale1 = null;
-               let getScale2 = null;
-               let getOpacity = null;
-               let getRot0 = null;
-               let getRot1 = null;
-               let getRot2 = null;
-               let getRot3 = null;
-               let getFdc0 = null;
-               let getFdc1 = null;
-               let getFdc2 = null;
-               let getRed = null;
-               let getGreen = null;
-               let getBlue = null;
-               if (!useFloatView) {
-                       dataView = new DataView(
-                               pending.buffer,
-                               pending.byteOffset,
-                               rowCount * plyState.rowOffset,
-                       );
-                       const xMethod = types["x"];
-                       const yMethod = types["y"];
-                       const zMethod = types["z"];
-                       const scale0Method = types["scale_0"];
-                       const scale1Method = types["scale_1"];
-                       const scale2Method = types["scale_2"];
-                       const opacityMethod = types["opacity"];
-                       const rot0Method = types["rot_0"];
-                       const rot1Method = types["rot_1"];
-                       const rot2Method = types["rot_2"];
-                       const rot3Method = types["rot_3"];
-                       const fdc0Method = types["f_dc_0"];
-                       const fdc1Method = types["f_dc_1"];
-                       const fdc2Method = types["f_dc_2"];
-                       const redMethod = types["red"];
-                       const greenMethod = types["green"];
-                       const blueMethod = types["blue"];
-                       getX = xMethod ? dataView[xMethod].bind(dataView) : null;
-                       getY = yMethod ? dataView[yMethod].bind(dataView) : null;
-                       getZ = zMethod ? dataView[zMethod].bind(dataView) : null;
-                       getScale0 = scale0Method ? dataView[scale0Method].bind(dataView) : null;
-                       getScale1 = scale1Method ? dataView[scale1Method].bind(dataView) : null;
-                       getScale2 = scale2Method ? dataView[scale2Method].bind(dataView) : null;
-                       getOpacity = opacityMethod ? dataView[opacityMethod].bind(dataView) : null;
-                       getRot0 = rot0Method ? dataView[rot0Method].bind(dataView) : null;
-                       getRot1 = rot1Method ? dataView[rot1Method].bind(dataView) : null;
-                       getRot2 = rot2Method ? dataView[rot2Method].bind(dataView) : null;
-                       getRot3 = rot3Method ? dataView[rot3Method].bind(dataView) : null;
-                       getFdc0 = fdc0Method ? dataView[fdc0Method].bind(dataView) : null;
-                       getFdc1 = fdc1Method ? dataView[fdc1Method].bind(dataView) : null;
-                       getFdc2 = fdc2Method ? dataView[fdc2Method].bind(dataView) : null;
-                       getRed = redMethod ? dataView[redMethod].bind(dataView) : null;
-                       getGreen = greenMethod ? dataView[greenMethod].bind(dataView) : null;
-                       getBlue = blueMethod ? dataView[blueMethod].bind(dataView) : null;
-               }
+               const xMethod = types["x"];
+               const yMethod = types["y"];
+               const zMethod = types["z"];
+               const scale0Method = types["scale_0"];
+               const scale1Method = types["scale_1"];
+               const scale2Method = types["scale_2"];
+               const opacityMethod = types["opacity"];
+               const rot0Method = types["rot_0"];
+               const rot1Method = types["rot_1"];
+               const rot2Method = types["rot_2"];
+               const rot3Method = types["rot_3"];
+               const fdc0Method = types["f_dc_0"];
+               const fdc1Method = types["f_dc_1"];
+               const fdc2Method = types["f_dc_2"];
+               const redMethod = types["red"];
+               const greenMethod = types["green"];
+               const blueMethod = types["blue"];
+               const getX = xMethod ? dataView[xMethod].bind(dataView) : null;
+               const getY = yMethod ? dataView[yMethod].bind(dataView) : null;
+               const getZ = zMethod ? dataView[zMethod].bind(dataView) : null;
+               const getScale0 = scale0Method ? dataView[scale0Method].bind(dataView) : null;
+               const getScale1 = scale1Method ? dataView[scale1Method].bind(dataView) : null;
+               const getScale2 = scale2Method ? dataView[scale2Method].bind(dataView) : null;
+               const getOpacity = opacityMethod ? dataView[opacityMethod].bind(dataView) : null;
+               const getRot0 = rot0Method ? dataView[rot0Method].bind(dataView) : null;
+               const getRot1 = rot1Method ? dataView[rot1Method].bind(dataView) : null;
+               const getRot2 = rot2Method ? dataView[rot2Method].bind(dataView) : null;
+               const getRot3 = rot3Method ? dataView[rot3Method].bind(dataView) : null;
+               const getFdc0 = fdc0Method ? dataView[fdc0Method].bind(dataView) : null;
+               const getFdc1 = fdc1Method ? dataView[fdc1Method].bind(dataView) : null;
+               const getFdc2 = fdc2Method ? dataView[fdc2Method].bind(dataView) : null;
+               const getRed = redMethod ? dataView[redMethod].bind(dataView) : null;
+               const getGreen = greenMethod ? dataView[greenMethod].bind(dataView) : null;
+               const getBlue = blueMethod ? dataView[blueMethod].bind(dataView) : null;
+               const xOffset = offsets["x"] || 0;
+               const yOffset = offsets["y"] || 0;
+               const zOffset = offsets["z"] || 0;
+               const scale0Offset = offsets["scale_0"] || 0;
+               const scale1Offset = offsets["scale_1"] || 0;
+               const scale2Offset = offsets["scale_2"] || 0;
+               const opacityOffset = offsets["opacity"] || 0;
+               const rot0Offset = offsets["rot_0"] || 0;
+               const rot1Offset = offsets["rot_1"] || 0;
+               const rot2Offset = offsets["rot_2"] || 0;
+               const rot3Offset = offsets["rot_3"] || 0;
+               const fdc0Offset = offsets["f_dc_0"] || 0;
+               const fdc1Offset = offsets["f_dc_1"] || 0;
+               const fdc2Offset = offsets["f_dc_2"] || 0;
+               const redOffset = offsets["red"] || 0;
+               const greenOffset = offsets["green"] || 0;
+               const blueOffset = offsets["blue"] || 0;
                const IMPORTANCE_THRESHOLD = 0.0015;
                const SH_C0 = 0.28209479177387814;
                const clampByte = (value) => Math.max(0, Math.min(255, Math.round(value)));
                let writeIndex = 0;
-               let floats = null;
-               let xIndex = null;
-               let yIndex = null;
-               let zIndex = null;
-               let scale0Index = null;
-               let scale1Index = null;
-               let scale2Index = null;
-               let opacityIndex = null;
-               let rot0Index = null;
-               let rot1Index = null;
-               let rot2Index = null;
-               let rot3Index = null;
-               let fdc0Index = null;
-               let fdc1Index = null;
-               let fdc2Index = null;
-               let redIndex = null;
-               let greenIndex = null;
-               let blueIndex = null;
-               if (useFloatView) {
-                       floats = new Float32Array(
-                               pending.buffer,
-                               pending.byteOffset,
-                               rowCount * floatStride,
-                       );
-                       if (hasX) xIndex = xOffset / 4;
-                       if (hasY) yIndex = yOffset / 4;
-                       if (hasZ) zIndex = zOffset / 4;
-                       if (hasScale) {
-                               scale0Index = scale0Offset / 4;
-                               scale1Index = scale1Offset / 4;
-                               scale2Index = scale2Offset / 4;
-                       }
-                       if (hasOpacity) opacityIndex = opacityOffset / 4;
-                       if (hasRotation) {
-                               rot0Index = rot0Offset / 4;
-                               rot1Index = rot1Offset / 4;
-                               rot2Index = rot2Offset / 4;
-                               rot3Index = rot3Offset / 4;
-                       }
-                       if (hasFdc) {
-                               fdc0Index = fdc0Offset / 4;
-                               fdc1Index = fdc1Offset / 4;
-                               fdc2Index = fdc2Offset / 4;
-                       }
-                       if (hasRgb) {
-                               redIndex = redOffset / 4;
-                               greenIndex = greenOffset / 4;
-                               blueIndex = blueOffset / 4;
-                       }
-               }
                for (let row = 0; row < rowCount; row++) {
                        const rowByteOffset = row * plyState.rowOffset;
-                       const baseIndex = useFloatView ? row * floatStride : null;
-                       const x = useFloatView
-                               ? (xIndex !== null ? floats[baseIndex + xIndex] : 0)
-                               : (getX ? getX(rowByteOffset + xOffset, true) : 0);
-                       const y = useFloatView
-                               ? (yIndex !== null ? floats[baseIndex + yIndex] : 0)
-                               : (getY ? getY(rowByteOffset + yOffset, true) : 0);
-                       const z = useFloatView
-                               ? (zIndex !== null ? floats[baseIndex + zIndex] : 0)
-                               : (getZ ? getZ(rowByteOffset + zOffset, true) : 0);
+                       const x = getX ? getX(rowByteOffset + xOffset, true) : 0;
+                       const y = getY ? getY(rowByteOffset + yOffset, true) : 0;
+                       const z = getZ ? getZ(rowByteOffset + zOffset, true) : 0;
                        let s0 = 0.01;
                        let s1 = 0.01;
                        let s2 = 0.01;
                        let opacity = 1;
                        if (hasScale) {
-                               if (useFloatView) {
-                                       s0 = Math.exp(scale0Index !== null ? floats[baseIndex + scale0Index] : 0);
-                                       s1 = Math.exp(scale1Index !== null ? floats[baseIndex + scale1Index] : 0);
-                                       s2 = Math.exp(scale2Index !== null ? floats[baseIndex + scale2Index] : 0);
-                               } else {
-                                       s0 = Math.exp(getScale0 ? getScale0(rowByteOffset + scale0Offset, true) : 0);
-                                       s1 = Math.exp(getScale1 ? getScale1(rowByteOffset + scale1Offset, true) : 0);
-                                       s2 = Math.exp(getScale2 ? getScale2(rowByteOffset + scale2Offset, true) : 0);
-                               }
+                               s0 = Math.exp(getScale0 ? getScale0(rowByteOffset + scale0Offset, true) : 0);
+                               s1 = Math.exp(getScale1 ? getScale1(rowByteOffset + scale1Offset, true) : 0);
+                               s2 = Math.exp(getScale2 ? getScale2(rowByteOffset + scale2Offset, true) : 0);
                                if (hasOpacity) {
-                                       const rawOpacity = useFloatView
-                                               ? (opacityIndex !== null ? floats[baseIndex + opacityIndex] : 0)
-                                               : (getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0);
+                                       const rawOpacity = getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0;
                                        opacity = 1 / (1 + Math.exp(-rawOpacity));
                                }
                                const size = s0 * s1 * s2;
@@ -1823,9 +1728,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                        continue;
                                }
                        } else if (hasOpacity) {
-                               const rawOpacity = useFloatView
-                                       ? (opacityIndex !== null ? floats[baseIndex + opacityIndex] : 0)
-                                       : (getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0);
+                               const rawOpacity = getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0;
                                opacity = 1 / (1 + Math.exp(-rawOpacity));
                        }
                        const floatIndex = (writeIndex * rowLength) / 4;
@@ -1838,18 +1741,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                        const byteIndex = writeIndex * rowLength;
                        if (hasRotation) {
-                               const r0 = useFloatView
-                                       ? (rot0Index !== null ? floats[baseIndex + rot0Index] : 0)
-                                       : (getRot0 ? getRot0(rowByteOffset + rot0Offset, true) : 0);
-                               const r1 = useFloatView
-                                       ? (rot1Index !== null ? floats[baseIndex + rot1Index] : 0)
-                                       : (getRot1 ? getRot1(rowByteOffset + rot1Offset, true) : 0);
-                               const r2 = useFloatView
-                                       ? (rot2Index !== null ? floats[baseIndex + rot2Index] : 0)
-                                       : (getRot2 ? getRot2(rowByteOffset + rot2Offset, true) : 0);
-                               const r3 = useFloatView
-                                       ? (rot3Index !== null ? floats[baseIndex + rot3Index] : 0)
-                                       : (getRot3 ? getRot3(rowByteOffset + rot3Offset, true) : 0);
+                               const r0 = getRot0 ? getRot0(rowByteOffset + rot0Offset, true) : 0;
+                               const r1 = getRot1 ? getRot1(rowByteOffset + rot1Offset, true) : 0;
+                               const r2 = getRot2 ? getRot2(rowByteOffset + rot2Offset, true) : 0;
+                               const r3 = getRot3 ? getRot3(rowByteOffset + rot3Offset, true) : 0;
                                const qlen = Math.sqrt(r0 ** 2 + r1 ** 2 + r2 ** 2 + r3 ** 2) || 1;
                                outBytes[byteIndex + 28] = clampByte((r0 / qlen) * 128 + 128);
                                outBytes[byteIndex + 29] = clampByte((r1 / qlen) * 128 + 128);
@@ -1863,31 +1758,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                        }
 
                        if (hasFdc) {
-                               const f0 = useFloatView
-                                       ? (fdc0Index !== null ? floats[baseIndex + fdc0Index] : 0)
-                                       : (getFdc0 ? getFdc0(rowByteOffset + fdc0Offset, true) : 0);
-                               const f1 = useFloatView
-                                       ? (fdc1Index !== null ? floats[baseIndex + fdc1Index] : 0)
-                                       : (getFdc1 ? getFdc1(rowByteOffset + fdc1Offset, true) : 0);
-                               const f2 = useFloatView
-                                       ? (fdc2Index !== null ? floats[baseIndex + fdc2Index] : 0)
-                                       : (getFdc2 ? getFdc2(rowByteOffset + fdc2Offset, true) : 0);
-                               outBytes[byteIndex + 24] = clampByte((0.5 + SH_C0 * f0) * 255);
-                               outBytes[byteIndex + 25] = clampByte((0.5 + SH_C0 * f1) * 255);
-                               outBytes[byteIndex + 26] = clampByte((0.5 + SH_C0 * f2) * 255);
+                               outBytes[byteIndex + 24] = clampByte((0.5 + SH_C0 * (getFdc0 ? getFdc0(rowByteOffset + fdc0Offset, true) : 0)) * 255);
+                               outBytes[byteIndex + 25] = clampByte((0.5 + SH_C0 * (getFdc1 ? getFdc1(rowByteOffset + fdc1Offset, true) : 0)) * 255);
+                               outBytes[byteIndex + 26] = clampByte((0.5 + SH_C0 * (getFdc2 ? getFdc2(rowByteOffset + fdc2Offset, true) : 0)) * 255);
                        } else if (hasRgb) {
-                               const r = useFloatView
-                                       ? (redIndex !== null ? floats[baseIndex + redIndex] : 0)
-                                       : (getRed ? getRed(rowByteOffset + redOffset, true) : 0);
-                               const g = useFloatView
-                                       ? (greenIndex !== null ? floats[baseIndex + greenIndex] : 0)
-                                       : (getGreen ? getGreen(rowByteOffset + greenOffset, true) : 0);
-                               const b = useFloatView
-                                       ? (blueIndex !== null ? floats[baseIndex + blueIndex] : 0)
-                                       : (getBlue ? getBlue(rowByteOffset + blueOffset, true) : 0);
-                               outBytes[byteIndex + 24] = clampByte(r);
-                               outBytes[byteIndex + 25] = clampByte(g);
-                               outBytes[byteIndex + 26] = clampByte(b);
+                               outBytes[byteIndex + 24] = clampByte(getRed ? getRed(rowByteOffset + redOffset, true) : 0);
+                               outBytes[byteIndex + 25] = clampByte(getGreen ? getGreen(rowByteOffset + greenOffset, true) : 0);
+                               outBytes[byteIndex + 26] = clampByte(getBlue ? getBlue(rowByteOffset + blueOffset, true) : 0);
                        } else {
                                outBytes[byteIndex + 24] = 0;
                                outBytes[byteIndex + 25] = 0;
