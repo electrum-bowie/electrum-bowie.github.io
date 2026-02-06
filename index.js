@@ -483,6 +483,31 @@ AFRAME.registerComponent("gaussian_splatting", {
 					combined.set(chunk, pending.length);
 					return combined;
 				};
+				const updateTextureReady = () => {
+					if (!this.textureReady &&
+						this.renderer.properties.get(this.centerAndScaleTexture) &&
+						this.renderer.properties.get(this.covAndColorTexture)) {
+						this.textureReady = true;
+					}
+				};
+				const waitForTextureReady = async () => {
+					if (this.textureReady) {
+						return true;
+					}
+					const startWait = performance.now();
+					while (!this.textureReady) {
+						updateTextureReady();
+						if (this.textureReady) {
+							return true;
+						}
+						if (performance.now() - startWait > 5000) {
+							console.warn("Timed out waiting for splat textures to initialize.");
+							return false;
+						}
+						await new Promise((resolve) => setTimeout(resolve, 16));
+					}
+					return true;
+				};
 
 				while (true) {
 					try {
@@ -516,11 +541,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 						} else {
 							chunks.push(value);
 						}
-						if (!this.textureReady &&
-							this.renderer.properties.get(this.centerAndScaleTexture) &&
-							this.renderer.properties.get(this.covAndColorTexture)) {
-							this.textureReady = true;
-						}
+						updateTextureReady();
 
 						if (isPly && !plyState) {
 							plyState = this.parsePlyHeader(plyPending.buffer);
@@ -578,6 +599,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				if (bytesDownloaded - bytesProcesses > 0) {
 					if (isPly && plyState && plyState.format === "binary_little_endian") {
+						if (!this.textureReady) {
+							await waitForTextureReady();
+						}
 						if (this.textureReady) {
 							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
 							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
