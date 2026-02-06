@@ -473,7 +473,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 				let plyState = null;
 				let capacityEstimated = false;
 				let plyPending = new Uint8Array(0);
-				const deferredPlyBatches = [];
 				const maxPlyBatchBytes = 64 * 1024 * 1024;
 				const appendPending = (pending, chunk) => {
 					if (pending.length === 0) {
@@ -483,25 +482,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 					combined.set(pending, 0);
 					combined.set(chunk, pending.length);
 					return combined;
-				};
-				const queuePlyBatch = (buffer, vertexCount) => {
-					if (vertexCount <= 0) {
-						return;
-					}
-					if (this.textureReady) {
-						this.pushDataBuffer(buffer, vertexCount);
-					} else {
-						deferredPlyBatches.push({ buffer, vertexCount });
-					}
-				};
-				const flushDeferredPlyBatches = () => {
-					if (!this.textureReady || deferredPlyBatches.length === 0) {
-						return;
-					}
-					for (const batch of deferredPlyBatches) {
-						this.pushDataBuffer(batch.buffer, batch.vertexCount);
-					}
-					deferredPlyBatches.length = 0;
 				};
 
 				while (true) {
@@ -540,7 +520,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 							this.renderer.properties.get(this.centerAndScaleTexture) &&
 							this.renderer.properties.get(this.covAndColorTexture)) {
 							this.textureReady = true;
-							flushDeferredPlyBatches();
 						}
 
 						if (isPly && !plyState) {
@@ -555,14 +534,14 @@ AFRAME.registerComponent("gaussian_splatting", {
 							}
 						}
 
-						if (isPly && plyState && plyState.format === "binary_little_endian") {
+						if (isPly && plyState && plyState.format === "binary_little_endian" && this.textureReady) {
 							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
 							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
 							while (rowsAvailable > 0) {
 								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
 								const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
 								if (result.vertexCount > 0) {
-									queuePlyBatch(result.buffer, result.vertexCount);
+									this.pushDataBuffer(result.buffer, result.vertexCount);
 								}
 								const consumedBytes = rowsToProcess * plyState.rowOffset;
 								plyPending = plyPending.slice(consumedBytes);
@@ -599,18 +578,20 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				if (bytesDownloaded - bytesProcesses > 0) {
 					if (isPly && plyState && plyState.format === "binary_little_endian") {
-						let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
-						const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
-						while (rowsAvailable > 0) {
-							const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
-							const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
-							if (result.vertexCount > 0) {
-								queuePlyBatch(result.buffer, result.vertexCount);
+						if (this.textureReady) {
+							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
+							while (rowsAvailable > 0) {
+								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
+								const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
+								if (result.vertexCount > 0) {
+									this.pushDataBuffer(result.buffer, result.vertexCount);
+								}
+								const consumedBytes = rowsToProcess * plyState.rowOffset;
+								plyPending = plyPending.slice(consumedBytes);
+								bytesProcesses += consumedBytes;
+								rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
 							}
-							const consumedBytes = rowsToProcess * plyState.rowOffset;
-							plyPending = plyPending.slice(consumedBytes);
-							bytesProcesses += consumedBytes;
-							rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
 						}
 					} else if (isPly) {
 						const plyBuffer = plyPending.buffer.slice(
@@ -618,7 +599,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 							plyPending.byteOffset + plyPending.byteLength,
 						);
 						let concatenatedChunks = new Uint8Array(this.processPlyBuffer(plyBuffer));
-						queuePlyBatch(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
+						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
 					} else {
 						// Concatenate the chunks into a single Uint8Array
 						let concatenatedChunks = new Uint8Array(
@@ -632,7 +613,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
 					}
 				}
-				flushDeferredPlyBatches();
                         })
                         .finally(() => {
                                 this.isCaching = false;
