@@ -909,7 +909,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let normals = undefined;
                 let fadeOpacities = undefined;
 
-                const COUNT_SIZE = 2048 * 2048;
+                const COUNT_SIZE = 1200 * 1200;
 
                 let cache = {
                         capacity: 0,
@@ -1000,10 +1000,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                                const edgeMultiplier = 1.0 + (edgeDist * 0.6);
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.5);
                                 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 0.7 * edgeMultiplier && !skipCullBehind;
+                                const tooSmall = pixelThreshold < 0.6 * edgeMultiplier && !skipCullBehind;
 
                                 let f = fadeOpacities[i];
 
@@ -1035,7 +1035,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				fadeOpacities[i] = f;
 
-                                if (f < 0.15) continue;
+                                if (f < 0.20) continue;
 
                                 depthList[validCount] = depth;
                                 validIndexList[validCount] = i;
@@ -1143,7 +1143,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
-                const COUNT_SIZE = 2048 * 2048;
+                const COUNT_SIZE = 256 * 256;
 
                 let cache = {
                         capacity: 0,
@@ -1155,7 +1155,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
 
-                const GRID_SIZE = 2048;
+                const GRID_SIZE = 1024;
                 const grid = new Float32Array(GRID_SIZE * GRID_SIZE);
 
                 const ensureCapacity = (n) => {
@@ -1284,10 +1284,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
 
                                 const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                                const edgeMultiplier = 1.0 + (edgeDist * 0.6);
+                                const edgeMultiplier = 1.0 + (edgeDist * 0.5);
 
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 0.7 * edgeMultiplier && !skipCullBehind;
+                                const tooSmall = pixelThreshold < 0.6 * edgeMultiplier && !skipCullBehind;
 
                                 if (tooSmall) continue;
 
