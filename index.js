@@ -473,39 +473,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 				let plyState = null;
 				let capacityEstimated = false;
 				let plyPending = new Uint8Array(0);
-				let plyPendingChunks = [];
-				let plyPendingBytes = 0;
 				const maxPlyBatchBytes = 64 * 1024 * 1024;
-				const queuePlyChunk = (chunk) => {
-					if (plyPending.length) {
-						plyPendingChunks.push(plyPending);
-						plyPendingBytes += plyPending.length;
-						plyPending = new Uint8Array(0);
+				const appendPending = (pending, chunk) => {
+					if (pending.length === 0) {
+						return chunk;
 					}
-					plyPendingChunks.push(chunk);
-					plyPendingBytes += chunk.length;
-				};
-				const getPlyPending = () => {
-					if (plyPending.length) {
-						return plyPending;
-					}
-					if (plyPendingChunks.length === 0) {
-						return plyPending;
-					}
-					if (plyPendingChunks.length === 1) {
-						plyPending = plyPendingChunks[0];
-					} else {
-						const combined = new Uint8Array(plyPendingBytes);
-						let offset = 0;
-						for (const chunk of plyPendingChunks) {
-							combined.set(chunk, offset);
-							offset += chunk.length;
-						}
-						plyPending = combined;
-					}
-					plyPendingChunks = [];
-					plyPendingBytes = plyPending.length;
-					return plyPending;
+					const combined = new Uint8Array(pending.length + chunk.length);
+					combined.set(pending, 0);
+					combined.set(chunk, pending.length);
+					return combined;
 				};
 
 				while (true) {
@@ -536,7 +512,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         }
 						}
 						if (isPly) {
-							queuePlyChunk(value);
+							plyPending = appendPending(plyPending, value);
 						} else {
 							chunks.push(value);
 						}
@@ -547,32 +523,28 @@ AFRAME.registerComponent("gaussian_splatting", {
 						}
 
 						if (isPly && !plyState) {
-							const pendingView = getPlyPending();
-							plyState = this.parsePlyHeader(pendingView.buffer);
+							plyState = this.parsePlyHeader(plyPending.buffer);
                                                         if (plyState && plyState.vertexCount && !capacityEstimated) {
                                                                 this.ensureSplatCapacity(plyState.vertexCount);
                                                                 capacityEstimated = true;
                                                         }
 							if (plyState && plyState.format === "binary_little_endian") {
-								plyPending = pendingView.subarray(plyState.headerByteLength);
-								plyPendingBytes = plyPending.length;
+								plyPending = plyPending.slice(plyState.headerByteLength);
 								bytesProcesses += plyState.headerByteLength;
 							}
 						}
 
 						if (isPly && plyState && plyState.format === "binary_little_endian" && this.textureReady) {
-							const pendingView = getPlyPending();
-							let rowsAvailable = Math.floor(pendingView.byteLength / plyState.rowOffset);
+							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
 							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
 							while (rowsAvailable > 0) {
 								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
-								const result = this.buildPlyBinaryBatch(plyState, pendingView, rowsToProcess);
+								const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
 								if (result.vertexCount > 0) {
 									this.pushDataBuffer(result.buffer, result.vertexCount);
 								}
 								const consumedBytes = rowsToProcess * plyState.rowOffset;
-								plyPending = pendingView.subarray(consumedBytes);
-								plyPendingBytes = plyPending.length;
+								plyPending = plyPending.slice(consumedBytes);
 								bytesProcesses += consumedBytes;
 								rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
 							}
@@ -607,27 +579,24 @@ AFRAME.registerComponent("gaussian_splatting", {
 				if (bytesDownloaded - bytesProcesses > 0) {
 					if (isPly && plyState && plyState.format === "binary_little_endian") {
 						if (this.textureReady) {
-							const pendingView = getPlyPending();
-							let rowsAvailable = Math.floor(pendingView.byteLength / plyState.rowOffset);
+							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
 							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
 							while (rowsAvailable > 0) {
 								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
-								const result = this.buildPlyBinaryBatch(plyState, pendingView, rowsToProcess);
+								const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
 								if (result.vertexCount > 0) {
 									this.pushDataBuffer(result.buffer, result.vertexCount);
 								}
 								const consumedBytes = rowsToProcess * plyState.rowOffset;
-								plyPending = pendingView.subarray(consumedBytes);
-								plyPendingBytes = plyPending.length;
+								plyPending = plyPending.slice(consumedBytes);
 								bytesProcesses += consumedBytes;
 								rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
 							}
 						}
 					} else if (isPly) {
-						const pendingView = getPlyPending();
-						const plyBuffer = pendingView.buffer.slice(
-							pendingView.byteOffset,
-							pendingView.byteOffset + pendingView.byteLength,
+						const plyBuffer = plyPending.buffer.slice(
+							plyPending.byteOffset,
+							plyPending.byteOffset + plyPending.byteLength,
 						);
 						let concatenatedChunks = new Uint8Array(this.processPlyBuffer(plyBuffer));
 						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
@@ -1596,77 +1565,41 @@ AFRAME.registerComponent("gaussian_splatting", {
        },
        buildPlyBinaryBatch: function (plyState, pending, rowCount) {
                const rowLength = this.rowLength;
-               const rowOffset = plyState.rowOffset;
-               const offsets = plyState.offsets;
-               const types = plyState.types;
                const dataView = new DataView(
                        pending.buffer,
                        pending.byteOffset,
-                       rowCount * rowOffset,
+                       rowCount * plyState.rowOffset,
                );
                const buffer = new ArrayBuffer(rowLength * rowCount);
                const outFloats = new Float32Array(buffer);
                const outBytes = new Uint8Array(buffer);
-               const typeX = types["x"];
-               const typeY = types["y"];
-               const typeZ = types["z"];
-               const typeScale0 = types["scale_0"];
-               const typeScale1 = types["scale_1"];
-               const typeScale2 = types["scale_2"];
-               const typeRot0 = types["rot_0"];
-               const typeRot1 = types["rot_1"];
-               const typeRot2 = types["rot_2"];
-               const typeRot3 = types["rot_3"];
-               const typeOpacity = types["opacity"];
-               const typeFdc0 = types["f_dc_0"];
-               const typeFdc1 = types["f_dc_1"];
-               const typeFdc2 = types["f_dc_2"];
-               const typeRed = types["red"];
-               const typeGreen = types["green"];
-               const typeBlue = types["blue"];
-               const offsetX = offsets["x"];
-               const offsetY = offsets["y"];
-               const offsetZ = offsets["z"];
-               const offsetScale0 = offsets["scale_0"];
-               const offsetScale1 = offsets["scale_1"];
-               const offsetScale2 = offsets["scale_2"];
-               const offsetRot0 = offsets["rot_0"];
-               const offsetRot1 = offsets["rot_1"];
-               const offsetRot2 = offsets["rot_2"];
-               const offsetRot3 = offsets["rot_3"];
-               const offsetOpacity = offsets["opacity"];
-               const offsetFdc0 = offsets["f_dc_0"];
-               const offsetFdc1 = offsets["f_dc_1"];
-               const offsetFdc2 = offsets["f_dc_2"];
-               const offsetRed = offsets["red"];
-               const offsetGreen = offsets["green"];
-               const offsetBlue = offsets["blue"];
-               const hasScale = Boolean(typeScale0);
-               const hasRotation = Boolean(typeRot0);
-               const hasOpacity = Boolean(typeOpacity);
-               const hasFdc = Boolean(typeFdc0);
-               const hasRgb = Boolean(typeRed);
+               const hasScale = Boolean(plyState.types["scale_0"]);
+               const hasRotation = Boolean(plyState.types["rot_0"]);
+               const hasOpacity = Boolean(plyState.types["opacity"]);
+               const hasFdc = Boolean(plyState.types["f_dc_0"]);
+               const hasRgb = Boolean(plyState.types["red"]);
                const IMPORTANCE_THRESHOLD = 0.001;
                const clampByte = (value) => Math.max(0, Math.min(255, Math.round(value)));
-               const readValue = (type, baseOffset, propertyOffset) => {
+               const getValue = (rowByteOffset, prop) => {
+                       const type = plyState.types[prop];
                        if (!type) return undefined;
-                       return dataView[type](baseOffset + propertyOffset, true);
+                       return dataView[type](rowByteOffset + plyState.offsets[prop], true);
                };
                let writeIndex = 0;
                for (let row = 0; row < rowCount; row++) {
-                       const rowByteOffset = row * rowOffset;
-                       const x = readValue(typeX, rowByteOffset, offsetX) || 0;
-                       const y = readValue(typeY, rowByteOffset, offsetY) || 0;
-                       const z = readValue(typeZ, rowByteOffset, offsetZ) || 0;
+                       const rowByteOffset = row * plyState.rowOffset;
+                       const x = getValue(rowByteOffset, "x") || 0;
+                       const y = getValue(rowByteOffset, "y") || 0;
+                       const z = getValue(rowByteOffset, "z") || 0;
                        let s0 = 0.01;
                        let s1 = 0.01;
                        let s2 = 0.01;
                        if (hasScale) {
-                               s0 = Math.exp(readValue(typeScale0, rowByteOffset, offsetScale0) ?? 0);
-                               s1 = Math.exp(readValue(typeScale1, rowByteOffset, offsetScale1) ?? 0);
-                               s2 = Math.exp(readValue(typeScale2, rowByteOffset, offsetScale2) ?? 0);
+                               s0 = Math.exp(getValue(rowByteOffset, "scale_0") ?? 0);
+                               s1 = Math.exp(getValue(rowByteOffset, "scale_1") ?? 0);
+                               s2 = Math.exp(getValue(rowByteOffset, "scale_2") ?? 0);
                                const opacity = hasOpacity
-                                       ? 1 / (1 + Math.exp(-readValue(typeOpacity, rowByteOffset, offsetOpacity)))
+                                       ? 1 / (1 + Math.exp(-getValue(rowByteOffset, "opacity")))
                                        : 1;
                                const size = s0 * s1 * s2;
                                const importance = Math.pow(size * opacity ** 3, 1 / 4);
@@ -1684,10 +1617,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                        const byteIndex = writeIndex * rowLength;
                        if (hasRotation) {
-                               const r0 = readValue(typeRot0, rowByteOffset, offsetRot0) ?? 0;
-                               const r1 = readValue(typeRot1, rowByteOffset, offsetRot1) ?? 0;
-                               const r2 = readValue(typeRot2, rowByteOffset, offsetRot2) ?? 0;
-                               const r3 = readValue(typeRot3, rowByteOffset, offsetRot3) ?? 0;
+                               const r0 = getValue(rowByteOffset, "rot_0") ?? 0;
+                               const r1 = getValue(rowByteOffset, "rot_1") ?? 0;
+                               const r2 = getValue(rowByteOffset, "rot_2") ?? 0;
+                               const r3 = getValue(rowByteOffset, "rot_3") ?? 0;
                                const qlen = Math.sqrt(r0 ** 2 + r1 ** 2 + r2 ** 2 + r3 ** 2) || 1;
                                outBytes[byteIndex + 28] = clampByte((r0 / qlen) * 128 + 128);
                                outBytes[byteIndex + 29] = clampByte((r1 / qlen) * 128 + 128);
@@ -1702,20 +1635,20 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                        if (hasFdc) {
                                const SH_C0 = 0.28209479177387814;
-                               outBytes[byteIndex + 24] = clampByte((0.5 + SH_C0 * readValue(typeFdc0, rowByteOffset, offsetFdc0)) * 255);
-                               outBytes[byteIndex + 25] = clampByte((0.5 + SH_C0 * readValue(typeFdc1, rowByteOffset, offsetFdc1)) * 255);
-                               outBytes[byteIndex + 26] = clampByte((0.5 + SH_C0 * readValue(typeFdc2, rowByteOffset, offsetFdc2)) * 255);
+                               outBytes[byteIndex + 24] = clampByte((0.5 + SH_C0 * getValue(rowByteOffset, "f_dc_0")) * 255);
+                               outBytes[byteIndex + 25] = clampByte((0.5 + SH_C0 * getValue(rowByteOffset, "f_dc_1")) * 255);
+                               outBytes[byteIndex + 26] = clampByte((0.5 + SH_C0 * getValue(rowByteOffset, "f_dc_2")) * 255);
                        } else if (hasRgb) {
-                               outBytes[byteIndex + 24] = clampByte(readValue(typeRed, rowByteOffset, offsetRed));
-                               outBytes[byteIndex + 25] = clampByte(readValue(typeGreen, rowByteOffset, offsetGreen));
-                               outBytes[byteIndex + 26] = clampByte(readValue(typeBlue, rowByteOffset, offsetBlue));
+                               outBytes[byteIndex + 24] = clampByte(getValue(rowByteOffset, "red"));
+                               outBytes[byteIndex + 25] = clampByte(getValue(rowByteOffset, "green"));
+                               outBytes[byteIndex + 26] = clampByte(getValue(rowByteOffset, "blue"));
                        } else {
                                outBytes[byteIndex + 24] = 0;
                                outBytes[byteIndex + 25] = 0;
                                outBytes[byteIndex + 26] = 0;
                        }
                        if (hasOpacity) {
-                               outBytes[byteIndex + 27] = clampByte((1 / (1 + Math.exp(-readValue(typeOpacity, rowByteOffset, offsetOpacity)))) * 255);
+                               outBytes[byteIndex + 27] = clampByte((1 / (1 + Math.exp(-getValue(rowByteOffset, "opacity")))) * 255);
                        } else {
                                outBytes[byteIndex + 27] = 255;
                        }
