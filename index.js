@@ -423,7 +423,19 @@ AFRAME.registerComponent("gaussian_splatting", {
 				const chunks = [];
 				const start = Date.now();
 				let lastReportedProgress = 0;
-				let isPly = true;
+				let isPly = null;
+				let plyState = null;
+				let plyPending = new Uint8Array(0);
+				const maxPlyBatchBytes = 64 * 1024 * 1024;
+				const appendPending = (pending, chunk) => {
+					if (pending.length === 0) {
+						return chunk;
+					}
+					const combined = new Uint8Array(pending.length + chunk.length);
+					combined.set(pending, 0);
+					combined.set(chunk, pending.length);
+					return combined;
+				};
 
 				while (true) {
 					try {
@@ -443,11 +455,43 @@ AFRAME.registerComponent("gaussian_splatting", {
 						} else {
                                                 console.log("Progress:", bytesDownloaded, ", unknown total");
 						}
-						chunks.push(value);
+						if (isPly === null) {
+							const probe = new TextDecoder().decode(value.slice(0, 4));
+							isPly = probe.startsWith("ply");
+						}
+						if (isPly) {
+							plyPending = appendPending(plyPending, value);
+						} else {
+							chunks.push(value);
+						}
 						if (!this.textureReady &&
 							this.renderer.properties.get(this.centerAndScaleTexture) &&
 							this.renderer.properties.get(this.covAndColorTexture)) {
 							this.textureReady = true;
+						}
+
+						if (isPly && !plyState) {
+							plyState = this.parsePlyHeader(plyPending.buffer);
+							if (plyState && plyState.format === "binary_little_endian") {
+								plyPending = plyPending.slice(plyState.headerByteLength);
+								bytesProcesses += plyState.headerByteLength;
+							}
+						}
+
+						if (isPly && plyState && plyState.format === "binary_little_endian" && this.textureReady) {
+							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
+							while (rowsAvailable > 0) {
+								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
+								const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
+								if (result.vertexCount > 0) {
+									this.pushDataBuffer(result.buffer, result.vertexCount);
+								}
+								const consumedBytes = rowsToProcess * plyState.rowOffset;
+								plyPending = plyPending.slice(consumedBytes);
+								bytesProcesses += consumedBytes;
+								rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+							}
 						}
 
 						const bytesRemains = bytesDownloaded - bytesProcesses;
@@ -477,20 +521,42 @@ AFRAME.registerComponent("gaussian_splatting", {
 				}
 
 				if (bytesDownloaded - bytesProcesses > 0) {
-					// Concatenate the chunks into a single Uint8Array
-					let concatenatedChunks = new Uint8Array(
-						chunks.reduce((acc, chunk) => acc + chunk.length, 0)
-					);
-					let offset = 0;
-					for (const chunk of chunks) {
-						concatenatedChunks.set(chunk, offset);
-						offset += chunk.length;
+					if (isPly && plyState && plyState.format === "binary_little_endian") {
+						if (this.textureReady) {
+							let rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
+							while (rowsAvailable > 0) {
+								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
+								const result = this.buildPlyBinaryBatch(plyState, plyPending, rowsToProcess);
+								if (result.vertexCount > 0) {
+									this.pushDataBuffer(result.buffer, result.vertexCount);
+								}
+								const consumedBytes = rowsToProcess * plyState.rowOffset;
+								plyPending = plyPending.slice(consumedBytes);
+								bytesProcesses += consumedBytes;
+								rowsAvailable = Math.floor(plyPending.byteLength / plyState.rowOffset);
+							}
+						}
+					} else if (isPly) {
+						const plyBuffer = plyPending.buffer.slice(
+							plyPending.byteOffset,
+							plyPending.byteOffset + plyPending.byteLength,
+						);
+						let concatenatedChunks = new Uint8Array(this.processPlyBuffer(plyBuffer));
+						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
+					} else {
+						// Concatenate the chunks into a single Uint8Array
+						let concatenatedChunks = new Uint8Array(
+							chunks.reduce((acc, chunk) => acc + chunk.length, 0)
+						);
+						let offset = 0;
+						for (const chunk of chunks) {
+							concatenatedChunks.set(chunk, offset);
+							offset += chunk.length;
+						}
+						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
 					}
-					if (isPly) {
-						concatenatedChunks = new Uint8Array(this.processPlyBuffer(concatenatedChunks.buffer));
-					}
-                                this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
-                                }
+				}
                         })
                         .finally(() => {
                                 this.isCaching = false;
@@ -1393,6 +1459,150 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                 };
         },
+       parsePlyHeader: function (inputBuffer) {
+               const ubuf = new Uint8Array(inputBuffer);
+               const header = new TextDecoder().decode(ubuf.slice(0, 1024 * 10));
+               let header_end = "end_header\n";
+               let header_end_index = header.indexOf(header_end);
+               if (header_end_index < 0) {
+                       header_end = "end_header\r\n";
+                       header_end_index = header.indexOf(header_end);
+               }
+               if (header_end_index < 0) {
+                       return null;
+               }
+               const formatMatch = /format (ascii|binary_little_endian) 1\.0/.exec(header);
+               const format = formatMatch ? formatMatch[1] : "binary_little_endian";
+               const vertexMatch = /element vertex (\d+)/.exec(header);
+               const vertexCount = vertexMatch ? parseInt(vertexMatch[1]) : 0;
+               let row_offset = 0;
+               const offsets = {};
+               const types = {};
+               const TYPE_MAP = {
+                       double: { method: "getFloat64", size: 8 },
+                       int: { method: "getInt32", size: 4 },
+                       uint: { method: "getUint32", size: 4 },
+                       float: { method: "getFloat32", size: 4 },
+                       short: { method: "getInt16", size: 2 },
+                       ushort: { method: "getUint16", size: 2 },
+                       uchar: { method: "getUint8", size: 1 },
+                       char: { method: "getInt8", size: 1 },
+               };
+               for (let prop of header
+                       .slice(0, header_end_index)
+                       .split(/\r?\n/)
+                       .filter((k) => k.startsWith("property "))) {
+                       const [, type, name] = prop.split(" ");
+                       const info = TYPE_MAP[type] || { method: "getInt8", size: 1 };
+                       types[name] = info.method;
+                       offsets[name] = row_offset;
+                       row_offset += info.size;
+               }
+               return {
+                       format,
+                       vertexCount,
+                       rowOffset: row_offset,
+                       offsets,
+                       types,
+                       headerByteLength: header_end_index + header_end.length,
+               };
+       },
+       buildPlyBinaryBatch: function (plyState, pending, rowCount) {
+               const rowLength = this.rowLength;
+               const dataView = new DataView(
+                       pending.buffer,
+                       pending.byteOffset,
+                       rowCount * plyState.rowOffset,
+               );
+               const buffer = new ArrayBuffer(rowLength * rowCount);
+               const outFloats = new Float32Array(buffer);
+               const outBytes = new Uint8Array(buffer);
+               const hasScale = Boolean(plyState.types["scale_0"]);
+               const hasRotation = Boolean(plyState.types["rot_0"]);
+               const hasOpacity = Boolean(plyState.types["opacity"]);
+               const hasFdc = Boolean(plyState.types["f_dc_0"]);
+               const hasRgb = Boolean(plyState.types["red"]);
+               const IMPORTANCE_THRESHOLD = 0.0015;
+               const clampByte = (value) => Math.max(0, Math.min(255, Math.round(value)));
+               const getValue = (rowByteOffset, prop) => {
+                       const type = plyState.types[prop];
+                       if (!type) return undefined;
+                       return dataView[type](rowByteOffset + plyState.offsets[prop], true);
+               };
+               let writeIndex = 0;
+               for (let row = 0; row < rowCount; row++) {
+                       const rowByteOffset = row * plyState.rowOffset;
+                       const x = getValue(rowByteOffset, "x") || 0;
+                       const y = getValue(rowByteOffset, "y") || 0;
+                       const z = getValue(rowByteOffset, "z") || 0;
+                       let s0 = 0.01;
+                       let s1 = 0.01;
+                       let s2 = 0.01;
+                       if (hasScale) {
+                               s0 = Math.exp(getValue(rowByteOffset, "scale_0") ?? 0);
+                               s1 = Math.exp(getValue(rowByteOffset, "scale_1") ?? 0);
+                               s2 = Math.exp(getValue(rowByteOffset, "scale_2") ?? 0);
+                               const opacity = hasOpacity
+                                       ? 1 / (1 + Math.exp(-getValue(rowByteOffset, "opacity")))
+                                       : 1;
+                               const size = s0 * s1 * s2;
+                               const importance = Math.pow(size * opacity ** 3, 1 / 4);
+                               if (importance < IMPORTANCE_THRESHOLD) {
+                                       continue;
+                               }
+                       }
+                       const floatIndex = (writeIndex * rowLength) / 4;
+                       outFloats[floatIndex] = x;
+                       outFloats[floatIndex + 1] = y;
+                       outFloats[floatIndex + 2] = z;
+                       outFloats[floatIndex + 3] = s0;
+                       outFloats[floatIndex + 4] = s1;
+                       outFloats[floatIndex + 5] = s2;
+
+                       const byteIndex = writeIndex * rowLength;
+                       if (hasRotation) {
+                               const r0 = getValue(rowByteOffset, "rot_0") ?? 0;
+                               const r1 = getValue(rowByteOffset, "rot_1") ?? 0;
+                               const r2 = getValue(rowByteOffset, "rot_2") ?? 0;
+                               const r3 = getValue(rowByteOffset, "rot_3") ?? 0;
+                               const qlen = Math.sqrt(r0 ** 2 + r1 ** 2 + r2 ** 2 + r3 ** 2) || 1;
+                               outBytes[byteIndex + 28] = clampByte((r0 / qlen) * 128 + 128);
+                               outBytes[byteIndex + 29] = clampByte((r1 / qlen) * 128 + 128);
+                               outBytes[byteIndex + 30] = clampByte((r2 / qlen) * 128 + 128);
+                               outBytes[byteIndex + 31] = clampByte((r3 / qlen) * 128 + 128);
+                       } else {
+                               outBytes[byteIndex + 28] = 255;
+                               outBytes[byteIndex + 29] = 0;
+                               outBytes[byteIndex + 30] = 0;
+                               outBytes[byteIndex + 31] = 0;
+                       }
+
+                       if (hasFdc) {
+                               const SH_C0 = 0.28209479177387814;
+                               outBytes[byteIndex + 24] = clampByte((0.5 + SH_C0 * getValue(rowByteOffset, "f_dc_0")) * 255);
+                               outBytes[byteIndex + 25] = clampByte((0.5 + SH_C0 * getValue(rowByteOffset, "f_dc_1")) * 255);
+                               outBytes[byteIndex + 26] = clampByte((0.5 + SH_C0 * getValue(rowByteOffset, "f_dc_2")) * 255);
+                       } else if (hasRgb) {
+                               outBytes[byteIndex + 24] = clampByte(getValue(rowByteOffset, "red"));
+                               outBytes[byteIndex + 25] = clampByte(getValue(rowByteOffset, "green"));
+                               outBytes[byteIndex + 26] = clampByte(getValue(rowByteOffset, "blue"));
+                       } else {
+                               outBytes[byteIndex + 24] = 0;
+                               outBytes[byteIndex + 25] = 0;
+                               outBytes[byteIndex + 26] = 0;
+                       }
+                       if (hasOpacity) {
+                               outBytes[byteIndex + 27] = clampByte((1 / (1 + Math.exp(-getValue(rowByteOffset, "opacity")))) * 255);
+                       } else {
+                               outBytes[byteIndex + 27] = 255;
+                       }
+                       writeIndex++;
+               }
+               return {
+                       buffer: buffer.slice(0, writeIndex * rowLength),
+                       vertexCount: writeIndex,
+               };
+       },
        processPlyBuffer: function (inputBuffer) {
                const ubuf = new Uint8Array(inputBuffer);
                // 10KB ought to be enough for a header...
