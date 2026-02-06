@@ -1666,6 +1666,23 @@ AFRAME.registerComponent("gaussian_splatting", {
                const redMethod = types["red"];
                const greenMethod = types["green"];
                const blueMethod = types["blue"];
+               const getX = xMethod ? dataView[xMethod].bind(dataView) : null;
+               const getY = yMethod ? dataView[yMethod].bind(dataView) : null;
+               const getZ = zMethod ? dataView[zMethod].bind(dataView) : null;
+               const getScale0 = scale0Method ? dataView[scale0Method].bind(dataView) : null;
+               const getScale1 = scale1Method ? dataView[scale1Method].bind(dataView) : null;
+               const getScale2 = scale2Method ? dataView[scale2Method].bind(dataView) : null;
+               const getOpacity = opacityMethod ? dataView[opacityMethod].bind(dataView) : null;
+               const getRot0 = rot0Method ? dataView[rot0Method].bind(dataView) : null;
+               const getRot1 = rot1Method ? dataView[rot1Method].bind(dataView) : null;
+               const getRot2 = rot2Method ? dataView[rot2Method].bind(dataView) : null;
+               const getRot3 = rot3Method ? dataView[rot3Method].bind(dataView) : null;
+               const getFdc0 = fdc0Method ? dataView[fdc0Method].bind(dataView) : null;
+               const getFdc1 = fdc1Method ? dataView[fdc1Method].bind(dataView) : null;
+               const getFdc2 = fdc2Method ? dataView[fdc2Method].bind(dataView) : null;
+               const getRed = redMethod ? dataView[redMethod].bind(dataView) : null;
+               const getGreen = greenMethod ? dataView[greenMethod].bind(dataView) : null;
+               const getBlue = blueMethod ? dataView[blueMethod].bind(dataView) : null;
                const xOffset = offsets["x"] || 0;
                const yOffset = offsets["y"] || 0;
                const zOffset = offsets["z"] || 0;
@@ -1686,36 +1703,33 @@ AFRAME.registerComponent("gaussian_splatting", {
                const IMPORTANCE_THRESHOLD = 0.0015;
                const SH_C0 = 0.28209479177387814;
                const clampByte = (value) => Math.max(0, Math.min(255, Math.round(value)));
-               const readValue = (method, offset, rowByteOffset) => {
-                       if (!method) {
-                               return undefined;
-                       }
-                       return dataView[method](rowByteOffset + offset, true);
-               };
                let writeIndex = 0;
                for (let row = 0; row < rowCount; row++) {
                        const rowByteOffset = row * plyState.rowOffset;
-                       const x = xMethod ? dataView[xMethod](rowByteOffset + xOffset, true) : 0;
-                       const y = yMethod ? dataView[yMethod](rowByteOffset + yOffset, true) : 0;
-                       const z = zMethod ? dataView[zMethod](rowByteOffset + zOffset, true) : 0;
+                       const x = getX ? getX(rowByteOffset + xOffset, true) : 0;
+                       const y = getY ? getY(rowByteOffset + yOffset, true) : 0;
+                       const z = getZ ? getZ(rowByteOffset + zOffset, true) : 0;
                        let s0 = 0.01;
                        let s1 = 0.01;
                        let s2 = 0.01;
                        let opacity = 1;
                        if (hasScale) {
-                               s0 = Math.exp(readValue(scale0Method, scale0Offset, rowByteOffset) ?? 0);
-                               s1 = Math.exp(readValue(scale1Method, scale1Offset, rowByteOffset) ?? 0);
-                               s2 = Math.exp(readValue(scale2Method, scale2Offset, rowByteOffset) ?? 0);
+                               s0 = Math.exp(getScale0 ? getScale0(rowByteOffset + scale0Offset, true) : 0);
+                               s1 = Math.exp(getScale1 ? getScale1(rowByteOffset + scale1Offset, true) : 0);
+                               s2 = Math.exp(getScale2 ? getScale2(rowByteOffset + scale2Offset, true) : 0);
                                if (hasOpacity) {
-                                       opacity = 1 / (1 + Math.exp(-readValue(opacityMethod, opacityOffset, rowByteOffset)));
+                                       const rawOpacity = getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0;
+                                       opacity = 1 / (1 + Math.exp(-rawOpacity));
                                }
                                const size = s0 * s1 * s2;
-                               const importance = Math.pow(size * opacity ** 3, 1 / 4);
+                               const opacityCubed = opacity * opacity * opacity;
+                               const importance = Math.sqrt(Math.sqrt(size * opacityCubed));
                                if (importance < IMPORTANCE_THRESHOLD) {
                                        continue;
                                }
                        } else if (hasOpacity) {
-                               opacity = 1 / (1 + Math.exp(-readValue(opacityMethod, opacityOffset, rowByteOffset)));
+                               const rawOpacity = getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0;
+                               opacity = 1 / (1 + Math.exp(-rawOpacity));
                        }
                        const floatIndex = (writeIndex * rowLength) / 4;
                        outFloats[floatIndex] = x;
@@ -1727,10 +1741,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                        const byteIndex = writeIndex * rowLength;
                        if (hasRotation) {
-                               const r0 = readValue(rot0Method, rot0Offset, rowByteOffset) ?? 0;
-                               const r1 = readValue(rot1Method, rot1Offset, rowByteOffset) ?? 0;
-                               const r2 = readValue(rot2Method, rot2Offset, rowByteOffset) ?? 0;
-                               const r3 = readValue(rot3Method, rot3Offset, rowByteOffset) ?? 0;
+                               const r0 = getRot0 ? getRot0(rowByteOffset + rot0Offset, true) : 0;
+                               const r1 = getRot1 ? getRot1(rowByteOffset + rot1Offset, true) : 0;
+                               const r2 = getRot2 ? getRot2(rowByteOffset + rot2Offset, true) : 0;
+                               const r3 = getRot3 ? getRot3(rowByteOffset + rot3Offset, true) : 0;
                                const qlen = Math.sqrt(r0 ** 2 + r1 ** 2 + r2 ** 2 + r3 ** 2) || 1;
                                outBytes[byteIndex + 28] = clampByte((r0 / qlen) * 128 + 128);
                                outBytes[byteIndex + 29] = clampByte((r1 / qlen) * 128 + 128);
@@ -1744,13 +1758,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                        }
 
                        if (hasFdc) {
-                               outBytes[byteIndex + 24] = clampByte((0.5 + SH_C0 * readValue(fdc0Method, fdc0Offset, rowByteOffset)) * 255);
-                               outBytes[byteIndex + 25] = clampByte((0.5 + SH_C0 * readValue(fdc1Method, fdc1Offset, rowByteOffset)) * 255);
-                               outBytes[byteIndex + 26] = clampByte((0.5 + SH_C0 * readValue(fdc2Method, fdc2Offset, rowByteOffset)) * 255);
+                               outBytes[byteIndex + 24] = clampByte((0.5 + SH_C0 * (getFdc0 ? getFdc0(rowByteOffset + fdc0Offset, true) : 0)) * 255);
+                               outBytes[byteIndex + 25] = clampByte((0.5 + SH_C0 * (getFdc1 ? getFdc1(rowByteOffset + fdc1Offset, true) : 0)) * 255);
+                               outBytes[byteIndex + 26] = clampByte((0.5 + SH_C0 * (getFdc2 ? getFdc2(rowByteOffset + fdc2Offset, true) : 0)) * 255);
                        } else if (hasRgb) {
-                               outBytes[byteIndex + 24] = clampByte(readValue(redMethod, redOffset, rowByteOffset));
-                               outBytes[byteIndex + 25] = clampByte(readValue(greenMethod, greenOffset, rowByteOffset));
-                               outBytes[byteIndex + 26] = clampByte(readValue(blueMethod, blueOffset, rowByteOffset));
+                               outBytes[byteIndex + 24] = clampByte(getRed ? getRed(rowByteOffset + redOffset, true) : 0);
+                               outBytes[byteIndex + 25] = clampByte(getGreen ? getGreen(rowByteOffset + greenOffset, true) : 0);
+                               outBytes[byteIndex + 26] = clampByte(getBlue ? getBlue(rowByteOffset + blueOffset, true) : 0);
                        } else {
                                outBytes[byteIndex + 24] = 0;
                                outBytes[byteIndex + 25] = 0;
@@ -1916,47 +1930,94 @@ AFRAME.registerComponent("gaussian_splatting", {
                        return buffer;
                }
 
-               // Binary little-endian path (original implementation)
+               // Binary little-endian path
                let dataView = new DataView(
                        inputBuffer,
                        header_end_index + header_end.length,
                );
                let row = 0;
-               const attrs = new Proxy(
-                       {},
-                       {
-                               get(target, prop) {
-                                       if (!types[prop]) throw new Error(prop + " not found");
-                                       return dataView[types[prop]](
-                                               row * row_offset + offsets[prop],
-                                               true,
-                                       );
-                               },
-                       },
-               );
+               const hasScale = Boolean(types["scale_0"]);
+               const hasOpacity = Boolean(types["opacity"]);
+               const hasFdc = Boolean(types["f_dc_0"]);
+               const hasRgb = Boolean(types["red"]);
+               const xMethod = types["x"];
+               const yMethod = types["y"];
+               const zMethod = types["z"];
+               const scale0Method = types["scale_0"];
+               const scale1Method = types["scale_1"];
+               const scale2Method = types["scale_2"];
+               const opacityMethod = types["opacity"];
+               const rot0Method = types["rot_0"];
+               const rot1Method = types["rot_1"];
+               const rot2Method = types["rot_2"];
+               const rot3Method = types["rot_3"];
+               const fdc0Method = types["f_dc_0"];
+               const fdc1Method = types["f_dc_1"];
+               const fdc2Method = types["f_dc_2"];
+               const redMethod = types["red"];
+               const greenMethod = types["green"];
+               const blueMethod = types["blue"];
+               const getX = xMethod ? dataView[xMethod].bind(dataView) : null;
+               const getY = yMethod ? dataView[yMethod].bind(dataView) : null;
+               const getZ = zMethod ? dataView[zMethod].bind(dataView) : null;
+               const getScale0 = scale0Method ? dataView[scale0Method].bind(dataView) : null;
+               const getScale1 = scale1Method ? dataView[scale1Method].bind(dataView) : null;
+               const getScale2 = scale2Method ? dataView[scale2Method].bind(dataView) : null;
+               const getOpacity = opacityMethod ? dataView[opacityMethod].bind(dataView) : null;
+               const getRot0 = rot0Method ? dataView[rot0Method].bind(dataView) : null;
+               const getRot1 = rot1Method ? dataView[rot1Method].bind(dataView) : null;
+               const getRot2 = rot2Method ? dataView[rot2Method].bind(dataView) : null;
+               const getRot3 = rot3Method ? dataView[rot3Method].bind(dataView) : null;
+               const getFdc0 = fdc0Method ? dataView[fdc0Method].bind(dataView) : null;
+               const getFdc1 = fdc1Method ? dataView[fdc1Method].bind(dataView) : null;
+               const getFdc2 = fdc2Method ? dataView[fdc2Method].bind(dataView) : null;
+               const getRed = redMethod ? dataView[redMethod].bind(dataView) : null;
+               const getGreen = greenMethod ? dataView[greenMethod].bind(dataView) : null;
+               const getBlue = blueMethod ? dataView[blueMethod].bind(dataView) : null;
+               const xOffset = offsets["x"] || 0;
+               const yOffset = offsets["y"] || 0;
+               const zOffset = offsets["z"] || 0;
+               const scale0Offset = offsets["scale_0"] || 0;
+               const scale1Offset = offsets["scale_1"] || 0;
+               const scale2Offset = offsets["scale_2"] || 0;
+               const opacityOffset = offsets["opacity"] || 0;
+               const rot0Offset = offsets["rot_0"] || 0;
+               const rot1Offset = offsets["rot_1"] || 0;
+               const rot2Offset = offsets["rot_2"] || 0;
+               const rot3Offset = offsets["rot_3"] || 0;
+               const fdc0Offset = offsets["f_dc_0"] || 0;
+               const fdc1Offset = offsets["f_dc_1"] || 0;
+               const fdc2Offset = offsets["f_dc_2"] || 0;
+               const redOffset = offsets["red"] || 0;
+               const greenOffset = offsets["green"] || 0;
+               const blueOffset = offsets["blue"] || 0;
+               const SH_C0 = 0.28209479177387814;
 
                console.time("calculate importance");
                const IMPORTANCE_THRESHOLD = 0.0015;
                let sizeList = [];
                let sizeIndex = [];
                for (row = 0; row < vertexCount; row++) {
-                       if (!types["scale_0"]) {
+                       if (!hasScale) {
                                sizeIndex.push(row);
                                sizeList.push(0);
                                continue;
                        }
 
-                       const s0 = Math.exp(attrs.scale_0);
-                       const s1 = Math.exp(attrs.scale_1);
-                       const s2 = Math.exp(attrs.scale_2);
+                       const rowByteOffset = row * row_offset;
+                       const s0 = Math.exp(getScale0 ? getScale0(rowByteOffset + scale0Offset, true) : 0);
+                       const s1 = Math.exp(getScale1 ? getScale1(rowByteOffset + scale1Offset, true) : 0);
+                       const s2 = Math.exp(getScale2 ? getScale2(rowByteOffset + scale2Offset, true) : 0);
 
                        //const minScale = Math.min(s0, s1, s2);
                        //const maxScale = Math.max(s0, s1, s2);
 
                        const size = s0 * s1 * s2;
 
-                       const opacity = 1 / (1 + Math.exp(-attrs.opacity));
-                       const importance = Math.pow(size * opacity ** 3, 1/4);
+                       const rawOpacity = getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0;
+                       const opacity = 1 / (1 + Math.exp(-rawOpacity));
+                       const opacityCubed = opacity * opacity * opacity;
+                       const importance = Math.sqrt(Math.sqrt(size * opacityCubed));
                        if (importance < IMPORTANCE_THRESHOLD) continue;
 
                        sizeIndex.push(row);
@@ -1965,39 +2026,36 @@ AFRAME.registerComponent("gaussian_splatting", {
                sizeIndex = new Uint32Array(sizeIndex);
                sizeList = new Float32Array(sizeList);
                vertexCount = sizeIndex.length;
-               console.timeEnd("calculate importance");
 
-               console.time("sort");
                sizeIndex.sort((b, a) => sizeList[a] - sizeList[b]);
-               console.timeEnd("sort");
 
                const buffer = new ArrayBuffer(rowLength * vertexCount);
 
-               console.time("build buffer");
                for (let j = 0; j < vertexCount; j++) {
                        row = sizeIndex[j];
+                       const rowByteOffset = row * row_offset;
 
                        const position = new Float32Array(buffer, j * rowLength, 3);
                        const scales = new Float32Array(buffer, j * rowLength + 12, 3);
                        const rgba = new Uint8ClampedArray(buffer, j * rowLength + 24, 4);
                        const rot = new Uint8ClampedArray(buffer, j * rowLength + 28, 4);
 
-                       if (types["scale_0"]) {
-                               const qlen = Math.sqrt(
-                                       attrs.rot_0 ** 2 +
-                                       attrs.rot_1 ** 2 +
-                                       attrs.rot_2 ** 2 +
-                                       attrs.rot_3 ** 2,
-                               );
+                       if (hasScale) {
+                               const r0 = getRot0 ? getRot0(rowByteOffset + rot0Offset, true) : 0;
+                               const r1 = getRot1 ? getRot1(rowByteOffset + rot1Offset, true) : 0;
+                               const r2 = getRot2 ? getRot2(rowByteOffset + rot2Offset, true) : 0;
+                               const r3 = getRot3 ? getRot3(rowByteOffset + rot3Offset, true) : 0;
+                               const qlen = Math.sqrt(r0 ** 2 + r1 ** 2 + r2 ** 2 + r3 ** 2) || 1;
+                               const invQlen = 1 / qlen;
 
-                               rot[0] = (attrs.rot_0 / qlen) * 128 + 128;
-                               rot[1] = (attrs.rot_1 / qlen) * 128 + 128;
-                               rot[2] = (attrs.rot_2 / qlen) * 128 + 128;
-                               rot[3] = (attrs.rot_3 / qlen) * 128 + 128;
+                               rot[0] = r0 * invQlen * 128 + 128;
+                               rot[1] = r1 * invQlen * 128 + 128;
+                               rot[2] = r2 * invQlen * 128 + 128;
+                               rot[3] = r3 * invQlen * 128 + 128;
 
-                               scales[0] = Math.exp(attrs.scale_0);
-                               scales[1] = Math.exp(attrs.scale_1);
-                               scales[2] = Math.exp(attrs.scale_2);
+                               scales[0] = Math.exp(getScale0 ? getScale0(rowByteOffset + scale0Offset, true) : 0);
+                               scales[1] = Math.exp(getScale1 ? getScale1(rowByteOffset + scale1Offset, true) : 0);
+                               scales[2] = Math.exp(getScale2 ? getScale2(rowByteOffset + scale2Offset, true) : 0);
                        } else {
                                scales[0] = 0.01;
                                scales[1] = 0.01;
@@ -2009,27 +2067,26 @@ AFRAME.registerComponent("gaussian_splatting", {
                                rot[3] = 0;
                        }
 
-                       position[0] = attrs.x;
-                       position[1] = attrs.y;
-                       position[2] = attrs.z;
+                       position[0] = getX ? getX(rowByteOffset + xOffset, true) : 0;
+                       position[1] = getY ? getY(rowByteOffset + yOffset, true) : 0;
+                       position[2] = getZ ? getZ(rowByteOffset + zOffset, true) : 0;
 
-                       if (types["f_dc_0"]) {
-                               const SH_C0 = 0.28209479177387814;
-                               rgba[0] = (0.5 + SH_C0 * attrs.f_dc_0) * 255;
-                               rgba[1] = (0.5 + SH_C0 * attrs.f_dc_1) * 255;
-                               rgba[2] = (0.5 + SH_C0 * attrs.f_dc_2) * 255;
+                       if (hasFdc) {
+                               rgba[0] = (0.5 + SH_C0 * (getFdc0 ? getFdc0(rowByteOffset + fdc0Offset, true) : 0)) * 255;
+                               rgba[1] = (0.5 + SH_C0 * (getFdc1 ? getFdc1(rowByteOffset + fdc1Offset, true) : 0)) * 255;
+                               rgba[2] = (0.5 + SH_C0 * (getFdc2 ? getFdc2(rowByteOffset + fdc2Offset, true) : 0)) * 255;
+                       } else if (hasRgb) {
+                               rgba[0] = getRed ? getRed(rowByteOffset + redOffset, true) : 0;
+                               rgba[1] = getGreen ? getGreen(rowByteOffset + greenOffset, true) : 0;
+                               rgba[2] = getBlue ? getBlue(rowByteOffset + blueOffset, true) : 0;
                        } else {
-                               rgba[0] = attrs.red;
-                               rgba[1] = attrs.green;
-                               rgba[2] = attrs.blue;
+                               rgba[0] = 0;
+                               rgba[1] = 0;
+                               rgba[2] = 0;
                        }
-                       if (types["opacity"]) {
-                               rgba[3] = (1 / (1 + Math.exp(-attrs.opacity))) * 255;
-                       } else {
-                               rgba[3] = 255;
-                       }
+                       const rawOpacity = getOpacity ? getOpacity(rowByteOffset + opacityOffset, true) : 0;
+                       rgba[3] = hasOpacity ? (1 / (1 + Math.exp(-rawOpacity))) * 255 : 255;
                }
-               console.timeEnd("build buffer");
                return buffer;
        }
 });
