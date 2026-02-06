@@ -1030,8 +1030,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let matrices = undefined;
                 let normals = undefined;
                 let fadeOpacities = undefined;
-                let matrixCount = 0;
-                let matrixCapacity = 0;
 
                 const COUNT_SIZE = 1200 * 1200;
 
@@ -1057,8 +1055,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         discardMark = new Uint8Array(n);
                 };
 
-                const filterSplats = function filterSplats(matrices, matrixCount, view, mvp, scaleFactor = 1.0, focal = 1.0) {
-                        const vertexCount = matrixCount / 16;
+                const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
+                        const vertexCount = matrices.length / 16;
                         if (!wasOccluded || !fadeOpacities || fadeOpacities.length < vertexCount) {
                                 const tmp = new Float32Array(vertexCount);
                                 tmp.fill(2.0);
@@ -1206,41 +1204,30 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 matrices = undefined;
                                 fadeOpacities = undefined;
                                 discardMark = null;
-                                matrixCount = 0;
-                                matrixCapacity = 0;
-                                filterResult.count = 0;
                         }
                         if (e.data.method == "push") {
                                 new_matrices = new Float32Array(e.data.matrices);
                                 const newFade = new Float32Array(new_matrices.length / 16);
                                 newFade.fill(2.0);
-                                if (!matrices) {
-                                        matrixCapacity = new_matrices.length;
-                                        matrices = new Float32Array(matrixCapacity);
-                                        fadeOpacities = new Float32Array(matrixCapacity / 16);
-                                        matrixCount = 0;
-                                }
-                                const requiredLength = matrixCount + new_matrices.length;
-                                if (requiredLength > matrixCapacity) {
-                                        const nextCapacity = Math.max(matrixCapacity * 2, requiredLength);
-                                        const resized = new Float32Array(nextCapacity);
-                                        resized.set(matrices.subarray(0, matrixCount));
+                                if (matrices === undefined) {
+                                        matrices = new_matrices;
+                                        fadeOpacities = newFade;
+                                } else {
+                                        resized = new Float32Array(matrices.length + new_matrices.length);
+                                        resized.set(matrices);
+                                        resized.set(new_matrices, matrices.length);
                                         matrices = resized;
-                                        matrixCapacity = nextCapacity;
-                                        const fadeResized = new Float32Array(matrixCapacity / 16);
-                                        if (fadeOpacities) {
-                                                fadeResized.set(fadeOpacities.subarray(0, matrixCount / 16));
-                                        }
+
+                                        let fadeResized = new Float32Array(fadeOpacities.length + newFade.length);
+                                        fadeResized.set(fadeOpacities);
+                                        fadeResized.set(newFade, fadeOpacities.length);
                                         fadeOpacities = fadeResized;
                                 }
-                                matrices.set(new_matrices, matrixCount);
-                                fadeOpacities.set(newFade, matrixCount / 16);
-                                matrixCount = requiredLength;
 			}
                         if (e.data.method == "filter") {
-                                if (matrices !== undefined && matrixCount > 0) {
-                                        ensureCapacity(matrixCount / 16);
-                                        const vertexCount = matrixCount / 16;
+                                if (matrices !== undefined) {
+                                        ensureCapacity(matrices.length / 16);
+                                        const vertexCount = matrices.length / 16;
                                         discardMark.fill(0, 0, vertexCount);
                                         const discarded = e.data.discard ? new Uint32Array(e.data.discard) : null;
                                         if (discarded) {
@@ -1253,14 +1240,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const mvp = new Float32Array(e.data.mvp);
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
-                                        filterSplats(matrices, matrixCount, view, mvp, scaleFactor, focal);
-                                } else {
-                                        filterResult.count = 0;
+                                        filterSplats(matrices, view, mvp, scaleFactor, focal);
                                 }
                                 self.postMessage({ method: "filter" });
                         }
                         if (e.data.method == "sort") {
-                               if (matrices === undefined || matrixCount === 0) {
+                               if (matrices === undefined) {
                                        const sortedIndexes = new Uint32Array(1);
                                        const fadeCopy = new Uint8Array(1);
                                        fadeCopy[0] = 2.0;
@@ -1279,10 +1264,6 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
-                let matrixCount = 0;
-                let matrixCapacity = 0;
-                let normalsCount = 0;
-                let normalsCapacity = 0;
 
                 const COUNT_SIZE = 256 * 256;
 
@@ -1307,8 +1288,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                 };
 
-                const occludeSplats = function occludeSplats(matrices, matrixCount, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0, camera = null) {
-                        const vertexCount = matrixCount / 16;
+                const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0, camera = null) {
+                        const vertexCount = matrices.length / 16;
                         ensureCapacity(vertexCount);
                         const hasNormals = !!normals && normals.length >= vertexCount * 3;
                         const hasCamera = !!camera && camera.length >= 3;
@@ -1493,54 +1474,34 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method == "clear") {
                                 matrices = undefined;
                                 normals = undefined;
-                                matrixCount = 0;
-                                matrixCapacity = 0;
-                                normalsCount = 0;
-                                normalsCapacity = 0;
                         }
                         if (e.data.method == "push") {
                                 const new_matrices = new Float32Array(e.data.matrices);
                                 const new_normals = e.data.normals ? new Float32Array(e.data.normals) : undefined;
-                                if (!matrices) {
-                                        matrixCapacity = new_matrices.length;
-                                        matrices = new Float32Array(matrixCapacity);
-                                        matrixCount = 0;
-                                }
-                                const requiredMatrixLength = matrixCount + new_matrices.length;
-                                if (requiredMatrixLength > matrixCapacity) {
-                                        const nextCapacity = Math.max(matrixCapacity * 2, requiredMatrixLength);
-                                        const resized = new Float32Array(nextCapacity);
-                                        resized.set(matrices.subarray(0, matrixCount));
+                                if (matrices === undefined) {
+                                        matrices = new_matrices;
+                                } else {
+                                        const resized = new Float32Array(matrices.length + new_matrices.length);
+                                        resized.set(matrices);
+                                        resized.set(new_matrices, matrices.length);
                                         matrices = resized;
-                                        matrixCapacity = nextCapacity;
                                 }
-                                matrices.set(new_matrices, matrixCount);
-                                matrixCount = requiredMatrixLength;
                                 if (new_normals) {
-                                        if (!normals) {
-                                                normalsCapacity = new_normals.length;
-                                                normals = new Float32Array(normalsCapacity);
-                                                normalsCount = 0;
-                                        }
-                                        const requiredNormalsLength = normalsCount + new_normals.length;
-                                        if (requiredNormalsLength > normalsCapacity) {
-                                                const nextCapacity = Math.max(normalsCapacity * 2, requiredNormalsLength);
-                                                const resizedNormals = new Float32Array(nextCapacity);
-                                                resizedNormals.set(normals.subarray(0, normalsCount));
+                                        if (normals === undefined) {
+                                                normals = new_normals;
+                                        } else {
+                                                const resizedNormals = new Float32Array(normals.length + new_normals.length);
+                                                resizedNormals.set(normals);
+                                                resizedNormals.set(new_normals, normals.length);
                                                 normals = resizedNormals;
-                                                normalsCapacity = nextCapacity;
                                         }
-                                        normals.set(new_normals, normalsCount);
-                                        normalsCount = requiredNormalsLength;
                                 } else {
                                         normals = undefined;
-                                        normalsCount = 0;
-                                        normalsCapacity = 0;
                                 }
                         }
                         if (e.data.method == "occlude") {
                                 let discard = new Uint32Array(0);
-                                if (matrices !== undefined && matrixCount > 0) {
+                                if (matrices !== undefined) {
                                         const forward = new Float32Array(e.data.forward);
                                         const right = new Float32Array(e.data.right);
                                         const up = new Float32Array(e.data.up);
@@ -1548,7 +1509,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
                                         const camera = e.data.camera ? new Float32Array(e.data.camera) : null;
-                                        discard = occludeSplats(matrices, matrixCount, forward, right, up, mvp, scaleFactor, focal, camera);
+                                        discard = occludeSplats(matrices, forward, right, up, mvp, scaleFactor, focal, camera);
                                 }
                                 self.postMessage({ method: "occlude", discard }, [discard.buffer]);
                         }
