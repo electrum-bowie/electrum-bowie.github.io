@@ -1418,10 +1418,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 					if (tooSmall) f = Math.max(0, f - fadeStep);
 					
-					else if (isOccluded) f = Math.max(0, f - (fadeStep * 2.3));
+					else if (isOccluded) f = Math.max(0, f - fadeStep);
 
 					else {
-						const step = was ? fadeStep * 2.3 : fadeStep;
+						const step = was ? fadeStep * 3.0 : fadeStep;
 						f = Math.min(1, f + step);
 					}
 
