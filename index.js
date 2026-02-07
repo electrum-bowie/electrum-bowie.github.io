@@ -1338,7 +1338,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
-                const COUNT_SIZE = 300 * 300;
+                const COUNT_SIZE = 256 * 256;
 
                 let cache = {
                         capacity: 0,
@@ -1527,8 +1527,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 const avgResidual = residual / cells;
 
-                                const perceived = opacity * (avgResidual ** 0.75);
-                                if (perceived < 0.0001) {
+                                const perceived = opacity * (avgResidual ** 0.5);
+                                if (perceived < 0.00001) {
                                         discarded[discardCount++] = idx;
                                 }
 
