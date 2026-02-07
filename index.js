@@ -375,11 +375,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 this.sortReady = true;
                         } else if (e.data.method === "filter") {
+                                if (e.data.filteredIndexes) {
+                                        this.filteredSplatIndexes = new Uint32Array(e.data.filteredIndexes);
+                                }
                                 this.filterReady = true;
                         }
                 };
                 this.sortReady = true;
                 this.filterReady = true;
+                this.filteredSplatIndexes = null;
 
                 this.occlusionWorker = new Worker(
                         URL.createObjectURL(
@@ -1050,7 +1054,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                this.occlusionWorker.postMessage({ method: "occlude", forward: forward.buffer, right: right.buffer, up: up.buffer, mvp: mvp.buffer, scale: globalScale, focal: focal, camera: camera.buffer }, [forward.buffer, right.buffer, up.buffer, mvp.buffer, camera.buffer]);
+                const filteredIndexes = this.filteredSplatIndexes ? this.filteredSplatIndexes.buffer : null;
+                this.occlusionWorker.postMessage({ method: "occlude", forward: forward.buffer, right: right.buffer, up: up.buffer, mvp: mvp.buffer, scale: globalScale, focal: focal, camera: camera.buffer, filteredIndexes }, [forward.buffer, right.buffer, up.buffer, mvp.buffer, camera.buffer]);
         },
 
         sortSplatsNow: function () {
@@ -1303,6 +1308,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                         }
                         if (e.data.method == "filter") {
+                                let filteredIndexes = null;
                                 if (matrices !== undefined) {
                                         ensureCapacity(matrices.length / 16);
                                         const vertexCount = matrices.length / 16;
@@ -1319,8 +1325,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
                                         filterSplats(matrices, view, mvp, scaleFactor, focal);
+                                        if (filterResult.count > 0) {
+                                                filteredIndexes = new Uint32Array(filterResult.count);
+                                                filteredIndexes.set(cache.validIndexList.subarray(0, filterResult.count));
+                                        }
                                 }
-                                self.postMessage({ method: "filter" });
+                                if (filteredIndexes) {
+                                        self.postMessage({ method: "filter", filteredIndexes }, [filteredIndexes.buffer]);
+                                } else {
+                                        self.postMessage({ method: "filter" });
+                                }
                         }
                         if (e.data.method == "sort") {
                                if (matrices === undefined) {
@@ -1365,9 +1379,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                 };
 
-                const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0, camera = null) {
+                const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0, camera = null, filteredIndexes = null) {
                         const vertexCount = matrices.length / 16;
-                        ensureCapacity(vertexCount);
+                        const hasFilteredIndexes = !!filteredIndexes && filteredIndexes.length > 0;
+                        const filteredCount = hasFilteredIndexes ? filteredIndexes.length : vertexCount;
+                        ensureCapacity(filteredCount);
                         const hasNormals = !!normals && normals.length >= vertexCount * 3;
                         const hasCamera = !!camera && camera.length >= 3;
                         const cameraX = hasCamera ? camera[0] : 0;
@@ -1389,7 +1405,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        for (let idx = 0; idx < vertexCount; idx++) {
+                        for (let i = 0; i < filteredCount; i++) {
+                                const idx = hasFilteredIndexes ? filteredIndexes[i] : i;
                                 const offset = idx * 16;
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
@@ -1433,49 +1450,25 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         for (let di = validCount - 1; di >= 0; di--) {
                                 const idx = depthIndex[di];
+
                                 const offset = idx * 16;
+                                
+                                const maxRadius = matrices[offset + 15];
+                                if (maxRadius > 0.2) continue;
                                 
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
 
-                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
-                                if (clip_w <= 0.0) continue;
-                                
-                                const maxRadius = matrices[offset + 15];
-                                if (maxRadius > 0.2) continue;
-
-                                const depth = f0 * px + f1 * py + f2 * pz + f3;
-                                if (depth >= 0.0) continue;
-
-                                if (depth + maxRadius > nearPlaneClip) {
-                                        continue; // centre is inside the view and too close to the camera
-                                }
-
                                 const clip_x = m0 * px + m4 * py + m8  * pz + m12;
                                 const clip_y = m1 * px + m5 * py + m9  * pz + m13;
                                 const clip_z = m2 * px + m6 * py + m10 * pz + m14;
 
+                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+
                                 const invW  = 1.0 / clip_w;
                                 const ndcX  = clip_x * invW;
                                 const ndcY  = clip_y * invW;
-
-                                const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
-                                if (!insideOfScreen) continue;
-
-                                const radius = scaleFactor * maxRadius;
-                                const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
-
-                                const radiusTransparencyProduct = radius * opacity;
-                                const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
-
-                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                                const edgeMultiplier = 1.0 + (edgeDist * 0.5);
-
-                                const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 0.6 * edgeMultiplier && !skipCullBehind;
-
-                                if (tooSmall) continue;
 
                                 const c00 = matrices[offset + 0], c01 = matrices[offset + 4], c02 = matrices[offset + 8];
                                 const c10 = matrices[offset + 1], c11 = matrices[offset + 5], c12 = matrices[offset + 9];
@@ -1490,6 +1483,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const uCy = c10 * u0 + c11 * u1 + c12 * u2;
                                 const uCz = c20 * u0 + c21 * u1 + c22 * u2;
                                 const radiusY = Math.sqrt(u0 * uCx + u1 * uCy + u2 * uCz);
+
+                                const depth = f0 * px + f1 * py + f2 * pz + f3;
 
                                 const ndcRadiusX = radiusX / -depth;
                                 const ndcRadiusY = radiusY / -depth;
@@ -1531,6 +1526,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         }
                                 }
                                 const avgResidual = residual / cells;
+
+                                const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
                                 const perceived = opacity * (avgResidual ** 0.5);
                                 if (perceived < 0.00001) {
@@ -1588,7 +1585,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
                                         const camera = e.data.camera ? new Float32Array(e.data.camera) : null;
-                                        discard = occludeSplats(matrices, forward, right, up, mvp, scaleFactor, focal, camera);
+                                        const filteredIndexes = e.data.filteredIndexes ? new Uint32Array(e.data.filteredIndexes) : null;
+                                        discard = occludeSplats(matrices, forward, right, up, mvp, scaleFactor, focal, camera, filteredIndexes);
                                 }
                                 self.postMessage({ method: "occlude", discard }, [discard.buffer]);
                         }
