@@ -108,9 +108,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.splatsToDiscard = [];
                 this.lodState = null;
                 this.lodConfig = {
-                        gridSize: 3,
-                        levels: [1, 2, 4, 8],
-                        nearMultiplier: 0.25,
+                        gridSize: 2,
+                        levels: [1, 2, 4],
+                        nearMultiplier: 0.2,
                         midMultiplier: 1.0,
                 };
 
