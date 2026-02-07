@@ -455,7 +455,88 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.occlusionWorker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
                 this.isCaching = true;
-                const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+		const createPendingBuffer = () => ({
+			chunks: [],
+			length: 0,
+			append(chunk) {
+				if (chunk && chunk.length) {
+					this.chunks.push(chunk);
+					this.length += chunk.length;
+				}
+			},
+			getByteLength() {
+				return this.length;
+			},
+			peekBytes(count) {
+				if (this.length === 0) {
+					return new Uint8Array(0);
+				}
+				const needed = Math.min(count, this.length);
+				const head = this.chunks[0];
+				if (head.length >= needed) {
+					return head.subarray(0, needed);
+				}
+				const out = new Uint8Array(needed);
+				let offset = 0;
+				for (const chunk of this.chunks) {
+					const toCopy = Math.min(chunk.length, needed - offset);
+					out.set(chunk.subarray(0, toCopy), offset);
+					offset += toCopy;
+					if (offset >= needed) {
+						break;
+					}
+				}
+				return out;
+			},
+			consumeBytes(count) {
+				const actual = Math.min(count, this.length);
+				if (actual <= 0) {
+					return new Uint8Array(0);
+				}
+				const head = this.chunks[0];
+				if (head.length >= actual) {
+					const out = head.subarray(0, actual);
+					if (head.length === actual) {
+						this.chunks.shift();
+					} else {
+						this.chunks[0] = head.subarray(actual);
+					}
+					this.length -= actual;
+					return out;
+				}
+				const out = new Uint8Array(actual);
+				let offset = 0;
+				while (offset < actual) {
+					const chunk = this.chunks[0];
+					const toCopy = Math.min(chunk.length, actual - offset);
+					out.set(chunk.subarray(0, toCopy), offset);
+					offset += toCopy;
+					if (toCopy === chunk.length) {
+						this.chunks.shift();
+					} else {
+						this.chunks[0] = chunk.subarray(toCopy);
+					}
+				}
+				this.length -= actual;
+				return out;
+			},
+			discard(count) {
+				this.consumeBytes(count);
+			},
+			toUint8Array() {
+				if (this.length === 0) {
+					return new Uint8Array(0);
+				}
+				const out = new Uint8Array(this.length);
+				let offset = 0;
+				for (const chunk of this.chunks) {
+					out.set(chunk, offset);
+					offset += chunk.length;
+				}
+				return out;
+			},
+		});
+		const pending = createPendingBuffer();
 
 		fetch(src)
 			.then(async (data) => {
@@ -466,93 +547,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 				let _totalDownloadBytes = data.headers.get("Content-Length");
 				let totalDownloadBytes = _totalDownloadBytes ? parseInt(_totalDownloadBytes) : undefined;
 
-				const chunks = [];
 				const start = Date.now();
 				let lastReportedProgress = 0;
 				let isPly = null;
 				let plyState = null;
 				let capacityEstimated = false;
-				const plyPending = {
-					chunks: [],
-					length: 0,
-					append(chunk) {
-						if (chunk && chunk.length) {
-							this.chunks.push(chunk);
-							this.length += chunk.length;
-						}
-					},
-					getByteLength() {
-						return this.length;
-					},
-					peekBytes(count) {
-						if (this.length === 0) {
-							return new Uint8Array(0);
-						}
-						const needed = Math.min(count, this.length);
-						const head = this.chunks[0];
-						if (head.length >= needed) {
-							return head.subarray(0, needed);
-						}
-						const out = new Uint8Array(needed);
-						let offset = 0;
-						for (const chunk of this.chunks) {
-							const toCopy = Math.min(chunk.length, needed - offset);
-							out.set(chunk.subarray(0, toCopy), offset);
-							offset += toCopy;
-							if (offset >= needed) {
-								break;
-							}
-						}
-						return out;
-					},
-					consumeBytes(count) {
-						const actual = Math.min(count, this.length);
-						if (actual <= 0) {
-							return new Uint8Array(0);
-						}
-						const head = this.chunks[0];
-						if (head.length >= actual) {
-							const out = head.subarray(0, actual);
-							if (head.length === actual) {
-								this.chunks.shift();
-							} else {
-								this.chunks[0] = head.subarray(actual);
-							}
-							this.length -= actual;
-							return out;
-						}
-						const out = new Uint8Array(actual);
-						let offset = 0;
-						while (offset < actual) {
-							const chunk = this.chunks[0];
-							const toCopy = Math.min(chunk.length, actual - offset);
-							out.set(chunk.subarray(0, toCopy), offset);
-							offset += toCopy;
-							if (toCopy === chunk.length) {
-								this.chunks.shift();
-							} else {
-								this.chunks[0] = chunk.subarray(toCopy);
-							}
-						}
-						this.length -= actual;
-						return out;
-					},
-					discard(count) {
-						this.consumeBytes(count);
-					},
-					toUint8Array() {
-						if (this.length === 0) {
-							return new Uint8Array(0);
-						}
-						const out = new Uint8Array(this.length);
-						let offset = 0;
-						for (const chunk of this.chunks) {
-							out.set(chunk, offset);
-							offset += chunk.length;
-						}
-						return out;
-					},
-				};
+				const plyPending = pending;
 				const maxPlyBatchBytes = 64 * 1024 * 1024;
 				const decoder = new TextDecoder();
 
@@ -583,11 +583,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                                 capacityEstimated = true;
                                                         }
 						}
-						if (isPly) {
-							plyPending.append(value);
-						} else {
-							chunks.push(value);
-						}
+						pending.append(value);
 						if (!this.textureReady &&
 							this.renderer.properties.get(this.centerAndScaleTexture) &&
 							this.renderer.properties.get(this.covAndColorTexture)) {
@@ -622,25 +618,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 							}
 						}
 
-						const bytesRemains = bytesDownloaded - bytesProcesses;
-						if (!isPly && this.textureReady && bytesRemains > this.rowLength) {
-							let vertexCount = Math.floor(bytesRemains / this.rowLength);
-							const concatenatedChunksbuffer = new Uint8Array(bytesRemains);
-							let offset = 0;
-							for (const chunk of chunks) {
-								concatenatedChunksbuffer.set(chunk, offset);
-								offset += chunk.length;
+						if (!isPly && this.textureReady) {
+							const availableBytes = pending.getByteLength();
+							const vertexCount = Math.floor(availableBytes / this.rowLength);
+							if (vertexCount > 0) {
+								const batchBytes = vertexCount * this.rowLength;
+								const batchData = pending.consumeBytes(batchBytes);
+								this.pushDataBuffer(batchData.buffer, vertexCount);
+								bytesProcesses += batchBytes;
 							}
-							chunks.length = 0;
-							if (bytesRemains > vertexCount * this.rowLength) {
-								const extra_data = new Uint8Array(bytesRemains - vertexCount * this.rowLength);
-								extra_data.set(concatenatedChunksbuffer.subarray(bytesRemains - extra_data.length, bytesRemains), 0);
-								chunks.push(extra_data);
-							}
-							const buffer = new Uint8Array(vertexCount * this.rowLength);
-							buffer.set(concatenatedChunksbuffer.subarray(0, buffer.byteLength), 0);
-							this.pushDataBuffer(buffer.buffer, vertexCount);
-							bytesProcesses += vertexCount * this.rowLength;
 						}
 					} catch (error) {
 						console.error(error);
@@ -670,16 +656,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 						let concatenatedChunks = new Uint8Array(this.processPlyBuffer(plyBuffer));
 						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
 					} else {
-						// Concatenate the chunks into a single Uint8Array
-						let concatenatedChunks = new Uint8Array(
-							chunks.reduce((acc, chunk) => acc + chunk.length, 0)
-						);
-						let offset = 0;
-						for (const chunk of chunks) {
-							concatenatedChunks.set(chunk, offset);
-							offset += chunk.length;
+						const remainingBytes = pending.getByteLength();
+						const vertexCount = Math.floor(remainingBytes / this.rowLength);
+						if (vertexCount > 0) {
+							const batchBytes = vertexCount * this.rowLength;
+							const batchData = pending.consumeBytes(batchBytes);
+							this.pushDataBuffer(batchData.buffer, vertexCount);
 						}
-						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
 					}
 				}
                         })
@@ -891,7 +874,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
                 for (const buf of this.originalBuffers) {
-                        this.pushDataBuffer(buf.slice(0), buf.byteLength / this.rowLength);
+                        this.pushDataBuffer(buf, buf.byteLength / this.rowLength);
                 }
                 this.sortReady = true;
         },
