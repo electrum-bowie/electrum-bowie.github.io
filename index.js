@@ -912,20 +912,13 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const tileIndex = ix + iy * gridSize + iz * gridSize * gridSize;
                         tiles[tileIndex].indices.push(i);
                 }
-                const selectStride = (list, stride, offset) => {
-                        if (stride <= 1 || list.length <= 1) {
+                const getSplatScale = (index) => this.centerAndScaleData[index * 4 + 3];
+                const filterByScale = (list, level, averageScale) => {
+                        if (level <= 1 || list.length <= 1) {
                                 return list.slice();
                         }
-                        const selected = [];
-                        for (let i = 0; i < list.length; i++) {
-                                if (i % stride === offset) {
-                                        selected.push(list[i]);
-                                }
-                        }
-                        if (selected.length === 0 && list.length > 0) {
-                                selected.push(list[0]);
-                        }
-                        return selected;
+                        const threshold = averageScale / level;
+                        return list.filter((index) => getSplatScale(index) >= threshold);
                 };
                 const levels = this.lodConfig.levels;
                 for (let z = 0; z < gridSize; z++) {
@@ -952,9 +945,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 min.z + (z + 1) * tileSize.z
                                         );
                                         const baseList = tile.indices;
+                                        let averageScale = 0;
+                                        if (baseList.length > 0) {
+                                                let scaleSum = 0;
+                                                for (let i = 0; i < baseList.length; i++) {
+                                                        scaleSum += getSplatScale(baseList[i]);
+                                                }
+                                                averageScale = scaleSum / baseList.length;
+                                        }
                                         tile.lods = levels.map((stride) => {
-                                                const offset = (index + stride) % stride;
-                                                return selectStride(baseList, stride, offset);
+                                                return filterByScale(baseList, stride, averageScale);
                                         });
                                 }
                         }
