@@ -993,21 +993,17 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const midDistance = this.lodConfig.midMultiplier;
                 let changed = false;
                 let activeCount = 0;
-                const axisDistance = (value, min, max) => {
-                        if (value < min) {
-                                return min - value;
-                        }
-                        if (value > max) {
-                                return value - max;
-                        }
-                        return 0;
-                };
                 for (let i = 0; i < tiles.length; i++) {
                         const tile = tiles[i];
-                        const dx = axisDistance(localCameraPos.x, tile.min.x, tile.max.x) / tileSize.x;
-                        const dy = axisDistance(localCameraPos.y, tile.min.y, tile.max.y) / tileSize.y;
-                        const dz = axisDistance(localCameraPos.z, tile.min.z, tile.max.z) / tileSize.z;
-                        const dist = Math.hypot(dx, dy, dz);
+                        const tileCenter = tile.center;
+                        const dx = (tileCenter.x - localCameraPos.x) / tileSize.x;
+                        const dy = (tileCenter.y - localCameraPos.y) / tileSize.y;
+                        const dz = (tileCenter.z - localCameraPos.z) / tileSize.z;
+                        const dist = Math.hypot(
+                                Math.abs(dx),
+                                Math.abs(dy),
+                                Math.abs(dz)
+                        );
                         let lodLevel = 0;
                         if (dist > midDistance) {
                                 lodLevel = 2;
