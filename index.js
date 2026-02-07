@@ -1021,12 +1021,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (!changed && !force) {
                         return;
                 }
+                const maxActive = this.lodState.totalSplats || this.loadedVertexCount || activeCount;
+                if (!maxActive || maxActive <= 0) {
+                        return;
+                }
+                if (activeCount > maxActive) {
+                        activeCount = maxActive;
+                }
                 let activeIndices = this.lodState.activeIndices;
                 if (!activeIndices || activeIndices.length < activeCount) {
                         const previousLength = activeIndices ? activeIndices.length : 0;
-                        const nextLength = Math.max(
-                                activeCount,
-                                Math.ceil(previousLength * 1.5) || activeCount
+                        const nextLength = Math.min(
+                                Math.max(activeCount, Math.ceil(previousLength * 1.5) || activeCount),
+                                maxActive
                         );
                         activeIndices = new Uint32Array(nextLength);
                 }
@@ -1048,19 +1055,25 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lodState.activeIndices = activeIndices;
                 this.lodState.activeCount = activeCount;
                 this.lodState.activeVersion += 1;
-                const workerActive = activeIndices.subarray(0, activeCount);
+                const workerActive = new Uint32Array(activeCount);
+                if (activeCount > 0) {
+                        workerActive.set(activeIndices.subarray(0, activeCount));
+                }
                 this.worker.postMessage({
                         method: "setActive",
                         active: workerActive,
                         activeCount: activeCount
-                });
+                }, [workerActive.buffer]);
                 if (this.occlusionWorker) {
-                        const occlusionActive = activeIndices.subarray(0, activeCount);
+                        const occlusionActive = new Uint32Array(activeCount);
+                        if (activeCount > 0) {
+                                occlusionActive.set(activeIndices.subarray(0, activeCount));
+                        }
                         this.occlusionWorker.postMessage({
                                 method: "setActive",
                                 active: occlusionActive,
                                 activeCount: activeCount
-                        });
+                        }, [occlusionActive.buffer]);
                 }
         },
         tick: function (time, timeDelta) {
