@@ -1379,7 +1379,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
-                const COUNT_SIZE = 256 * 256;
+                const COUNT_SIZE = 128 * 128;
                 let cache = {
                         capacity: 0,
                         depthList: null,
@@ -1560,7 +1560,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
-                                                grid[row + x] *= attenuation * (facingFactor * facingFactor);
+                                                grid[row + x] *= attenuation * (facingFactor ** 1.75);
                                         }
                                 }
                         }
