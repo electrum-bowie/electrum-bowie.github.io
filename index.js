@@ -1044,20 +1044,35 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lodState.activeIndices = activeIndices;
                 this.lodState.activeCount = activeCount;
                 this.lodState.activeVersion += 1;
-                const workerActive = activeIndices.subarray(0, activeCount);
-                this.worker.postMessage({
-                        method: "setActive",
-                        active: workerActive,
-                        activeCount: activeCount
-                });
-                if (this.occlusionWorker) {
-                        const occlusionActive = activeIndices.subarray(0, activeCount);
-                        this.occlusionWorker.postMessage({
+                const postActiveList = (worker, cacheKey) => {
+                        if (!worker) return;
+                        const activeView = activeIndices.subarray(0, activeCount);
+                        if (typeof SharedArrayBuffer !== "undefined") {
+                                let sharedBuffer = this.lodState[cacheKey];
+                                const requiredBytes = activeCount * Uint32Array.BYTES_PER_ELEMENT;
+                                if (!sharedBuffer || sharedBuffer.byteLength < requiredBytes) {
+                                        sharedBuffer = new SharedArrayBuffer(requiredBytes);
+                                        this.lodState[cacheKey] = sharedBuffer;
+                                }
+                                const sharedActive = new Uint32Array(sharedBuffer, 0, activeCount);
+                                sharedActive.set(activeView);
+                                worker.postMessage({
+                                        method: "setActive",
+                                        active: sharedActive,
+                                        activeCount: activeCount
+                                });
+                                return;
+                        }
+                        const transferableActive = new Uint32Array(activeCount);
+                        transferableActive.set(activeView);
+                        worker.postMessage({
                                 method: "setActive",
-                                active: occlusionActive,
+                                active: transferableActive,
                                 activeCount: activeCount
-                        });
-                }
+                        }, [transferableActive.buffer]);
+                };
+                postActiveList(this.worker, "sharedActiveBuffer");
+                postActiveList(this.occlusionWorker, "sharedOcclusionActiveBuffer");
         },
         tick: function (time, timeDelta) {
                 this.updateDynamicResolution(time, timeDelta);
