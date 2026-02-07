@@ -1016,10 +1016,28 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (!changed && !force) {
                         return;
                 }
-                const activeIndices = new Uint32Array(activeCount);
+                const maxActiveCount = this.loadedVertexCount || (this.lodState.activeIndices ? this.lodState.activeIndices.length : 0);
+                if (maxActiveCount > 0 && activeCount > maxActiveCount) {
+                        activeCount = maxActiveCount;
+                }
+                let activeIndices = this.lodState.activeIndices;
+                if (!activeIndices || activeIndices.length < activeCount) {
+                        activeIndices = new Uint32Array(activeCount);
+                } else if (activeIndices.length !== activeCount) {
+                        activeIndices = activeIndices.subarray(0, activeCount);
+                }
                 let offset = 0;
                 for (let i = 0; i < tiles.length; i++) {
                         const list = tiles[i].lods[tiles[i].activeLod] || [];
+                        const remaining = activeCount - offset;
+                        if (remaining <= 0) {
+                                break;
+                        }
+                        if (list.length > remaining) {
+                                activeIndices.set(list.slice(0, remaining), offset);
+                                offset += remaining;
+                                break;
+                        }
                         activeIndices.set(list, offset);
                         offset += list.length;
                 }
