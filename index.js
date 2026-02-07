@@ -24,6 +24,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                 gl.disable(gl.DITHER);
                 this.originalBuffers = [];
                 this.needsQualityUpdate = false;
+                this.lodConfig = {
+                        tilesPerAxis: 8,
+                        lodRatios: [1.0, 0.5, 0.25],
+                        lodDistanceMultipliers: [2.0, 4.0],
+                };
+                this.resetLodState();
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
                 this.loadData(this.data.src);
                 this.el.sceneEl.renderer.xr.addEventListener("sessionstart", async () => {
@@ -65,6 +71,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.resetFrameTiming();
                         this.updateXRScale();
                 });
+        },
+        resetLodState: function () {
+                this.lodBuilt = false;
+                this.lodPositions = [];
+                this.lodScales = [];
+                this.lodTiles = null;
+                this.lodTileLevels = null;
+                this.lodTileCenters = null;
+                this.lodTileDiagonal = 1.0;
+                this.lodActiveCount = 0;
         },
         setMultiview: function(){
                 const gl = this.el.sceneEl.renderer.getContext();
@@ -409,6 +425,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.occlusionWorker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
                 this.isCaching = true;
+                this.resetLodState();
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 		fetch(src)
@@ -498,6 +515,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         this.needsQualityUpdate = false;
                                         this.updateQuality();
                                 }
+                                this.buildTileLod();
                                 this.occludeSplatsNow();
                                 this.filterSplatsNow();
                                 this.sortSplatsNow();
@@ -525,6 +543,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 		const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
 		const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
+                const baseIndex = this.loadedVertexCount;
                 for (let i = 0; i < vertexCount; i++) {
 			let quat = new THREE.Quaternion(
 				(u_buffer[32 * i + 28 + 1] - 128) / 128.0,
@@ -544,8 +563,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                         );
                         const maxScale = 100.0;
                         const minScale = 0.0001;
-                        if (Math.max(scale.x, scale.y, scale.z) > maxScale ||
-                                Math.max(scale.x, scale.y, scale.z) < minScale) {
+                        const scaleValue = Math.max(scale.x, scale.y, scale.z);
+                        const lodIndex = baseIndex + i;
+                        if (this.lodPositions) {
+                                const lodOffset = lodIndex * 3;
+                                this.lodPositions[lodOffset + 0] = center.x;
+                                this.lodPositions[lodOffset + 1] = center.y;
+                                this.lodPositions[lodOffset + 2] = center.z;
+                                this.lodScales[lodIndex] = scaleValue;
+                        }
+                        if (scaleValue > maxScale || scaleValue < minScale) {
+                                if (this.lodScales) {
+                                        this.lodScales[lodIndex] = 0;
+                                }
                                 continue;
                         }
                         let mtx = new THREE.Matrix4();
@@ -670,6 +700,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 		const forceExec = (time - this.lastExecTime) >= 300; // 300ms
 
                 if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged || forceExec) {
+                        if (this.lodBuilt && (camPosChanged || objPosChanged || objRotChanged || scaleChanged || forceExec)) {
+                                this.updateTileLod();
+                        }
                         if (this.occlusionReady) this.occludeSplatsNow();
                         if (this.filterReady) this.filterSplatsNow();
                         if (this.sortReady) this.sortSplatsNow();
@@ -683,6 +716,130 @@ AFRAME.registerComponent("gaussian_splatting", {
 				this.lastScale.copy(this.object.scale);
 			}
                 }
+        },
+        buildTileLod: function () {
+                if (this.lodBuilt) return;
+                const positions = this.lodPositions;
+                const scales = this.lodScales;
+                if (!positions || !scales || scales.length === 0) return;
+                const vertexCount = scales.length;
+                let minX = Infinity, minY = Infinity, minZ = Infinity;
+                let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+                for (let i = 0; i < vertexCount; i++) {
+                        if (scales[i] <= 0) continue;
+                        const offset = i * 3;
+                        const px = positions[offset + 0];
+                        const py = positions[offset + 1];
+                        const pz = positions[offset + 2];
+                        if (px < minX) minX = px;
+                        if (py < minY) minY = py;
+                        if (pz < minZ) minZ = pz;
+                        if (px > maxX) maxX = px;
+                        if (py > maxY) maxY = py;
+                        if (pz > maxZ) maxZ = pz;
+                }
+                if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return;
+
+                const tilesPerAxis = this.lodConfig.tilesPerAxis;
+                const tileCount = tilesPerAxis * tilesPerAxis * tilesPerAxis;
+                const sizeX = Math.max(0.0001, maxX - minX);
+                const sizeY = Math.max(0.0001, maxY - minY);
+                const sizeZ = Math.max(0.0001, maxZ - minZ);
+                const tileSizeX = sizeX / tilesPerAxis;
+                const tileSizeY = sizeY / tilesPerAxis;
+                const tileSizeZ = sizeZ / tilesPerAxis;
+                this.lodTileDiagonal = Math.sqrt(tileSizeX * tileSizeX + tileSizeY * tileSizeY + tileSizeZ * tileSizeZ);
+
+                const tiles = new Array(tileCount);
+                const tileCenters = new Array(tileCount);
+                for (let i = 0; i < tileCount; i++) {
+                        tiles[i] = { indices: [], lods: [], lodLevel: 0 };
+                        const x = i % tilesPerAxis;
+                        const y = Math.floor(i / tilesPerAxis) % tilesPerAxis;
+                        const z = Math.floor(i / (tilesPerAxis * tilesPerAxis));
+                        tileCenters[i] = new THREE.Vector3(
+                                minX + (x + 0.5) * tileSizeX,
+                                minY + (y + 0.5) * tileSizeY,
+                                minZ + (z + 0.5) * tileSizeZ
+                        );
+                }
+
+                const clampIndex = (value) => Math.max(0, Math.min(tilesPerAxis - 1, value));
+                for (let i = 0; i < vertexCount; i++) {
+                        if (scales[i] <= 0) continue;
+                        const offset = i * 3;
+                        const px = positions[offset + 0];
+                        const py = positions[offset + 1];
+                        const pz = positions[offset + 2];
+                        const tx = clampIndex(Math.floor((px - minX) / tileSizeX));
+                        const ty = clampIndex(Math.floor((py - minY) / tileSizeY));
+                        const tz = clampIndex(Math.floor((pz - minZ) / tileSizeZ));
+                        const tileIndex = tx + ty * tilesPerAxis + tz * tilesPerAxis * tilesPerAxis;
+                        tiles[tileIndex].indices.push(i);
+                }
+
+                const buildSample = (indices, ratio) => {
+                        if (ratio >= 1 || indices.length <= 1) {
+                                return new Uint32Array(indices);
+                        }
+                        const sorted = indices.slice().sort((a, b) => scales[b] - scales[a]);
+                        const target = Math.max(1, Math.floor(sorted.length * ratio));
+                        return new Uint32Array(sorted.slice(0, target));
+                };
+
+                for (let i = 0; i < tileCount; i++) {
+                        const indices = tiles[i].indices;
+                        tiles[i].lods = [
+                                new Uint32Array(indices),
+                                buildSample(indices, this.lodConfig.lodRatios[1]),
+                                buildSample(indices, this.lodConfig.lodRatios[2])
+                        ];
+                }
+
+                this.lodTiles = tiles;
+                this.lodTileCenters = tileCenters;
+                this.lodTileLevels = new Uint8Array(tileCount);
+                this.lodBuilt = true;
+                this.updateTileLod(true);
+        },
+        updateTileLod: function (force = false) {
+                if (!this.lodBuilt || !this.lodTiles) return;
+                this.camera.getWorldPosition(this.tmpCameraPos);
+                this.object.worldToLocal(this.tmpLocalCameraPos.copy(this.tmpCameraPos));
+                const cameraPos = this.tmpLocalCameraPos;
+                const tiles = this.lodTiles;
+                const tileCenters = this.lodTileCenters;
+                const tileCount = tiles.length;
+                const nearDistance = this.lodTileDiagonal * this.lodConfig.lodDistanceMultipliers[0];
+                const midDistance = this.lodTileDiagonal * this.lodConfig.lodDistanceMultipliers[1];
+                let changed = false;
+                for (let i = 0; i < tileCount; i++) {
+                        const center = tileCenters[i];
+                        const dist = center.distanceTo(cameraPos);
+                        const level = dist < nearDistance ? 0 : dist < midDistance ? 1 : 2;
+                        if (tiles[i].lodLevel !== level) {
+                                tiles[i].lodLevel = level;
+                                changed = true;
+                        }
+                }
+
+                if (!changed && !force) return;
+
+                let totalCount = 0;
+                for (let i = 0; i < tileCount; i++) {
+                        totalCount += tiles[i].lods[tiles[i].lodLevel].length;
+                }
+                const active = new Uint32Array(totalCount);
+                let offset = 0;
+                for (let i = 0; i < tileCount; i++) {
+                        const lodIndices = tiles[i].lods[tiles[i].lodLevel];
+                        active.set(lodIndices, offset);
+                        offset += lodIndices.length;
+                }
+                this.lodActiveCount = totalCount;
+                this.worker.postMessage({ method: "setActive", active: active.buffer }, [active.buffer]);
+                this.sortReady = true;
+                this.filterReady = true;
         },
         updateQuality: function () {
                 if (this.isCaching) {
@@ -908,6 +1065,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let matrices = undefined;
                 let normals = undefined;
                 let fadeOpacities = undefined;
+                let activeIndices = null;
 
                 const COUNT_SIZE = 1200 * 1200;
 
@@ -962,86 +1120,171 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         const fadeStep = 0.17;
                         const nearPlaneClip = -0.08;
-                        for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
-                                //if (discardMark[i]) continue;
+                        if (activeIndices && activeIndices.length > 0) {
+                                for (let i = 0; i < activeIndices.length; i++) {
+                                        const idx = activeIndices[i];
+                                        if (idx >= vertexCount) continue;
+                                        const offset = idx * 16;
+                                        const px = matrices[offset + 12];
+                                        const py = matrices[offset + 13];
+                                        const pz = matrices[offset + 14];
 
-                                const px = matrices[offset + 12];
-                                const py = matrices[offset + 13];
-                                const pz = matrices[offset + 14];
+                                        const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                        const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                        const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                        const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
-                                const clip_x = m0 * px + m4 * py + m8  * pz + m12;
-                                const clip_y = m1 * px + m5 * py + m9  * pz + m13;
-                                const clip_z = m2 * px + m6 * py + m10 * pz + m14;
-                                const clip_w = m3 * px + m7 * py + m11 * pz + m15;
+                                        const radius = matrices[offset + 15] * scaleFactor;
+                                        const transparency = matrices[offset + 11]; // 0-1
+                                        const radiusTransparencyProduct = radius * transparency;
 
-				const radius = matrices[offset + 15] * scaleFactor;
-                                const transparency = matrices[offset + 11]; // 0-1
-                                const radiusTransparencyProduct = radius * transparency;
-                                
-                                const skipCullEdges = (radiusTransparencyProduct / scaleFactor) > 0.075;
-				const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
+                                        const skipCullEdges = (radiusTransparencyProduct / scaleFactor) > 0.075;
+                                        const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
 
-                                if (clip_w < 0.0 && !skipCullBehind) continue;
+                                        if (clip_w < 0.0 && !skipCullBehind) continue;
 
-                                const invW  = 1.0 / clip_w;
+                                        const invW  = 1.0 / clip_w;
 
-                                const ndcX  = clip_x * invW;
-                                const ndcY  = clip_y * invW;
-                                const ndcZ  = clip_z * invW;
+                                        const ndcX  = clip_x * invW;
+                                        const ndcY  = clip_y * invW;
+                                        const ndcZ  = clip_z * invW;
 
-                                let depth = v0 * px + v1 * py + v2 * pz + v3;
-				
-				const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
+                                        let depth = v0 * px + v1 * py + v2 * pz + v3;
 
-				if (!insideOfScreen && !skipCullEdges) continue;
+                                        const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
 
-                                if (depth + radius > nearPlaneClip && insideOfScreen) {
-                                        continue; // centre is inside the view and too close to the camera
+                                        if (!insideOfScreen && !skipCullEdges) continue;
+
+                                        if (depth + radius > nearPlaneClip && insideOfScreen) {
+                                                continue; // centre is inside the view and too close to the camera
+                                        }
+
+                                        const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
+                                        const edgeMultiplier = 1.0 + (edgeDist * 0.5);
+
+                                        const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
+                                        const tooSmall = pixelThreshold < 0.6 * edgeMultiplier && !skipCullBehind;
+
+                                        let f = fadeOpacities[idx];
+
+                                        if (insideOfScreen) {
+                                                const isOccluded = discardMark && discardMark[idx] === 1;
+                                                const was = wasOccluded[idx] === 1;
+
+                                                if (f === 2.0) f = (isOccluded || tooSmall) ? 0.0 : 1.0; // default unset value is 2.0
+
+                                                if (tooSmall) f = Math.max(0, f - fadeStep);
+
+                                                else if (isOccluded) f = Math.max(0, f - fadeStep * 1.9);
+
+                                                else {
+                                                        const step = was ? fadeStep * 1.9 : fadeStep;
+                                                        f = Math.min(1, f + step);
+                                                }
+
+                                                if (isOccluded)
+                                                        wasOccluded[idx] = 1;
+                                                else if (was && f >= 1.0 - fadeStep)
+                                                        wasOccluded[idx] = 0;
+                                        }
+                                        else
+                                        {
+                                                f = 2.0;
+                                                wasOccluded[idx] = 0;
+                                        }
+
+                                        fadeOpacities[idx] = f;
+
+                                        if (f < 0.20) continue;
+
+                                        depthList[validCount] = depth;
+                                        validIndexList[validCount] = idx;
+                                        validCount++;
+                                        if (depth > maxDepth) maxDepth = depth;
+                                        if (depth < minDepth) minDepth = depth;
                                 }
+                        } else {
+                                for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
+                                        //if (discardMark[i]) continue;
 
-                                const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
-                                const edgeMultiplier = 1.0 + (edgeDist * 0.5);
-                                
-                                const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
-                                const tooSmall = pixelThreshold < 0.6 * edgeMultiplier && !skipCullBehind;
+                                        const px = matrices[offset + 12];
+                                        const py = matrices[offset + 13];
+                                        const pz = matrices[offset + 14];
 
-                                let f = fadeOpacities[i];
+                                        const clip_x = m0 * px + m4 * py + m8  * pz + m12;
+                                        const clip_y = m1 * px + m5 * py + m9  * pz + m13;
+                                        const clip_z = m2 * px + m6 * py + m10 * pz + m14;
+                                        const clip_w = m3 * px + m7 * py + m11 * pz + m15;
 
-				if (insideOfScreen) {
-                                        const isOccluded = discardMark && discardMark[i] === 1;
-					const was = wasOccluded[i] === 1;
+                                        const radius = matrices[offset + 15] * scaleFactor;
+                                        const transparency = matrices[offset + 11]; // 0-1
+                                        const radiusTransparencyProduct = radius * transparency;
 
-					if (f === 2.0) f = (isOccluded || tooSmall) ? 0.0 : 1.0; // default unset value is 2.0
+                                        const skipCullEdges = (radiusTransparencyProduct / scaleFactor) > 0.075;
+                                        const skipCullBehind = (radiusTransparencyProduct / scaleFactor) > 0.3;
 
-					if (tooSmall) f = Math.max(0, f - fadeStep);
-					
-					else if (isOccluded) f = Math.max(0, f - fadeStep * 1.9);
+                                        if (clip_w < 0.0 && !skipCullBehind) continue;
 
-					else {
-						const step = was ? fadeStep * 1.9 : fadeStep;
-						f = Math.min(1, f + step);
-					}
+                                        const invW  = 1.0 / clip_w;
 
-					if (isOccluded)
-						wasOccluded[i] = 1;
-					else if (was && f >= 1.0 - fadeStep)
-						wasOccluded[i] = 0;
+                                        const ndcX  = clip_x * invW;
+                                        const ndcY  = clip_y * invW;
+                                        const ndcZ  = clip_z * invW;
+
+                                        let depth = v0 * px + v1 * py + v2 * pz + v3;
+
+                                        const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
+
+                                        if (!insideOfScreen && !skipCullEdges) continue;
+
+                                        if (depth + radius > nearPlaneClip && insideOfScreen) {
+                                                continue; // centre is inside the view and too close to the camera
+                                        }
+
+                                        const edgeDist = Math.max(Math.abs(ndcX), Math.abs(ndcY));
+                                        const edgeMultiplier = 1.0 + (edgeDist * 0.5);
+
+                                        const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
+                                        const tooSmall = pixelThreshold < 0.6 * edgeMultiplier && !skipCullBehind;
+
+                                        let f = fadeOpacities[i];
+
+                                        if (insideOfScreen) {
+                                                const isOccluded = discardMark && discardMark[i] === 1;
+                                                const was = wasOccluded[i] === 1;
+
+                                                if (f === 2.0) f = (isOccluded || tooSmall) ? 0.0 : 1.0; // default unset value is 2.0
+
+                                                if (tooSmall) f = Math.max(0, f - fadeStep);
+
+                                                else if (isOccluded) f = Math.max(0, f - fadeStep * 1.9);
+
+                                                else {
+                                                        const step = was ? fadeStep * 1.9 : fadeStep;
+                                                        f = Math.min(1, f + step);
+                                                }
+
+                                                if (isOccluded)
+                                                        wasOccluded[i] = 1;
+                                                else if (was && f >= 1.0 - fadeStep)
+                                                        wasOccluded[i] = 0;
+                                        }
+                                        else
+                                        {
+                                                f = 2.0;
+                                                wasOccluded[i] = 0;
+                                        }
+
+                                        fadeOpacities[i] = f;
+
+                                        if (f < 0.20) continue;
+
+                                        depthList[validCount] = depth;
+                                        validIndexList[validCount] = i;
+                                        validCount++;
+                                        if (depth > maxDepth) maxDepth = depth;
+                                        if (depth < minDepth) minDepth = depth;
                                 }
-				else
-				{
-                                	f = 2.0;
-                                        wasOccluded[i] = 0;
-				}
-
-				fadeOpacities[i] = f;
-
-                                if (f < 0.20) continue;
-
-                                depthList[validCount] = depth;
-                                validIndexList[validCount] = i;
-                                validCount++;
-                                if (depth > maxDepth) maxDepth = depth;
-                                if (depth < minDepth) minDepth = depth;
                         }
 
 			console.warn(validCount);
@@ -1082,6 +1325,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 matrices = undefined;
                                 fadeOpacities = undefined;
                                 discardMark = null;
+                                activeIndices = null;
+                        }
+                        if (e.data.method == "setActive") {
+                                activeIndices = e.data.active ? new Uint32Array(e.data.active) : null;
                         }
                         if (e.data.method == "push") {
                                 new_matrices = new Float32Array(e.data.matrices);
