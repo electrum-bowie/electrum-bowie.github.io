@@ -989,21 +989,31 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.tmpLocalCameraPos.copy(cameraPos).applyMatrix4(this.tmpWorldToLocalMatrix);
                 const localCameraPos = this.tmpLocalCameraPos;
                 const tileSize = this.lodState.tileSize;
+                const tileScale = Math.max(1e-6, tileSize.length());
                 const nearDistance = this.lodConfig.nearMultiplier;
                 const midDistance = this.lodConfig.midMultiplier;
                 let changed = false;
                 let activeCount = 0;
                 for (let i = 0; i < tiles.length; i++) {
                         const tile = tiles[i];
-                        const tileCenter = tile.center;
-                        const dx = (tileCenter.x - localCameraPos.x) / tileSize.x;
-                        const dy = (tileCenter.y - localCameraPos.y) / tileSize.y;
-                        const dz = (tileCenter.z - localCameraPos.z) / tileSize.z;
-                        const dist = Math.hypot(
-                                Math.abs(dx),
-                                Math.abs(dy),
-                                Math.abs(dz)
-                        );
+                        const tileMin = tile.min;
+                        const tileMax = tile.max;
+                        const dx = localCameraPos.x < tileMin.x
+                                ? tileMin.x - localCameraPos.x
+                                : localCameraPos.x > tileMax.x
+                                        ? localCameraPos.x - tileMax.x
+                                        : 0;
+                        const dy = localCameraPos.y < tileMin.y
+                                ? tileMin.y - localCameraPos.y
+                                : localCameraPos.y > tileMax.y
+                                        ? localCameraPos.y - tileMax.y
+                                        : 0;
+                        const dz = localCameraPos.z < tileMin.z
+                                ? tileMin.z - localCameraPos.z
+                                : localCameraPos.z > tileMax.z
+                                        ? localCameraPos.z - tileMax.z
+                                        : 0;
+                        const dist = Math.hypot(dx, dy, dz) / tileScale;
                         let lodLevel = 0;
                         if (dist > midDistance) {
                                 lodLevel = 2;
