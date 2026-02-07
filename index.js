@@ -1362,10 +1362,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lodState.activeIndices = activeIndices;
                 this.lodState.activeCount = activeCount;
                 this.lodState.activeVersion += 1;
+                const workerActive = activeIndices.slice();
+                const workerBuffer = workerActive.buffer;
                 this.worker.postMessage({
                         method: "setActive",
-                        active: activeIndices.buffer
-                }, [activeIndices.buffer]);
+                        active: workerBuffer,
+                        activeCount: activeCount
+                }, [workerBuffer]);
+                if (this.occlusionWorker) {
+                        const occlusionActive = activeIndices.slice();
+                        const occlusionBuffer = occlusionActive.buffer;
+                        this.occlusionWorker.postMessage({
+                                method: "setActive",
+                                active: occlusionBuffer,
+                                activeCount: activeCount
+                        }, [occlusionBuffer]);
+                }
         },
         tick: function (time, timeDelta) {
                 this.updateDynamicResolution(time, timeDelta);
@@ -1631,9 +1643,9 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
         createWorker: function (self) {
                 let matrices = undefined;
+                let activeIndices = null;
                 let normals = undefined;
                 let fadeOpacities = undefined;
-                let activeMark = null;
                 let pendingActive = null;
 
                 const COUNT_SIZE = 1200 * 1200;
@@ -1661,20 +1673,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
                 const applyActiveList = (indices, vertexCount) => {
                         if (!indices) {
-                                activeMark = null;
+                                activeIndices = null;
                                 return;
                         }
-                        if (!activeMark || activeMark.length !== vertexCount) {
-                                activeMark = new Uint8Array(vertexCount);
-                        } else {
-                                activeMark.fill(0);
+                        if (indices.length === 0) {
+                                activeIndices = new Uint32Array(0);
+                                return;
                         }
-                        for (let i = 0; i < indices.length; i++) {
-                                const idx = indices[i];
-                                if (idx >= 0 && idx < vertexCount) {
-                                        activeMark[idx] = 1;
-                                }
-                        }
+                        activeIndices = indices;
                 };
 
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -1706,10 +1712,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         const fadeStep = 0.12;
                         const nearPlaneClip = -0.08;
-                        for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
-                                if (activeMark && activeMark[i] === 0) {
-                                        continue;
-                                }
+                        const useActive = activeIndices !== null;
+                        const loopCount = useActive ? activeIndices.length : vertexCount;
+                        for (let i = 0; i < loopCount; i++) {
+                                const idx = useActive ? activeIndices[i] : i;
+                                const offset = idx * 16;
                                 //if (discardMark[i]) continue;
 
                                 const px = matrices[offset + 12];
@@ -1752,11 +1759,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const pixelThreshold = (focal * radiusTransparencyProduct) / -depth;
                                 const tooSmall = pixelThreshold < 0.6 * edgeMultiplier && !skipCullBehind;
 
-                                let f = fadeOpacities[i];
+                                let f = fadeOpacities[idx];
 
 				if (insideOfScreen) {
-                                        const isOccluded = discardMark && discardMark[i] === 1;
-					const was = wasOccluded[i] === 1;
+					const isOccluded = discardMark && discardMark[idx] === 1;
+					const was = wasOccluded[idx] === 1;
 
 					if (f === 2.0) f = (isOccluded || tooSmall) ? 0.0 : 1.0; // default unset value is 2.0
 
@@ -1770,22 +1777,22 @@ AFRAME.registerComponent("gaussian_splatting", {
 					}
 
 					if (isOccluded)
-						wasOccluded[i] = 1;
+						wasOccluded[idx] = 1;
 					else if (was && f >= 1.0 - fadeStep)
-						wasOccluded[i] = 0;
+						wasOccluded[idx] = 0;
                                 }
 				else
 				{
                                 	f = 2.0;
-                                        wasOccluded[i] = 0;
+                                        wasOccluded[idx] = 0;
 				}
 
-				fadeOpacities[i] = f;
+				fadeOpacities[idx] = f;
 
                                 if (f < 0.20) continue;
 
                                 depthList[validCount] = depth;
-                                validIndexList[validCount] = i;
+                                validIndexList[validCount] = idx;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
@@ -1829,7 +1836,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 matrices = undefined;
                                 fadeOpacities = undefined;
                                 discardMark = null;
-                                activeMark = null;
+                                activeIndices = null;
                                 pendingActive = null;
                         }
                         if (e.data.method == "push") {
@@ -1903,6 +1910,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
+                let activeIndices = null;
 
                 const COUNT_SIZE = 256 * 256;
 
@@ -1951,7 +1959,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        for (let offset = 0, i = 0; i < vertexCount; offset += 16, i++) {
+                        const useActive = activeIndices !== null;
+                        const loopCount = useActive ? activeIndices.length : vertexCount;
+                        for (let i = 0; i < loopCount; i++) {
+                                const idx = useActive ? activeIndices[i] : i;
+                                const offset = idx * 16;
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
                                 const pz = matrices[offset + 14];
@@ -1964,7 +1976,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const depth = f0 * px + f1 * py + f2 * pz + f3;
 
                                 depthList[validCount] = depth;
-                                validIndexList[validCount] = i;
+                                validIndexList[validCount] = idx;
                                 validCount++;
                                 if (depth > maxDepth) maxDepth = depth;
                                 if (depth < minDepth) minDepth = depth;
@@ -2114,6 +2126,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method == "clear") {
                                 matrices = undefined;
                                 normals = undefined;
+                                activeIndices = null;
                         }
                         if (e.data.method == "push") {
                                 const new_matrices = new Float32Array(e.data.matrices);
@@ -2138,6 +2151,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 } else {
                                         normals = undefined;
                                 }
+                        }
+                        if (e.data.method == "setActive") {
+                                activeIndices = e.data.active ? new Uint32Array(e.data.active) : null;
                         }
                         if (e.data.method == "occlude") {
                                 let discard = new Uint32Array(0);
