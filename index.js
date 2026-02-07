@@ -965,8 +965,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const objectMatrix = this.object.matrixWorld;
                 const tileSize = this.lodState.tileSize;
                 const tileDiagonal = tileSize.length();
-                const nearDistance = tileDiagonal * this.lodConfig.nearMultiplier;
-                const midDistance = tileDiagonal * this.lodConfig.midMultiplier;
+                const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
+                const tileDiagonalWorld = tileDiagonal * globalScale;
+                const nearDistance = tileDiagonalWorld * this.lodConfig.nearMultiplier;
+                const midDistance = tileDiagonalWorld * this.lodConfig.midMultiplier;
                 let changed = false;
                 let activeCount = 0;
                 for (let i = 0; i < tiles.length; i++) {
