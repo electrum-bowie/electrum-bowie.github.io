@@ -1554,8 +1554,8 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
-                                const perceived = opacity * (avgResidual ** 0.5);
-                                if (perceived < 0.00001) {
+                                const perceived = opacity * (avgResidual ** 0.1); // tolerate low transparencies
+                                if (perceived < 0.01) {
                                         discarded[discardCount++] = idx;
                                 }
 
@@ -1563,7 +1563,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
-                                                grid[row + x] *= attenuation * (facingFactor ** 1.75);
+                                                grid[row + x] *= attenuation * (facingFactor ** 1.5);
                                         }
                                 }
                         }
