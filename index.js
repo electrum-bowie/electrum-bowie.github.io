@@ -103,6 +103,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.tmpCameraPos = new THREE.Vector3();
                 this.tmpCameraQuat = new THREE.Quaternion();
                 this.tmpLocalCameraPos = new THREE.Vector3();
+                this.tmpWorldToLocalMatrix = new THREE.Matrix4();
                 this.viewRotationMatrix = new THREE.Matrix3();
 
                 this.splatsToDiscard = [];
@@ -891,6 +892,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 lods: [],
                                 activeLod: -1,
                                 center: new THREE.Vector3(),
+                                min: new THREE.Vector3(),
+                                max: new THREE.Vector3(),
                         });
                 }
                 const clampIndex = (v) => Math.max(0, Math.min(gridSize - 1, v));
@@ -927,10 +930,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const index = x + y * gridSize + z * gridSize * gridSize;
                                         const tile = tiles[index];
                                         const center = tile.center;
+                                        const tileMin = tile.min;
+                                        const tileMax = tile.max;
                                         center.set(
                                                 min.x + (x + 0.5) * tileSize.x,
                                                 min.y + (y + 0.5) * tileSize.y,
                                                 min.z + (z + 0.5) * tileSize.z
+                                        );
+                                        tileMin.set(
+                                                min.x + x * tileSize.x,
+                                                min.y + y * tileSize.y,
+                                                min.z + z * tileSize.z
+                                        );
+                                        tileMax.set(
+                                                min.x + (x + 1) * tileSize.x,
+                                                min.y + (y + 1) * tileSize.y,
+                                                min.z + (z + 1) * tileSize.z
                                         );
                                         const baseList = tile.indices;
                                         tile.lods = levels.map((stride) => {
@@ -960,22 +975,26 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
                 const tiles = this.lodState.tiles;
                 if (!tiles || tiles.length === 0) return;
-                const worldCenter = new THREE.Vector3();
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 const cameraPos = this.tmpCameraPos;
                 const objectMatrix = this.object.matrixWorld;
+                this.tmpWorldToLocalMatrix.copy(objectMatrix).invert();
+                this.tmpLocalCameraPos.copy(cameraPos).applyMatrix4(this.tmpWorldToLocalMatrix);
+                const localCameraPos = this.tmpLocalCameraPos;
                 const tileSize = this.lodState.tileSize;
                 const tileDiagonal = tileSize.length();
-                const globalScale = Math.max(this.object.scale.x, this.object.scale.y, this.object.scale.z);
-                const tileDiagonalWorld = tileDiagonal * globalScale;
-                const nearDistance = tileDiagonalWorld * this.lodConfig.nearMultiplier;
-                const midDistance = tileDiagonalWorld * this.lodConfig.midMultiplier;
+                const nearDistance = tileDiagonal * this.lodConfig.nearMultiplier;
+                const midDistance = tileDiagonal * this.lodConfig.midMultiplier;
                 let changed = false;
                 let activeCount = 0;
                 for (let i = 0; i < tiles.length; i++) {
                         const tile = tiles[i];
-                        worldCenter.copy(tile.center).applyMatrix4(objectMatrix);
-                        const dist = worldCenter.distanceTo(cameraPos);
+                        const tileMin = tile.min;
+                        const tileMax = tile.max;
+                        const dx = Math.max(tileMin.x - localCameraPos.x, 0, localCameraPos.x - tileMax.x);
+                        const dy = Math.max(tileMin.y - localCameraPos.y, 0, localCameraPos.y - tileMax.y);
+                        const dz = Math.max(tileMin.z - localCameraPos.z, 0, localCameraPos.z - tileMax.z);
+                        const dist = Math.hypot(dx, dy, dz);
                         let lodLevel = 0;
                         if (dist > midDistance) {
                                 lodLevel = 2;
