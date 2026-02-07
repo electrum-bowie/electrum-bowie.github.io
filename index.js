@@ -1021,19 +1021,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (!changed && !force) {
                         return;
                 }
-                const maxActive = this.lodState.totalSplats || this.loadedVertexCount || activeCount;
-                if (!maxActive || maxActive <= 0) {
+                if (!activeCount || activeCount <= 0) {
                         return;
-                }
-                if (activeCount > maxActive) {
-                        activeCount = maxActive;
                 }
                 let activeIndices = this.lodState.activeIndices;
                 if (!activeIndices || activeIndices.length < activeCount) {
                         const previousLength = activeIndices ? activeIndices.length : 0;
-                        const nextLength = Math.min(
-                                Math.max(activeCount, Math.ceil(previousLength * 1.5) || activeCount),
-                                maxActive
+                        const nextLength = Math.max(
+                                activeCount,
+                                Math.ceil(previousLength * 1.5) || activeCount
                         );
                         activeIndices = new Uint32Array(nextLength);
                 }
@@ -1055,25 +1051,59 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lodState.activeIndices = activeIndices;
                 this.lodState.activeCount = activeCount;
                 this.lodState.activeVersion += 1;
-                const workerActive = new Uint32Array(activeCount);
-                if (activeCount > 0) {
-                        workerActive.set(activeIndices.subarray(0, activeCount));
+                const useSharedBuffer = typeof SharedArrayBuffer !== "undefined";
+                if (useSharedBuffer) {
+                        let sharedActive = this.lodState.sharedActive;
+                        if (!sharedActive || sharedActive.length < activeCount) {
+                                const previousLength = sharedActive ? sharedActive.length : 0;
+                                const nextLength = Math.max(
+                                        activeCount,
+                                        Math.ceil(previousLength * 1.5) || activeCount
+                                );
+                                const sharedBuffer = new SharedArrayBuffer(
+                                        nextLength * Uint32Array.BYTES_PER_ELEMENT
+                                );
+                                sharedActive = new Uint32Array(sharedBuffer);
+                        }
+                        sharedActive.set(activeIndices.subarray(0, activeCount));
+                        this.lodState.sharedActive = sharedActive;
+                        this.worker.postMessage({
+                                method: "setActive",
+                                active: sharedActive,
+                                activeCount: activeCount
+                        });
+                        if (this.occlusionWorker) {
+                                this.occlusionWorker.postMessage({
+                                        method: "setActive",
+                                        active: sharedActive,
+                                        activeCount: activeCount
+                                });
+                        }
+                        return;
                 }
+                let workerActive = this.lodState.workerActive;
+                if (!workerActive || workerActive.length < activeCount) {
+                        workerActive = new Uint32Array(activeCount);
+                }
+                workerActive.set(activeIndices.subarray(0, activeCount));
+                this.lodState.workerActive = workerActive;
                 this.worker.postMessage({
                         method: "setActive",
-                        active: workerActive,
+                        active: workerActive.subarray(0, activeCount),
                         activeCount: activeCount
-                }, [workerActive.buffer]);
+                });
                 if (this.occlusionWorker) {
-                        const occlusionActive = new Uint32Array(activeCount);
-                        if (activeCount > 0) {
-                                occlusionActive.set(activeIndices.subarray(0, activeCount));
+                        let occlusionActive = this.lodState.occlusionActive;
+                        if (!occlusionActive || occlusionActive.length < activeCount) {
+                                occlusionActive = new Uint32Array(activeCount);
                         }
+                        occlusionActive.set(activeIndices.subarray(0, activeCount));
+                        this.lodState.occlusionActive = occlusionActive;
                         this.occlusionWorker.postMessage({
                                 method: "setActive",
-                                active: occlusionActive,
+                                active: occlusionActive.subarray(0, activeCount),
                                 activeCount: activeCount
-                        }, [occlusionActive.buffer]);
+                        });
                 }
         },
         tick: function (time, timeDelta) {
