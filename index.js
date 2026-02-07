@@ -550,6 +550,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 		fetch(src)
 			.then(async (data) => {
+				if (!data.body) {
+					throw new Error("Response body is missing.");
+				}
 				const reader = data.body.getReader();
 
 				let bytesDownloaded = 0;
@@ -559,12 +562,17 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 				const start = Date.now();
 				let lastReportedProgress = 0;
+				let lastProgressReport = 0;
+				const progressReportInterval = 250;
 				let isPly = null;
 				let plyState = null;
 				let capacityEstimated = false;
 				const plyPending = pending;
 				const maxPlyBatchBytes = 64 * 1024 * 1024;
 				const decoder = new TextDecoder();
+				let textureReady = this.textureReady;
+				const headerProbeLength = 4;
+				const plyHeaderPeekLength = 1024 * 10;
 
 				while (true) {
 					try {
@@ -575,17 +583,19 @@ AFRAME.registerComponent("gaussian_splatting", {
 						}
 						bytesDownloaded += value.length;
 						if (totalDownloadBytes != undefined) {
-							const mbps = (bytesDownloaded / 1024 / 1024) / ((Date.now() - start) / 1000);
+							const now = Date.now();
 							const percent = bytesDownloaded / totalDownloadBytes * 100;
-							if (percent - lastReportedProgress > 1) {
-                                                        console.log("Progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
+							if (percent - lastReportedProgress > 1 || now - lastProgressReport > progressReportInterval) {
+								const mbps = (bytesDownloaded / 1024 / 1024) / ((now - start) / 1000);
+								console.log("Progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
 								lastReportedProgress = percent;
+								lastProgressReport = now;
 							}
 						} else {
                                                 console.log("Progress:", bytesDownloaded, ", unknown total");
 						}
 						if (isPly === null) {
-							const probe = decoder.decode(value.subarray(0, 4));
+							const probe = decoder.decode(value.subarray(0, headerProbeLength));
 							isPly = probe.startsWith("ply");
                                                         if (!isPly && totalDownloadBytes && !capacityEstimated) {
                                                                 const estimatedCount = Math.floor(totalDownloadBytes / rowLength);
@@ -594,14 +604,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                         }
 						}
 						pending.append(value);
-						if (!this.textureReady &&
+						if (!textureReady &&
 							rendererProperties.get(centerTexture) &&
 							rendererProperties.get(covTexture)) {
+							textureReady = true;
 							this.textureReady = true;
 						}
 
 						if (isPly && !plyState) {
-							plyState = parsePlyHeader(plyPending.peekBytes(1024 * 10));
+							plyState = parsePlyHeader(plyPending.peekBytes(plyHeaderPeekLength));
                                                         if (plyState && plyState.vertexCount && !capacityEstimated) {
                                                                 ensureSplatCapacity(plyState.vertexCount);
                                                                 capacityEstimated = true;
@@ -612,7 +623,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 							}
 						}
 
-						if (isPly && plyState && plyState.format === "binary_little_endian" && this.textureReady) {
+						if (isPly && plyState && plyState.format === "binary_little_endian" && textureReady) {
 							let rowsAvailable = Math.floor(plyPending.getByteLength() / plyState.rowOffset);
 							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
 							while (rowsAvailable > 0) {
@@ -628,7 +639,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 							}
 						}
 
-						if (!isPly && this.textureReady) {
+						if (!isPly && textureReady) {
 							const availableBytes = pending.getByteLength();
 							const vertexCount = Math.floor(availableBytes / rowLength);
 							if (vertexCount > 0) {
