@@ -112,7 +112,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         gridSize: 7,
                         levels: [1, 2, 3],
                         nearMultiplier: 0.4,
-                        midMultiplier: 1.0,
+                        midMultiplier: 1.1,
                 };
 
                 const gl = this.renderer.getContext();
