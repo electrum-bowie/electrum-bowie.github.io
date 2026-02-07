@@ -689,19 +689,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         this.needsQualityUpdate = false;
                                         this.updateQuality();
                                 }
-                                const postImportSteps = [
-                                        { label: "Occlusion", action: () => this.occludeSplatsNow() },
-                                        { label: "Filtering", action: () => this.filterSplatsNow() },
-                                        { label: "Sorting", action: () => this.sortSplatsNow() },
-                                ];
-                                let completedSteps = 0;
-                                const totalSteps = postImportSteps.length;
-                                for (const step of postImportSteps) {
-                                        step.action();
-                                        completedSteps += 1;
-                                        const percent = (completedSteps / totalSteps) * 100;
-                                        console.log(`Post-import progress: ${percent.toFixed(2)}% (${step.label})`);
-                                }
+                                this.occludeSplatsNow();
+                                this.filterSplatsNow();
+                                this.sortSplatsNow();
                         });
         },
         pushDataBuffer: function (buffer, vertexCount) {
