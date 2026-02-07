@@ -864,7 +864,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         return;
                 }
                 const gridSize = this.lodConfig.gridSize;
-                const baseSplatCount = totalSplats;
                 const min = new THREE.Vector3(Infinity, Infinity, Infinity);
                 const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
                 for (let i = 0; i < totalSplats; i++) {
@@ -913,306 +912,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const tileIndex = ix + iy * gridSize + iz * gridSize * gridSize;
                         tiles[tileIndex].indices.push(i);
                 }
-                const covAndColorDataInt16 = new Int16Array(this.covAndColorData.buffer);
-                const covAndColorDataUint8 = new Uint8Array(this.covAndColorData.buffer);
-                const getCovariance = (idx) => {
-                        const scaleFactor = this.centerAndScaleData[idx * 4 + 3];
-                        const base = idx * 8;
-                        return {
-                                m11: covAndColorDataInt16[base + 0] * scaleFactor,
-                                m12: covAndColorDataInt16[base + 1] * scaleFactor,
-                                m13: covAndColorDataInt16[base + 2] * scaleFactor,
-                                m22: covAndColorDataInt16[base + 3] * scaleFactor,
-                                m23: covAndColorDataInt16[base + 4] * scaleFactor,
-                                m33: covAndColorDataInt16[base + 5] * scaleFactor,
-                        };
-                };
-                const getColorOpacity = (idx) => {
-                        const base = idx * 16 + 12;
-                        const r = covAndColorDataUint8[base + 0];
-                        const g = covAndColorDataUint8[base + 1];
-                        const b = covAndColorDataUint8[base + 2];
-                        const a = covAndColorDataUint8[base + 3];
-                        return { r, g, b, a, opacity: a / 255.0 };
-                };
-                const computeSmallestEigenVector = (m11, m12, m13, m22, m23, m33) => {
-                        let a = [
-                                m11, m12, m13,
-                                m12, m22, m23,
-                                m13, m23, m33,
-                        ];
-                        let v = [
-                                1, 0, 0,
-                                0, 1, 0,
-                                0, 0, 1,
-                        ];
-                        const idx = (r, c) => r * 3 + c;
-                        for (let iter = 0; iter < 12; iter++) {
-                                let p = 0;
-                                let q = 1;
-                                let max = Math.abs(a[idx(0, 1)]);
-                                const a02 = Math.abs(a[idx(0, 2)]);
-                                if (a02 > max) {
-                                        max = a02;
-                                        p = 0;
-                                        q = 2;
-                                }
-                                const a12 = Math.abs(a[idx(1, 2)]);
-                                if (a12 > max) {
-                                        max = a12;
-                                        p = 1;
-                                        q = 2;
-                                }
-                                if (max < 1e-6) {
-                                        break;
-                                }
-                                const app = a[idx(p, p)];
-                                const aqq = a[idx(q, q)];
-                                const apq = a[idx(p, q)];
-                                const tau = (aqq - app) / (2 * apq);
-                                const t = Math.sign(tau) / (Math.abs(tau) + Math.sqrt(1 + tau * tau));
-                                const c = 1 / Math.sqrt(1 + t * t);
-                                const s = t * c;
-                                a[idx(p, p)] = app - t * apq;
-                                a[idx(q, q)] = aqq + t * apq;
-                                a[idx(p, q)] = 0;
-                                a[idx(q, p)] = 0;
-                                for (let r = 0; r < 3; r++) {
-                                        if (r === p || r === q) continue;
-                                        const arp = a[idx(r, p)];
-                                        const arq = a[idx(r, q)];
-                                        a[idx(r, p)] = c * arp - s * arq;
-                                        a[idx(p, r)] = a[idx(r, p)];
-                                        a[idx(r, q)] = c * arq + s * arp;
-                                        a[idx(q, r)] = a[idx(r, q)];
-                                }
-                                for (let r = 0; r < 3; r++) {
-                                        const vrp = v[idx(r, p)];
-                                        const vrq = v[idx(r, q)];
-                                        v[idx(r, p)] = c * vrp - s * vrq;
-                                        v[idx(r, q)] = s * vrp + c * vrq;
+                const selectStride = (list, stride, offset) => {
+                        if (stride <= 1 || list.length <= 1) {
+                                return list.slice();
+                        }
+                        const selected = [];
+                        for (let i = 0; i < list.length; i++) {
+                                if (i % stride === offset) {
+                                        selected.push(list[i]);
                                 }
                         }
-                        const eigenvalues = [a[0], a[4], a[8]];
-                        let minIndex = 0;
-                        if (eigenvalues[1] < eigenvalues[minIndex]) minIndex = 1;
-                        if (eigenvalues[2] < eigenvalues[minIndex]) minIndex = 2;
-                        const nx = v[minIndex];
-                        const ny = v[3 + minIndex];
-                        const nz = v[6 + minIndex];
-                        const length = Math.hypot(nx, ny, nz) || 1.0;
-                        return {
-                                x: nx / length,
-                                y: ny / length,
-                                z: nz / length,
-                        };
+                        if (selected.length === 0 && list.length > 0) {
+                                selected.push(list[0]);
+                        }
+                        return selected;
                 };
-                const appendMergedSplat = (merged) => {
-                        if (this.loadedVertexCount >= this.maxSplatCount) {
-                                return null;
-                        }
-                        const idx = this.loadedVertexCount;
-                        const centerOffset = idx * 4;
-                        this.centerAndScaleData[centerOffset + 0] = merged.center.x;
-                        this.centerAndScaleData[centerOffset + 1] = merged.center.y;
-                        this.centerAndScaleData[centerOffset + 2] = merged.center.z;
-                        const maxAbs = Math.max(
-                                Math.abs(merged.cov.m11),
-                                Math.abs(merged.cov.m12),
-                                Math.abs(merged.cov.m13),
-                                Math.abs(merged.cov.m22),
-                                Math.abs(merged.cov.m23),
-                                Math.abs(merged.cov.m33),
-                                1e-6
-                        );
-                        const scaleFactor = maxAbs / 32767.0;
-                        this.centerAndScaleData[centerOffset + 3] = scaleFactor;
-                        const covBase = idx * 8;
-                        covAndColorDataInt16[covBase + 0] = Math.max(-32767, Math.min(32767, Math.round(merged.cov.m11 / scaleFactor)));
-                        covAndColorDataInt16[covBase + 1] = Math.max(-32767, Math.min(32767, Math.round(merged.cov.m12 / scaleFactor)));
-                        covAndColorDataInt16[covBase + 2] = Math.max(-32767, Math.min(32767, Math.round(merged.cov.m13 / scaleFactor)));
-                        covAndColorDataInt16[covBase + 3] = Math.max(-32767, Math.min(32767, Math.round(merged.cov.m22 / scaleFactor)));
-                        covAndColorDataInt16[covBase + 4] = Math.max(-32767, Math.min(32767, Math.round(merged.cov.m23 / scaleFactor)));
-                        covAndColorDataInt16[covBase + 5] = Math.max(-32767, Math.min(32767, Math.round(merged.cov.m33 / scaleFactor)));
-                        const colorBase = idx * 16 + 12;
-                        covAndColorDataUint8[colorBase + 0] = merged.color.r;
-                        covAndColorDataUint8[colorBase + 1] = merged.color.g;
-                        covAndColorDataUint8[colorBase + 2] = merged.color.b;
-                        covAndColorDataUint8[colorBase + 3] = merged.color.a;
-
-                        merged.matrices.push(
-                                merged.cov.m11, merged.cov.m12, merged.cov.m13, 0,
-                                merged.cov.m12, merged.cov.m22, merged.cov.m23, 0,
-                                merged.cov.m13, merged.cov.m23, merged.cov.m33, merged.opacity,
-                                merged.center.x, merged.center.y, merged.center.z, merged.maxScale
-                        );
-                        merged.normals.push(merged.normal.x, merged.normal.y, merged.normal.z);
-                        this.loadedVertexCount += 1;
-                        return idx;
-                };
-                const buildMergedSplat = (indices) => {
-                        let weightSum = 0.0;
-                        let opacitySum = 0.0;
-                        let colorSum = { r: 0.0, g: 0.0, b: 0.0 };
-                        let centerSum = new THREE.Vector3();
-                        let covSum = { m11: 0.0, m12: 0.0, m13: 0.0, m22: 0.0, m23: 0.0, m33: 0.0 };
-                        const centers = [];
-
-                        for (const idx of indices) {
-                                const offset = idx * 4;
-                                const center = new THREE.Vector3(
-                                        this.centerAndScaleData[offset + 0],
-                                        this.centerAndScaleData[offset + 1],
-                                        this.centerAndScaleData[offset + 2]
-                                );
-                                const cov = getCovariance(idx);
-                                const color = getColorOpacity(idx);
-                                const weight = color.opacity > 0 ? color.opacity : 0.001;
-                                weightSum += weight;
-                                opacitySum += color.opacity;
-                                centerSum.addScaledVector(center, weight);
-                                covSum.m11 += cov.m11 * weight;
-                                covSum.m12 += cov.m12 * weight;
-                                covSum.m13 += cov.m13 * weight;
-                                covSum.m22 += cov.m22 * weight;
-                                covSum.m23 += cov.m23 * weight;
-                                covSum.m33 += cov.m33 * weight;
-                                colorSum.r += color.r * weight;
-                                colorSum.g += color.g * weight;
-                                colorSum.b += color.b * weight;
-                                centers.push({ center, weight });
-                        }
-                        if (weightSum <= 0) {
-                                weightSum = indices.length;
-                        }
-                        const meanCenter = centerSum.multiplyScalar(1 / weightSum);
-                        const meanCov = {
-                                m11: covSum.m11 / weightSum,
-                                m12: covSum.m12 / weightSum,
-                                m13: covSum.m13 / weightSum,
-                                m22: covSum.m22 / weightSum,
-                                m23: covSum.m23 / weightSum,
-                                m33: covSum.m33 / weightSum,
-                        };
-                        const varianceCov = { m11: 0.0, m12: 0.0, m13: 0.0, m22: 0.0, m23: 0.0, m33: 0.0 };
-                        for (const item of centers) {
-                                const dx = item.center.x - meanCenter.x;
-                                const dy = item.center.y - meanCenter.y;
-                                const dz = item.center.z - meanCenter.z;
-                                const w = item.weight;
-                                varianceCov.m11 += w * dx * dx;
-                                varianceCov.m12 += w * dx * dy;
-                                varianceCov.m13 += w * dx * dz;
-                                varianceCov.m22 += w * dy * dy;
-                                varianceCov.m23 += w * dy * dz;
-                                varianceCov.m33 += w * dz * dz;
-                        }
-                        const cov = {
-                                m11: meanCov.m11 + varianceCov.m11 / weightSum,
-                                m12: meanCov.m12 + varianceCov.m12 / weightSum,
-                                m13: meanCov.m13 + varianceCov.m13 / weightSum,
-                                m22: meanCov.m22 + varianceCov.m22 / weightSum,
-                                m23: meanCov.m23 + varianceCov.m23 / weightSum,
-                                m33: meanCov.m33 + varianceCov.m33 / weightSum,
-                        };
-                        const opacity = opacitySum / indices.length;
-                        const color = {
-                                r: Math.max(0, Math.min(255, Math.round(colorSum.r / weightSum))),
-                                g: Math.max(0, Math.min(255, Math.round(colorSum.g / weightSum))),
-                                b: Math.max(0, Math.min(255, Math.round(colorSum.b / weightSum))),
-                                a: Math.max(0, Math.min(255, Math.round(opacity * 255)))
-                        };
-                        const normal = computeSmallestEigenVector(cov.m11, cov.m12, cov.m13, cov.m22, cov.m23, cov.m33);
-                        const maxScale = Math.sqrt(Math.max(cov.m11, cov.m22, cov.m33, 0));
-                        return { center: meanCenter, cov, color, opacity, normal, maxScale };
-                };
-                const buildMergedList = (baseList, groupSize, mergedBuffers) => {
-                        if (groupSize <= 1 || baseList.length <= 1) {
-                                return baseList.slice();
-                        }
-                        const remaining = baseList.slice();
-                        const mergedList = [];
-                        while (remaining.length >= groupSize) {
-                                const seed = remaining.shift();
-                                const seedOffset = seed * 4;
-                                const seedPos = new THREE.Vector3(
-                                        this.centerAndScaleData[seedOffset + 0],
-                                        this.centerAndScaleData[seedOffset + 1],
-                                        this.centerAndScaleData[seedOffset + 2]
-                                );
-                                if (groupSize === 2) {
-                                        let bestIndex = -1;
-                                        let bestDist = Infinity;
-                                        for (let i = 0; i < remaining.length; i++) {
-                                                const idx = remaining[i];
-                                                const offset = idx * 4;
-                                                const dx = this.centerAndScaleData[offset + 0] - seedPos.x;
-                                                const dy = this.centerAndScaleData[offset + 1] - seedPos.y;
-                                                const dz = this.centerAndScaleData[offset + 2] - seedPos.z;
-                                                const dist = dx * dx + dy * dy + dz * dz;
-                                                if (dist < bestDist) {
-                                                        bestDist = dist;
-                                                        bestIndex = i;
-                                                }
-                                        }
-                                        if (bestIndex === -1) {
-                                                mergedList.push(seed);
-                                                continue;
-                                        }
-                                        const neighbor = remaining.splice(bestIndex, 1)[0];
-                                        const merged = buildMergedSplat([seed, neighbor]);
-                                        const mergedIndex = appendMergedSplat({ ...merged, matrices: mergedBuffers.matrices, normals: mergedBuffers.normals });
-                                        if (mergedIndex === null) {
-                                                mergedList.push(seed, neighbor);
-                                        } else {
-                                                mergedList.push(mergedIndex);
-                                        }
-                                } else if (groupSize === 3) {
-                                        let bestIndex1 = -1;
-                                        let bestIndex2 = -1;
-                                        let bestDist1 = Infinity;
-                                        let bestDist2 = Infinity;
-                                        for (let i = 0; i < remaining.length; i++) {
-                                                const idx = remaining[i];
-                                                const offset = idx * 4;
-                                                const dx = this.centerAndScaleData[offset + 0] - seedPos.x;
-                                                const dy = this.centerAndScaleData[offset + 1] - seedPos.y;
-                                                const dz = this.centerAndScaleData[offset + 2] - seedPos.z;
-                                                const dist = dx * dx + dy * dy + dz * dz;
-                                                if (dist < bestDist1) {
-                                                        bestDist2 = bestDist1;
-                                                        bestIndex2 = bestIndex1;
-                                                        bestDist1 = dist;
-                                                        bestIndex1 = i;
-                                                } else if (dist < bestDist2) {
-                                                        bestDist2 = dist;
-                                                        bestIndex2 = i;
-                                                }
-                                        }
-                                        if (bestIndex1 === -1 || bestIndex2 === -1 || remaining.length < 2) {
-                                                mergedList.push(seed);
-                                                continue;
-                                        }
-                                        const neighbor2 = remaining.splice(Math.max(bestIndex1, bestIndex2), 1)[0];
-                                        const neighbor1 = remaining.splice(Math.min(bestIndex1, bestIndex2), 1)[0];
-                                        const merged = buildMergedSplat([seed, neighbor1, neighbor2]);
-                                        const mergedIndex = appendMergedSplat({ ...merged, matrices: mergedBuffers.matrices, normals: mergedBuffers.normals });
-                                        if (mergedIndex === null) {
-                                                mergedList.push(seed, neighbor1, neighbor2);
-                                        } else {
-                                                mergedList.push(mergedIndex);
-                                        }
-                                }
-                        }
-                        if (remaining.length > 0) {
-                                mergedList.push(...remaining);
-                        }
-                        return mergedList;
-                };
-                const mergedBuffers = {
-                        matrices: [],
-                        normals: [],
-                };
+                const levels = this.lodConfig.levels;
                 for (let z = 0; z < gridSize; z++) {
                         for (let y = 0; y < gridSize; y++) {
                                 for (let x = 0; x < gridSize; x++) {
@@ -1237,31 +952,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 min.z + (z + 1) * tileSize.z
                                         );
                                         const baseList = tile.indices;
-                                        const lod0 = baseList.slice();
-                                        const lod1 = buildMergedList(baseList, 2, mergedBuffers);
-                                        const lod2 = buildMergedList(baseList, 3, mergedBuffers);
-                                        tile.lods = [lod0, lod1, lod2];
+                                        tile.lods = levels.map((stride) => {
+                                                const offset = (index + stride) % stride;
+                                                return selectStride(baseList, stride, offset);
+                                        });
                                 }
-                        }
-                }
-                if (this.loadedVertexCount > baseSplatCount) {
-                        this.centerAndScaleTexture.needsUpdate = true;
-                        this.covAndColorTexture.needsUpdate = true;
-                        if (mergedBuffers.matrices.length > 0) {
-                                const matricesArray = new Float32Array(mergedBuffers.matrices);
-                                this.worker.postMessage({
-                                        method: "push",
-                                        matrices: matricesArray.buffer
-                                }, [matricesArray.buffer]);
-                        }
-                        if (mergedBuffers.matrices.length > 0 && this.occlusionWorker) {
-                                const matricesArray = new Float32Array(mergedBuffers.matrices);
-                                const normalsArray = new Float32Array(mergedBuffers.normals);
-                                this.occlusionWorker.postMessage({
-                                        method: "push",
-                                        matrices: matricesArray.buffer,
-                                        normals: normalsArray.buffer
-                                }, [matricesArray.buffer, normalsArray.buffer]);
                         }
                 }
                 this.lodState = {
@@ -1271,10 +966,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         min,
                         max,
                         tiles,
-                        activeIndices: new Uint32Array(this.loadedVertexCount),
-                        activeCount: this.loadedVertexCount,
+                        activeIndices: new Uint32Array(totalSplats),
+                        activeCount: totalSplats,
                         activeVersion: 0,
-                        baseSplatCount,
                 };
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 this.updateTileLods(true);
