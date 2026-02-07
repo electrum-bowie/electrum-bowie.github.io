@@ -1515,9 +1515,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const toCameraZ = cameraZ - pz;
                                         const distSq = toCameraX * toCameraX + toCameraY * toCameraY + toCameraZ * toCameraZ;
                                         if (distSq > 1.0) {
-                                        	const invLen = Math.sqrt(distSq);
-                                        	const dot = nx * toCameraX * invLen + ny * toCameraY * invLen + nz * toCameraZ * invLen;
-                                        	facingFactor = 1.0 - Math.max(0.0, dot);
+                                        	const invLen = 1.0 / Math.sqrt(distSq);
+                                        	const dot = (nx * toCameraX + ny * toCameraY + nz * toCameraZ) * invLen;
+                                                const clampedDot = Math.min(1.0, Math.max(-1.0, dot));
+                                        	facingFactor = 1.0 - Math.max(0.0, clampedDot);
 					}
                                 }
 
