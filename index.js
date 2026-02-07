@@ -1434,7 +1434,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (clip_w <= 0.0) continue;
                                 
                                 const maxRadius = matrices[offset + 15];
-                                // if (maxRadius > 1.75) continue;
+                                if (maxRadius > 1.5) continue;
 
                                 const depth = f0 * px + f1 * py + f2 * pz + f3;
                                 if (depth >= 0.0) continue;
@@ -1524,7 +1524,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const avgResidual = residual / cells;
 
                                 const perceived = opacity * avgResidual;
-                                if (perceived < 0.00000001) {
+                                if (perceived < 0.01) {
                                         discarded[discardCount++] = idx;
                                 }
 
