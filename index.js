@@ -669,6 +669,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 						const plyBuffer = plyPending.toUint8Array().buffer;
 						let concatenatedChunks = new Uint8Array(this.processPlyBuffer(plyBuffer));
 						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
+						bytesProcesses += concatenatedChunks.byteLength;
 					} else {
 						// Concatenate the chunks into a single Uint8Array
 						let concatenatedChunks = new Uint8Array(
@@ -680,7 +681,13 @@ AFRAME.registerComponent("gaussian_splatting", {
 							offset += chunk.length;
 						}
 						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
+						bytesProcesses += concatenatedChunks.byteLength;
 					}
+				}
+
+				if (bytesDownloaded > 0) {
+					const postProcessPercent = Math.min(100, (bytesProcesses / bytesDownloaded) * 100);
+					console.log("Post Import Progress:", postProcessPercent.toFixed(2) + "%");
 				}
                         })
                         .finally(() => {
