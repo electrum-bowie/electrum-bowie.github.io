@@ -111,9 +111,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lodConfig = {
                         gridSize: 7,
                         levels: [1, 2, 3],
+                        mergeFactors: [1, 2, 4],
                         nearMultiplier: 0.4,
                         midMultiplier: 1.0,
                 };
+                this.splatMatrices = new Float32Array(0);
+                this.splatNormals = new Float32Array(0);
 
                 const gl = this.renderer.getContext();
                 this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
@@ -469,6 +472,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.originalBufferCounts = [];
                 this.isCaching = true;
                 this.lodState = null;
+                this.splatMatrices = new Float32Array(0);
+                this.splatNormals = new Float32Array(0);
 		const createPendingBuffer = () => ({
 			chunks: [],
 			length: 0,
@@ -810,9 +815,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         mtx.elements[3] = Math.min(scale.x, scale.y, scale.z);
                         mtx.elements[11] = u_buffer[32*i + 24 + 3] / 255.0;
 
-			for (let j = 0; j < 16; j++) {
-				matrices[i * 16 + j] = mtx.elements[j];
-			}
+                for (let j = 0; j < 16; j++) {
+                        matrices[i * 16 + j] = mtx.elements[j];
+                }
 		}
 
 		const gl = this.renderer.getContext();
@@ -854,19 +859,27 @@ AFRAME.registerComponent("gaussian_splatting", {
                         matrices: matricesCopy.buffer,
                         normals: normals.buffer
                 }, [matricesCopy.buffer, normals.buffer]);
+                const storedMatrices = new Float32Array(this.splatMatrices.length + matrices.length);
+                storedMatrices.set(this.splatMatrices);
+                storedMatrices.set(matrices, this.splatMatrices.length);
+                this.splatMatrices = storedMatrices;
+                const storedNormals = new Float32Array(this.splatNormals.length + normals.length);
+                storedNormals.set(this.splatNormals);
+                storedNormals.set(normals, this.splatNormals.length);
+                this.splatNormals = storedNormals;
 	},
         buildLodTiles: function () {
                 if (this.lodState && this.lodState.generated) {
                         return;
                 }
-                const totalSplats = this.loadedVertexCount;
-                if (!totalSplats || !this.centerAndScaleData || totalSplats <= 0) {
+                const baseSplats = this.loadedVertexCount;
+                if (!baseSplats || !this.centerAndScaleData || baseSplats <= 0) {
                         return;
                 }
                 const gridSize = this.lodConfig.gridSize;
                 const min = new THREE.Vector3(Infinity, Infinity, Infinity);
                 const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
-                for (let i = 0; i < totalSplats; i++) {
+                for (let i = 0; i < baseSplats; i++) {
                         const offset = i * 4;
                         const x = this.centerAndScaleData[offset + 0];
                         const y = this.centerAndScaleData[offset + 1];
@@ -901,7 +914,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         });
                 }
                 const clampIndex = (v) => Math.max(0, Math.min(gridSize - 1, v));
-                for (let i = 0; i < totalSplats; i++) {
+                for (let i = 0; i < baseSplats; i++) {
                         const offset = i * 4;
                         const x = this.centerAndScaleData[offset + 0];
                         const y = this.centerAndScaleData[offset + 1];
@@ -912,6 +925,140 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const tileIndex = ix + iy * gridSize + iz * gridSize * gridSize;
                         tiles[tileIndex].indices.push(i);
                 }
+                const levels = this.lodConfig.levels;
+                const mergeFactors = this.lodConfig.mergeFactors || levels.map((value, index) => (index === 0 ? 1 : index === 1 ? 2 : 4));
+                let desiredMerged = 0;
+                for (let i = 0; i < tiles.length; i++) {
+                        const baseList = tiles[i].indices;
+                        for (let levelIndex = 0; levelIndex < levels.length; levelIndex++) {
+                                const factor = mergeFactors[levelIndex] || 1;
+                                if (factor <= 1 || baseList.length === 0) continue;
+                                desiredMerged += Math.ceil(baseList.length / factor);
+                        }
+                }
+                const requiredCount = baseSplats + desiredMerged;
+                this.ensureSplatCapacity(requiredCount);
+                let mergeBudget = Math.max(0, this.maxSplatCount - baseSplats);
+                const covInt16 = new Int16Array(this.covAndColorData.buffer);
+                const covUint8 = new Uint8Array(this.covAndColorData.buffer);
+                const baseMatrices = this.splatMatrices;
+                const baseNormals = this.splatNormals;
+                const covIndexes = [0, 1, 2, 5, 6, 10];
+                const newMatrices = [];
+                const newNormals = [];
+                let nextIndex = baseSplats;
+                const createMergedSplat = (indices) => {
+                        let weightSum = 0;
+                        let cx = 0;
+                        let cy = 0;
+                        let cz = 0;
+                        let opacitySum = 0;
+                        let maxScaleSum = 0;
+                        const covSum = [0, 0, 0, 0, 0, 0];
+                        let nx = 0;
+                        let ny = 0;
+                        let nz = 0;
+                        let rSum = 0;
+                        let gSum = 0;
+                        let bSum = 0;
+                        let aSum = 0;
+                        for (let i = 0; i < indices.length; i++) {
+                                const idx = indices[i];
+                                const centerOffset = idx * 4;
+                                const x = this.centerAndScaleData[centerOffset + 0];
+                                const y = this.centerAndScaleData[centerOffset + 1];
+                                const z = this.centerAndScaleData[centerOffset + 2];
+                                const scaleFactor = this.centerAndScaleData[centerOffset + 3];
+                                const matrixOffset = idx * 16;
+                                const opacity = baseMatrices && baseMatrices.length > matrixOffset + 11 ? baseMatrices[matrixOffset + 11] : 1.0;
+                                const maxScale = baseMatrices && baseMatrices.length > matrixOffset + 15 ? baseMatrices[matrixOffset + 15] : 1.0;
+                                const weight = Math.max(1e-4, opacity * maxScale);
+                                weightSum += weight;
+                                cx += x * weight;
+                                cy += y * weight;
+                                cz += z * weight;
+                                opacitySum += opacity * weight;
+                                maxScaleSum += maxScale * weight;
+                                const covOffset = idx * 8;
+                                for (let j = 0; j < covIndexes.length; j++) {
+                                        covSum[j] += covInt16[covOffset + j] * scaleFactor * weight;
+                                }
+                                const colorOffset = idx * 16 + 12;
+                                rSum += covUint8[colorOffset + 0] * weight;
+                                gSum += covUint8[colorOffset + 1] * weight;
+                                bSum += covUint8[colorOffset + 2] * weight;
+                                aSum += covUint8[colorOffset + 3] * weight;
+                                if (baseNormals && baseNormals.length > idx * 3 + 2) {
+                                        nx += baseNormals[idx * 3 + 0] * weight;
+                                        ny += baseNormals[idx * 3 + 1] * weight;
+                                        nz += baseNormals[idx * 3 + 2] * weight;
+                                }
+                        }
+                        if (weightSum <= 0) {
+                                return null;
+                        }
+                        const invWeight = 1.0 / weightSum;
+                        const center = {
+                                x: cx * invWeight,
+                                y: cy * invWeight,
+                                z: cz * invWeight,
+                        };
+                        const covAvg = covSum.map((value) => value * invWeight);
+                        const opacity = Math.max(0, Math.min(1, opacitySum * invWeight));
+                        const maxScale = Math.max(1e-6, maxScaleSum * invWeight);
+                        const r = Math.round(Math.max(0, Math.min(255, rSum * invWeight)));
+                        const g = Math.round(Math.max(0, Math.min(255, gSum * invWeight)));
+                        const b = Math.round(Math.max(0, Math.min(255, bSum * invWeight)));
+                        const a = Math.round(Math.max(0, Math.min(255, aSum * invWeight)));
+                        const normalLength = Math.hypot(nx, ny, nz) || 1.0;
+                        const normal = {
+                                x: nx / normalLength,
+                                y: ny / normalLength,
+                                z: nz / normalLength,
+                        };
+                        let maxCov = 0;
+                        for (let i = 0; i < covAvg.length; i++) {
+                                maxCov = Math.max(maxCov, Math.abs(covAvg[i]));
+                        }
+                        if (maxCov < 1e-9) {
+                                maxCov = 1e-9;
+                        }
+                        const scaleFactor = maxCov / 32767.0;
+                        const newIndex = nextIndex++;
+                        const centerOffset = newIndex * 4;
+                        this.centerAndScaleData[centerOffset + 0] = center.x;
+                        this.centerAndScaleData[centerOffset + 1] = center.y;
+                        this.centerAndScaleData[centerOffset + 2] = center.z;
+                        this.centerAndScaleData[centerOffset + 3] = scaleFactor;
+                        const covOffset = newIndex * 8;
+                        for (let j = 0; j < covAvg.length; j++) {
+                                const encoded = Math.round((covAvg[j] / scaleFactor));
+                                covInt16[covOffset + j] = Math.max(-32767, Math.min(32767, encoded));
+                        }
+                        const colorOffset = newIndex * 16 + 12;
+                        covUint8[colorOffset + 0] = r;
+                        covUint8[colorOffset + 1] = g;
+                        covUint8[colorOffset + 2] = b;
+                        covUint8[colorOffset + 3] = a;
+                        const matrix = new Float32Array(16);
+                        matrix[0] = covAvg[0];
+                        matrix[1] = covAvg[1];
+                        matrix[2] = covAvg[2];
+                        matrix[4] = covAvg[1];
+                        matrix[5] = covAvg[3];
+                        matrix[6] = covAvg[4];
+                        matrix[8] = covAvg[2];
+                        matrix[9] = covAvg[4];
+                        matrix[10] = covAvg[5];
+                        matrix[11] = opacity;
+                        matrix[12] = center.x;
+                        matrix[13] = center.y;
+                        matrix[14] = center.z;
+                        matrix[15] = maxScale;
+                        newMatrices.push(matrix);
+                        newNormals.push(normal.x, normal.y, normal.z);
+                        return newIndex;
+                };
                 const selectStride = (list, stride, offset) => {
                         if (stride <= 1 || list.length <= 1) {
                                 return list.slice();
@@ -927,7 +1074,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         return selected;
                 };
-                const levels = this.lodConfig.levels;
                 for (let z = 0; z < gridSize; z++) {
                         for (let y = 0; y < gridSize; y++) {
                                 for (let x = 0; x < gridSize; x++) {
@@ -952,12 +1098,91 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 min.z + (z + 1) * tileSize.z
                                         );
                                         const baseList = tile.indices;
-                                        tile.lods = levels.map((stride) => {
-                                                const offset = (index + stride) % stride;
-                                                return selectStride(baseList, stride, offset);
+                                        tile.lods = levels.map((stride, levelIndex) => {
+                                                const factor = mergeFactors[levelIndex] || 1;
+                                                if (factor <= 1 || baseList.length <= 1) {
+                                                        return baseList.slice();
+                                                }
+                                                if (mergeBudget <= 0) {
+                                                        const offset = (index + stride) % stride;
+                                                        return selectStride(baseList, stride, offset);
+                                                }
+                                                const merged = [];
+                                                for (let i = 0; i < baseList.length; i += factor) {
+                                                        if (mergeBudget <= 0) {
+                                                                break;
+                                                        }
+                                                        const group = baseList.slice(i, i + factor);
+                                                        const mergedIndex = createMergedSplat(group);
+                                                        if (mergedIndex !== null) {
+                                                                merged.push(mergedIndex);
+                                                                mergeBudget -= 1;
+                                                        }
+                                                }
+                                                if (merged.length === 0) {
+                                                        const offset = (index + stride) % stride;
+                                                        return selectStride(baseList, stride, offset);
+                                                }
+                                                return merged;
                                         });
                                 }
                         }
+                }
+                if (nextIndex > baseSplats) {
+                        const newCount = nextIndex - baseSplats;
+                        const gl = this.renderer.getContext();
+                        let remaining = newCount;
+                        let startIndex = baseSplats;
+                        while (remaining > 0) {
+                                const xoffset = startIndex % this.textureSize;
+                                const yoffset = Math.floor(startIndex / this.textureSize);
+                                let width = 0;
+                                let height = 0;
+                                if (xoffset !== 0) {
+                                        width = Math.min(this.textureSize, xoffset + remaining) - xoffset;
+                                        height = 1;
+                                } else if (Math.floor(remaining / this.textureSize) > 0) {
+                                        width = this.textureSize;
+                                        height = Math.floor(remaining / this.textureSize);
+                                } else {
+                                        width = remaining % this.textureSize;
+                                        height = 1;
+                                }
+                                const centerProps = this.renderer.properties.get(this.centerAndScaleTexture);
+                                gl.bindTexture(gl.TEXTURE_2D, centerProps.__webglTexture);
+                                gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA, gl.FLOAT, this.centerAndScaleData, startIndex * 4);
+                                const covProps = this.renderer.properties.get(this.covAndColorTexture);
+                                gl.bindTexture(gl.TEXTURE_2D, covProps.__webglTexture);
+                                gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, this.covAndColorData, startIndex * 4);
+                                startIndex += width * height;
+                                remaining -= width * height;
+                        }
+                        const mergedMatrices = new Float32Array(newMatrices.length * 16);
+                        for (let i = 0; i < newMatrices.length; i++) {
+                                mergedMatrices.set(newMatrices[i], i * 16);
+                        }
+                        const mergedNormals = new Float32Array(newNormals);
+                        this.worker.postMessage({
+                                method: "push",
+                                matrices: mergedMatrices.buffer
+                        }, [mergedMatrices.buffer]);
+                        if (this.occlusionWorker) {
+                                const matricesCopy = mergedMatrices.slice();
+                                this.occlusionWorker.postMessage({
+                                        method: "push",
+                                        matrices: matricesCopy.buffer,
+                                        normals: mergedNormals.buffer
+                                }, [matricesCopy.buffer, mergedNormals.buffer]);
+                        }
+                        const storedMatrices = new Float32Array(this.splatMatrices.length + mergedMatrices.length);
+                        storedMatrices.set(this.splatMatrices);
+                        storedMatrices.set(mergedMatrices, this.splatMatrices.length);
+                        this.splatMatrices = storedMatrices;
+                        const storedNormals = new Float32Array(this.splatNormals.length + mergedNormals.length);
+                        storedNormals.set(this.splatNormals);
+                        storedNormals.set(mergedNormals, this.splatNormals.length);
+                        this.splatNormals = storedNormals;
+                        this.loadedVertexCount = nextIndex;
                 }
                 this.lodState = {
                         generated: true,
@@ -966,8 +1191,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         min,
                         max,
                         tiles,
-                        activeIndices: new Uint32Array(totalSplats),
-                        activeCount: totalSplats,
+                        activeIndices: new Uint32Array(this.loadedVertexCount),
+                        activeCount: this.loadedVertexCount,
                         activeVersion: 0,
                 };
                 this.camera.getWorldPosition(this.tmpCameraPos);
@@ -1103,6 +1328,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
                 if (!this.originalBuffers || this.originalBuffers.length === 0) return;
                 this.loadedVertexCount = 0;
+                this.splatMatrices = new Float32Array(0);
+                this.splatNormals = new Float32Array(0);
                 if (this.mesh && this.mesh.geometry) {
                         this.mesh.geometry.instanceCount = 0;
                 }
