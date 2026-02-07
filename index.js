@@ -986,7 +986,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.tmpLocalCameraPos.copy(cameraPos).applyMatrix4(this.tmpWorldToLocalMatrix);
                 const localCameraPos = this.tmpLocalCameraPos;
                 const tileSize = this.lodState.tileSize;
-                const tileDiagonal = tileSize.length();
+                const worldScale = new THREE.Vector3();
+                this.object.getWorldScale(worldScale);
+                const scaledTileSize = new THREE.Vector3(
+                        tileSize.x * Math.abs(worldScale.x),
+                        tileSize.y * Math.abs(worldScale.y),
+                        tileSize.z * Math.abs(worldScale.z)
+                );
+                const tileDiagonal = scaledTileSize.length();
                 const nearDistance = tileDiagonal * this.lodConfig.nearMultiplier;
                 const midDistance = tileDiagonal * this.lodConfig.midMultiplier;
                 let changed = false;
@@ -998,7 +1005,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const dx = Math.max(tileMin.x - localCameraPos.x, 0, localCameraPos.x - tileMax.x);
                         const dy = Math.max(tileMin.y - localCameraPos.y, 0, localCameraPos.y - tileMax.y);
                         const dz = Math.max(tileMin.z - localCameraPos.z, 0, localCameraPos.z - tileMax.z);
-                        const dist = Math.hypot(dx, dy, dz);
+                        const dist = Math.hypot(
+                                dx * Math.abs(worldScale.x),
+                                dy * Math.abs(worldScale.y),
+                                dz * Math.abs(worldScale.z)
+                        );
                         let lodLevel = 0;
                         if (dist > midDistance) {
                                 lodLevel = 2;
