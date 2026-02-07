@@ -10,6 +10,12 @@
             left: 50%;
             transform: translate(-50%, -50%);
             display: none;
+            align-items: center;
+            gap: 12px;
+            color: #ffffff;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            font-size: 18px;
+            letter-spacing: 0.2px;
             z-index: 2;
             pointer-events: none;
         }
@@ -37,7 +43,11 @@
     indicator.id = 'loadingIndicator';
     const spinner = document.createElement('div');
     spinner.className = 'spinner';
+    const label = document.createElement('span');
+    label.className = 'loading-label';
+    label.textContent = 'Loading...';
     indicator.appendChild(spinner);
+    indicator.appendChild(label);
 
     const ensureIndicator = () => {
         if (!document.body.contains(indicator)) {
@@ -53,7 +63,7 @@
             return;
         }
         const timeSinceUpdate = performance.now() - lastUpdate;
-        indicator.style.display = timeSinceUpdate > LOADING_THRESHOLD_MS ? 'block' : 'none';
+        indicator.style.display = timeSinceUpdate > LOADING_THRESHOLD_MS ? 'flex' : 'none';
     };
 
     window.addEventListener('DOMContentLoaded', () => {
