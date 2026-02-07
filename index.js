@@ -1040,19 +1040,25 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lodState.activeIndices = activeIndices;
                 this.lodState.activeCount = activeCount;
                 this.lodState.activeVersion += 1;
-                const workerActive = activeIndices.subarray(0, activeCount);
+                const workerActive = new Uint32Array(activeCount);
+                if (activeCount > 0) {
+                        workerActive.set(activeIndices.subarray(0, activeCount));
+                }
                 this.worker.postMessage({
                         method: "setActive",
                         active: workerActive,
                         activeCount: activeCount
-                });
+                }, [workerActive.buffer]);
                 if (this.occlusionWorker) {
-                        const occlusionActive = activeIndices.subarray(0, activeCount);
+                        const occlusionActive = new Uint32Array(activeCount);
+                        if (activeCount > 0) {
+                                occlusionActive.set(activeIndices.subarray(0, activeCount));
+                        }
                         this.occlusionWorker.postMessage({
                                 method: "setActive",
                                 active: occlusionActive,
                                 activeCount: activeCount
-                        });
+                        }, [occlusionActive.buffer]);
                 }
         },
         tick: function (time, timeDelta) {
