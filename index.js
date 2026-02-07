@@ -1,3 +1,13 @@
+if (typeof window.Random === "undefined") {
+        const randomFn = function () {
+                return Math.random();
+        };
+        randomFn.random = Math.random;
+        randomFn.range = (min, max) => Math.random() * (max - min) + min;
+        randomFn.int = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+        window.Random = randomFn;
+}
+
 AFRAME.registerComponent("gaussian_splatting", {
         schema: {
                 src: { type: 'string', default: "" },
