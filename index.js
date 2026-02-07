@@ -1646,7 +1646,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (clip_w <= 0.0) continue;
                                 
                                 const maxRadius = matrices[offset + 15];
-                                if (maxRadius > 1.5) continue;
+                                if (maxRadius > 0.5) continue;
 
                                 const depth = f0 * px + f1 * py + f2 * pz + f3;
                                 if (depth >= 0.0) continue;
