@@ -961,6 +961,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const tiles = this.lodState.tiles;
                 if (!tiles || tiles.length === 0) return;
                 const worldCenter = new THREE.Vector3();
+                this.camera.getWorldPosition(this.tmpCameraPos);
                 const cameraPos = this.tmpCameraPos;
                 const objectMatrix = this.object.matrixWorld;
                 const tileSize = this.lodState.tileSize;
