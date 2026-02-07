@@ -454,6 +454,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.postMessage({ method: "clear" });
                 this.occlusionWorker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
+                this.originalBufferCounts = [];
                 this.isCaching = true;
 		const createPendingBuffer = () => ({
 			chunks: [],
@@ -537,6 +538,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 			},
 		});
 		const pending = createPendingBuffer();
+                const rowLength = this.rowLength;
+                const ensureSplatCapacity = this.ensureSplatCapacity.bind(this);
+                const parsePlyHeader = this.parsePlyHeader.bind(this);
+                const buildPlyBinaryBatch = this.buildPlyBinaryBatch.bind(this);
+                const processPlyBuffer = this.processPlyBuffer.bind(this);
+                const pushDataBuffer = this.pushDataBuffer.bind(this);
+                const rendererProperties = this.renderer.properties;
+                const centerTexture = this.centerAndScaleTexture;
+                const covTexture = this.covAndColorTexture;
 
 		fetch(src)
 			.then(async (data) => {
@@ -578,22 +588,22 @@ AFRAME.registerComponent("gaussian_splatting", {
 							const probe = decoder.decode(value.subarray(0, 4));
 							isPly = probe.startsWith("ply");
                                                         if (!isPly && totalDownloadBytes && !capacityEstimated) {
-                                                                const estimatedCount = Math.floor(totalDownloadBytes / this.rowLength);
-                                                                this.ensureSplatCapacity(estimatedCount);
+                                                                const estimatedCount = Math.floor(totalDownloadBytes / rowLength);
+                                                                ensureSplatCapacity(estimatedCount);
                                                                 capacityEstimated = true;
                                                         }
 						}
 						pending.append(value);
 						if (!this.textureReady &&
-							this.renderer.properties.get(this.centerAndScaleTexture) &&
-							this.renderer.properties.get(this.covAndColorTexture)) {
+							rendererProperties.get(centerTexture) &&
+							rendererProperties.get(covTexture)) {
 							this.textureReady = true;
 						}
 
 						if (isPly && !plyState) {
-							plyState = this.parsePlyHeader(plyPending.peekBytes(1024 * 10));
+							plyState = parsePlyHeader(plyPending.peekBytes(1024 * 10));
                                                         if (plyState && plyState.vertexCount && !capacityEstimated) {
-                                                                this.ensureSplatCapacity(plyState.vertexCount);
+                                                                ensureSplatCapacity(plyState.vertexCount);
                                                                 capacityEstimated = true;
                                                         }
 							if (plyState && plyState.format === "binary_little_endian") {
@@ -609,9 +619,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
 								const batchBytes = rowsToProcess * plyState.rowOffset;
 								const batchData = plyPending.consumeBytes(batchBytes);
-								const result = this.buildPlyBinaryBatch(plyState, batchData, rowsToProcess);
+								const result = buildPlyBinaryBatch(plyState, batchData, rowsToProcess);
 								if (result.vertexCount > 0) {
-									this.pushDataBuffer(result.buffer, result.vertexCount);
+									pushDataBuffer(result.buffer, result.vertexCount);
 								}
 								bytesProcesses += batchBytes;
 								rowsAvailable = Math.floor(plyPending.getByteLength() / plyState.rowOffset);
@@ -620,11 +630,11 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 						if (!isPly && this.textureReady) {
 							const availableBytes = pending.getByteLength();
-							const vertexCount = Math.floor(availableBytes / this.rowLength);
+							const vertexCount = Math.floor(availableBytes / rowLength);
 							if (vertexCount > 0) {
-								const batchBytes = vertexCount * this.rowLength;
+								const batchBytes = vertexCount * rowLength;
 								const batchData = pending.consumeBytes(batchBytes);
-								this.pushDataBuffer(batchData.buffer, vertexCount);
+								pushDataBuffer(batchData.buffer, vertexCount);
 								bytesProcesses += batchBytes;
 							}
 						}
@@ -643,9 +653,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
 								const batchBytes = rowsToProcess * plyState.rowOffset;
 								const batchData = plyPending.consumeBytes(batchBytes);
-								const result = this.buildPlyBinaryBatch(plyState, batchData, rowsToProcess);
+								const result = buildPlyBinaryBatch(plyState, batchData, rowsToProcess);
 								if (result.vertexCount > 0) {
-									this.pushDataBuffer(result.buffer, result.vertexCount);
+									pushDataBuffer(result.buffer, result.vertexCount);
 								}
 								bytesProcesses += batchBytes;
 								rowsAvailable = Math.floor(plyPending.getByteLength() / plyState.rowOffset);
@@ -653,15 +663,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 						}
 					} else if (isPly) {
 						const plyBuffer = plyPending.toUint8Array().buffer;
-						let concatenatedChunks = new Uint8Array(this.processPlyBuffer(plyBuffer));
-						this.pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / this.rowLength));
+						let concatenatedChunks = new Uint8Array(processPlyBuffer(plyBuffer));
+						pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / rowLength));
 					} else {
 						const remainingBytes = pending.getByteLength();
-						const vertexCount = Math.floor(remainingBytes / this.rowLength);
+						const vertexCount = Math.floor(remainingBytes / rowLength);
 						if (vertexCount > 0) {
-							const batchBytes = vertexCount * this.rowLength;
+							const batchBytes = vertexCount * rowLength;
 							const batchData = pending.consumeBytes(batchBytes);
-							this.pushDataBuffer(batchData.buffer, vertexCount);
+							pushDataBuffer(batchData.buffer, vertexCount);
 						}
 					}
 				}
@@ -685,7 +695,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                         return;
                 }
                 if (this.isCaching) {
-                        this.originalBuffers.push(buffer.slice(0));
+                        const expectedBytes = vertexCount * this.rowLength;
+                        const cachedBuffer = buffer.byteLength === expectedBytes
+                                ? buffer
+                                : buffer.slice(0, expectedBytes);
+                        this.originalBuffers.push(cachedBuffer);
+                        this.originalBufferCounts.push(vertexCount);
                 }
                 
 		let u_buffer = new Uint8Array(buffer);
@@ -873,8 +888,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.worker.postMessage({ method: "clear" });
                 this.centerAndScaleTexture.needsUpdate = true;
                 this.covAndColorTexture.needsUpdate = true;
-                for (const buf of this.originalBuffers) {
-                        this.pushDataBuffer(buf, buf.byteLength / this.rowLength);
+                const buffers = this.originalBuffers;
+                const counts = this.originalBufferCounts || [];
+                const pushDataBuffer = this.pushDataBuffer;
+                const rowLength = this.rowLength;
+                for (let i = 0; i < buffers.length; i++) {
+                        const buf = buffers[i];
+                        const vertexCount = counts[i] || (buf.byteLength / rowLength);
+                        pushDataBuffer.call(this, buf, vertexCount);
                 }
                 this.sortReady = true;
         },
