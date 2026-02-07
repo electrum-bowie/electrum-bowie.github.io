@@ -971,6 +971,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         activeIndices: new Uint32Array(totalSplats),
                         activeCount: totalSplats,
                         activeVersion: 0,
+                        totalSplats,
                 };
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 this.updateTileLods(true);
@@ -1020,10 +1021,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (!changed && !force) {
                         return;
                 }
+                const maxActive = this.lodState.totalSplats || this.loadedVertexCount || activeCount;
+                if (!maxActive || maxActive <= 0) {
+                        return;
+                }
+                if (activeCount > maxActive) {
+                        activeCount = maxActive;
+                }
                 let activeIndices = this.lodState.activeIndices;
                 if (!activeIndices || activeIndices.length < activeCount) {
                         const previousLength = activeIndices ? activeIndices.length : 0;
-                        const nextLength = Math.max(activeCount, Math.ceil(previousLength * 1.5) || activeCount);
+                        const nextLength = Math.min(
+                                Math.max(activeCount, Math.ceil(previousLength * 1.5) || activeCount),
+                                maxActive
+                        );
                         activeIndices = new Uint32Array(nextLength);
                 }
                 let offset = 0;
