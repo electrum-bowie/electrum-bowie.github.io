@@ -23,8 +23,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const gl = this.el.sceneEl.renderer.getContext();
                 gl.disable(gl.DITHER);
                 this.originalBuffers = [];
-                this.pendingWorkerBatches = [];
-                this.pendingWorkerClear = false;
                 this.needsQualityUpdate = false;
                 this.initGL(this.el.sceneEl.camera.el.components.camera.camera, this.el.object3D, this.el.sceneEl.renderer);
                 this.loadData(this.data.src);
@@ -453,9 +451,9 @@ AFRAME.registerComponent("gaussian_splatting", {
         loadData: function (src) {
                 this.loadedVertexCount = 0;
                 this.rowLength = 3 * 4 + 3 * 4 + 4 + 4;
+                this.worker.postMessage({ method: "clear" });
+                this.occlusionWorker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
-                this.pendingWorkerBatches = [];
-                this.pendingWorkerClear = true;
                 this.isCaching = true;
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -687,7 +685,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         })
                         .finally(() => {
                                 this.isCaching = false;
-                                this.flushPendingWorkerUpdates();
                                 if (this.needsQualityUpdate) {
                                         this.needsQualityUpdate = false;
                                         this.updateQuality();
@@ -836,10 +833,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 		}
 
                 const matricesCopy = matrices.slice();
-                if (this.isCaching) {
-                        this.pendingWorkerBatches.push({ matrices: matricesCopy, normals });
-                        return;
-                }
                 this.worker.postMessage({
                         method: "push",
                         matrices: matrices.buffer
@@ -850,34 +843,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         normals: normals.buffer
                 }, [matricesCopy.buffer, normals.buffer]);
 	},
-        flushPendingWorkerUpdates: function () {
-                if (this.pendingWorkerClear) {
-                        this.worker.postMessage({ method: "clear" });
-                        this.occlusionWorker.postMessage({ method: "clear" });
-                        this.pendingWorkerClear = false;
-                }
-                if (!this.pendingWorkerBatches || this.pendingWorkerBatches.length === 0) {
-                        return;
-                }
-                for (const batch of this.pendingWorkerBatches) {
-                        const matricesCopy = batch.matrices.slice();
-                        this.worker.postMessage({
-                                method: "push",
-                                matrices: batch.matrices.buffer
-                        }, [batch.matrices.buffer]);
-                        this.occlusionWorker.postMessage({
-                                method: "push",
-                                matrices: matricesCopy.buffer,
-                                normals: batch.normals.buffer
-                        }, [matricesCopy.buffer, batch.normals.buffer]);
-                }
-                this.pendingWorkerBatches = [];
-        },
         tick: function (time, timeDelta) {
                 this.updateDynamicResolution(time, timeDelta);
-                if (this.isCaching) {
-                        return;
-                }
 
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 
@@ -1034,7 +1001,6 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
 
         filterSplatsNow: function () {
-                if (this.isCaching) return;
                 if (!this.filterReady) return;
                 this.filterReady = false;
                 const viewMatrix = this.getModelViewMatrix();
@@ -1053,7 +1019,6 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
 
         occludeSplatsNow: function () {
-                if (this.isCaching) return;
                 if (!this.occlusionReady) return;
                 this.occlusionReady = false;
                 const viewMatrix = this.getModelViewMatrix();
@@ -1080,7 +1045,6 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
 
         sortSplatsNow: function () {
-                if (this.isCaching) return;
                 if (!this.sortReady) return;
                 this.sortReady = false;
                 this.lastCameraMatrix.copy(this.camera.matrixWorld);
