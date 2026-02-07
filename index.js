@@ -13,13 +13,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.frameTimeSamples = [];
                 this.lastDynamicUpdate = 0;
                 this.targetFrameRate = 72;
-                this.postImportDelayMs = 40000;
-                this.postImportStartTime = null;
-                this.postImportWorkerUpdates = 0;
-                this.postImportFrameUpdates = 0;
-                this.postImportProgressActive = false;
-                this.postImportLastPercent = -1;
-                this.postImportFinishingLogged = false;
 
                 const pixelRatio = this.data.pixelRatio < 0 ? window.devicePixelRatio : this.data.pixelRatio;
                 const xrPixelRatio = this.data.xrPixelRatio < 0 ? window.devicePixelRatio : this.data.xrPixelRatio;
@@ -350,7 +343,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.worker.onmessage = (e) => {
                         if (e.data.method === "sort") {
-                                this.recordPostImportWorkerUpdate();
                                 const indexes = new Uint32Array(e.data.sortedIndexes);
                                 let indexAttr = mesh.geometry.getAttribute('splatIndex');
                                 if (!indexAttr || indexAttr.array.length !== indexes.length) {
@@ -378,7 +370,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 this.sortReady = true;
                         } else if (e.data.method === "filter") {
-                                this.recordPostImportWorkerUpdate();
                                 this.filterReady = true;
                         }
                 };
@@ -395,7 +386,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 this.occlusionWorker.onmessage = (e) => {
                         if (e.data.method === "occlude") {
-                                this.recordPostImportWorkerUpdate();
                                 const discarded = new Uint32Array(e.data.discard);
                                 this.splatsToDiscard = Array.from(discarded);
                                 this.occlusionReady = true;
@@ -855,8 +845,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 	},
         tick: function (time, timeDelta) {
                 this.updateDynamicResolution(time, timeDelta);
-                this.updatePostImportProgress();
-                this.maybeLogPostImportFinishing();
 
                 this.camera.getWorldPosition(this.tmpCameraPos);
                 
@@ -1067,50 +1055,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lastObjectPos.copy(this.object.position);
                 this.lastObjectQuat.copy(this.object.quaternion);
                 this.worker.postMessage({ method: "sort" });
-        },
-        startPostImportProgress: function () {
-                this.postImportStartTime = Date.now();
-                this.postImportWorkerUpdates = 0;
-                this.postImportFrameUpdates = 0;
-                this.postImportProgressActive = true;
-                this.postImportLastPercent = -1;
-                this.postImportFinishingLogged = false;
-                console.log("Load progress: 0%");
-        },
-        recordPostImportWorkerUpdate: function () {
-                if (!this.postImportProgressActive || this.postImportStartTime === null) return;
-                this.postImportWorkerUpdates += 1;
-                if (this.postImportWorkerUpdates > 10) {
-                        console.log("Import successful");
-                        this.postImportProgressActive = false;
-                        return;
-                }
-        },
-        updatePostImportProgress: function () {
-                if (!this.postImportProgressActive || this.postImportStartTime === null) return;
-                const now = Date.now();
-                if (now - this.postImportStartTime < this.postImportDelayMs) return;
-                if (this.postImportWorkerUpdates > 10) {
-                        return;
-                }
-                if (this.postImportFrameUpdates < 100) {
-                        this.postImportFrameUpdates += 1;
-                }
-                const percent = Math.min(100, this.postImportFrameUpdates);
-                if (percent !== this.postImportLastPercent) {
-                        console.log(`Load progress: ${percent}%`);
-                        this.postImportLastPercent = percent;
-                }
-        },
-        maybeLogPostImportFinishing: function () {
-                if (!this.postImportProgressActive || this.postImportStartTime === null) return;
-                if (this.postImportFinishingLogged) return;
-                const now = Date.now();
-                if (now - this.postImportStartTime < this.postImportDelayMs) return;
-                if (this.postImportWorkerUpdates <= 10) {
-                        console.log("Finishing up...");
-                        this.postImportFinishingLogged = true;
-                }
         },
         getProjectionMatrix: function (camera) {
                 if (!camera) {
