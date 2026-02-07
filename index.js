@@ -1044,21 +1044,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lodState.activeIndices = activeIndices;
                 this.lodState.activeCount = activeCount;
                 this.lodState.activeVersion += 1;
-                const workerActive = activeIndices.slice();
-                const workerBuffer = workerActive.buffer;
+                const workerActive = activeIndices.subarray(0, activeCount);
                 this.worker.postMessage({
                         method: "setActive",
-                        active: workerBuffer,
+                        active: workerActive,
                         activeCount: activeCount
-                }, [workerBuffer]);
+                });
                 if (this.occlusionWorker) {
-                        const occlusionActive = activeIndices.slice();
-                        const occlusionBuffer = occlusionActive.buffer;
+                        const occlusionActive = activeIndices.subarray(0, activeCount);
                         this.occlusionWorker.postMessage({
                                 method: "setActive",
-                                active: occlusionBuffer,
+                                active: occlusionActive,
                                 activeCount: activeCount
-                        }, [occlusionBuffer]);
+                        });
                 }
         },
         tick: function (time, timeDelta) {
@@ -1329,6 +1327,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let pendingActive = null;
 
                 const COUNT_SIZE = 1200 * 1200;
+                const toUint32Array = (data) => {
+                        if (!data) return null;
+                        if (data instanceof Uint32Array) return data;
+                        if (ArrayBuffer.isView(data)) {
+                                return new Uint32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+                        }
+                        if (data instanceof ArrayBuffer) return new Uint32Array(data);
+                        return new Uint32Array(data);
+                };
 
                 let cache = {
                         capacity: 0,
@@ -1541,9 +1548,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         applyActiveList(pendingActive, matrices.length / 16);
                                         pendingActive = null;
                                 }
-			}
+                        }
                         if (e.data.method == "setActive") {
-                                const indices = e.data.active ? new Uint32Array(e.data.active) : null;
+                                const indices = toUint32Array(e.data.active);
                                 if (matrices) {
                                         applyActiveList(indices, matrices.length / 16);
                                 } else {
@@ -1593,6 +1600,15 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let activeIndices = null;
 
                 const COUNT_SIZE = 256 * 256;
+                const toUint32Array = (data) => {
+                        if (!data) return null;
+                        if (data instanceof Uint32Array) return data;
+                        if (ArrayBuffer.isView(data)) {
+                                return new Uint32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+                        }
+                        if (data instanceof ArrayBuffer) return new Uint32Array(data);
+                        return new Uint32Array(data);
+                };
 
                 let cache = {
                         capacity: 0,
@@ -1833,7 +1849,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                         }
                         if (e.data.method == "setActive") {
-                                activeIndices = e.data.active ? new Uint32Array(e.data.active) : null;
+                                activeIndices = toUint32Array(e.data.active);
                         }
                         if (e.data.method == "occlude") {
                                 let discard = new Uint32Array(0);
