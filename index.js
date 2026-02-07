@@ -110,13 +110,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lodState = null;
                 this.lodConfig = {
                         gridSize: 7,
-                        levels: [1, 2, 4],
+                        levels: [1, 2, 3],
                         nearMultiplier: 0.4,
                         midMultiplier: 1.0,
                 };
-                this.lodMergedCount = 0;
-                this.lodMergedStart = 0;
-                this.normalsData = null;
 
                 const gl = this.renderer.getContext();
                 this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
@@ -726,21 +723,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let normals = new Float32Array(vertexCount * 3);
 
                 const axisX = new THREE.Vector3();
-		const axisY = new THREE.Vector3();
-		const axisZ = new THREE.Vector3();
+                const axisY = new THREE.Vector3();
+                const axisZ = new THREE.Vector3();
 
 		const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
 		const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
-                const requiredNormalCount = (this.loadedVertexCount + vertexCount) * 3;
-                if (!this.normalsData || this.normalsData.length < requiredNormalCount) {
-                        const current = this.normalsData ? this.normalsData.length : 0;
-                        const nextSize = Math.max(requiredNormalCount, Math.floor(current * 1.5));
-                        const resizedNormals = new Float32Array(nextSize || requiredNormalCount);
-                        if (this.normalsData) {
-                                resizedNormals.set(this.normalsData);
-                        }
-                        this.normalsData = resizedNormals;
-                }
                 for (let i = 0; i < vertexCount; i++) {
 			let quat = new THREE.Quaternion(
 				(u_buffer[32 * i + 28 + 1] - 128) / 128.0,
@@ -791,9 +778,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         normals[i * 3 + 0] = chosenAxis.x;
                         normals[i * 3 + 1] = chosenAxis.y;
                         normals[i * 3 + 2] = chosenAxis.z;
-                        this.normalsData[(this.loadedVertexCount + i) * 3 + 0] = chosenAxis.x;
-                        this.normalsData[(this.loadedVertexCount + i) * 3 + 1] = chosenAxis.y;
-                        this.normalsData[(this.loadedVertexCount + i) * 3 + 2] = chosenAxis.z;
 
 			let cov_indexes = [0, 1, 2, 5, 6, 10];
 			let max_value = 0.0;
@@ -904,13 +888,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         size.y / gridSize,
                         size.z / gridSize
                 );
-                const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
-                const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
-                const mergeMatrices = [];
-                const mergeNormals = [];
-                const mergeFactors = this.lodConfig.levels.map((stride, idx) => idx === 0 ? 1 : Math.max(2, Math.round(stride)));
-                this.lodMergedStart = totalSplats;
-                this.lodMergedCount = 0;
                 const tiles = [];
                 const tileCount = gridSize * gridSize * gridSize;
                 for (let i = 0; i < tileCount; i++) {
@@ -950,139 +927,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         return selected;
                 };
-                const appendMergedSplat = (indices) => {
-                        let weightSum = 0;
-                        let alphaSum = 0;
-                        let centerX = 0;
-                        let centerY = 0;
-                        let centerZ = 0;
-                        const covSums = [0, 0, 0, 0, 0, 0];
-                        let colorR = 0;
-                        let colorG = 0;
-                        let colorB = 0;
-                        let normalX = 0;
-                        let normalY = 0;
-                        let normalZ = 0;
-                        for (let i = 0; i < indices.length; i++) {
-                                const idx = indices[i];
-                                const centerOffset = idx * 4;
-                                const scale = this.centerAndScaleData[centerOffset + 3];
-                                const colorOffset = idx * 16 + 12;
-                                const alpha = covAndColorData_uint8[colorOffset + 3];
-                                const weight = Math.max(alpha / 255.0, 0.001);
-                                weightSum += weight;
-                                alphaSum += alpha;
-                                centerX += this.centerAndScaleData[centerOffset + 0] * weight;
-                                centerY += this.centerAndScaleData[centerOffset + 1] * weight;
-                                centerZ += this.centerAndScaleData[centerOffset + 2] * weight;
-
-                                const covOffset = idx * 8;
-                                covSums[0] += covAndColorData_int16[covOffset + 0] * scale * weight;
-                                covSums[1] += covAndColorData_int16[covOffset + 1] * scale * weight;
-                                covSums[2] += covAndColorData_int16[covOffset + 2] * scale * weight;
-                                covSums[3] += covAndColorData_int16[covOffset + 3] * scale * weight;
-                                covSums[4] += covAndColorData_int16[covOffset + 4] * scale * weight;
-                                covSums[5] += covAndColorData_int16[covOffset + 5] * scale * weight;
-
-                                colorR += covAndColorData_uint8[colorOffset + 0] * alpha;
-                                colorG += covAndColorData_uint8[colorOffset + 1] * alpha;
-                                colorB += covAndColorData_uint8[colorOffset + 2] * alpha;
-
-                                if (this.normalsData && this.normalsData.length >= (idx * 3 + 3)) {
-                                        normalX += this.normalsData[idx * 3 + 0] * weight;
-                                        normalY += this.normalsData[idx * 3 + 1] * weight;
-                                        normalZ += this.normalsData[idx * 3 + 2] * weight;
-                                }
-                        }
-                        if (weightSum <= 0) {
-                                weightSum = 1.0;
-                        }
-                        const invWeight = 1.0 / weightSum;
-                        const mergedCenterX = centerX * invWeight;
-                        const mergedCenterY = centerY * invWeight;
-                        const mergedCenterZ = centerZ * invWeight;
-                        const mergedCov = covSums.map((value) => value * invWeight);
-                        const alphaOut = Math.min(255, Math.round(alphaSum));
-                        const colorWeight = alphaSum > 0 ? 1.0 / alphaSum : invWeight;
-                        const mergedColorR = Math.round(colorR * colorWeight);
-                        const mergedColorG = Math.round(colorG * colorWeight);
-                        const mergedColorB = Math.round(colorB * colorWeight);
-
-                        const mergedIndex = this.lodMergedStart + this.lodMergedCount;
-                        this.lodMergedCount += 1;
-
-                        const centerOffset = mergedIndex * 4;
-                        let maxValue = 0.0;
-                        for (let i = 0; i < mergedCov.length; i++) {
-                                maxValue = Math.max(maxValue, Math.abs(mergedCov[i]));
-                        }
-                        if (maxValue < 1e-6) {
-                                maxValue = 1e-6;
-                        }
-                        const scale = maxValue / 32767.0;
-                        this.centerAndScaleData[centerOffset + 0] = mergedCenterX;
-                        this.centerAndScaleData[centerOffset + 1] = mergedCenterY;
-                        this.centerAndScaleData[centerOffset + 2] = mergedCenterZ;
-                        this.centerAndScaleData[centerOffset + 3] = scale;
-
-                        const covOffset = mergedIndex * 8;
-                        covAndColorData_int16[covOffset + 0] = Math.round(mergedCov[0] * 32767.0 / maxValue);
-                        covAndColorData_int16[covOffset + 1] = Math.round(mergedCov[1] * 32767.0 / maxValue);
-                        covAndColorData_int16[covOffset + 2] = Math.round(mergedCov[2] * 32767.0 / maxValue);
-                        covAndColorData_int16[covOffset + 3] = Math.round(mergedCov[3] * 32767.0 / maxValue);
-                        covAndColorData_int16[covOffset + 4] = Math.round(mergedCov[4] * 32767.0 / maxValue);
-                        covAndColorData_int16[covOffset + 5] = Math.round(mergedCov[5] * 32767.0 / maxValue);
-
-                        const colorOffset = mergedIndex * 16 + 12;
-                        covAndColorData_uint8[colorOffset + 0] = Math.max(0, Math.min(255, mergedColorR));
-                        covAndColorData_uint8[colorOffset + 1] = Math.max(0, Math.min(255, mergedColorG));
-                        covAndColorData_uint8[colorOffset + 2] = Math.max(0, Math.min(255, mergedColorB));
-                        covAndColorData_uint8[colorOffset + 3] = alphaOut;
-
-                        const cov11 = mergedCov[0];
-                        const cov12 = mergedCov[1];
-                        const cov13 = mergedCov[2];
-                        const cov22 = mergedCov[3];
-                        const cov23 = mergedCov[4];
-                        const cov33 = mergedCov[5];
-                        const maxRadius = Math.sqrt(Math.max(Math.abs(cov11), Math.abs(cov22), Math.abs(cov33), 0));
-
-                        mergeMatrices.push(
-                                cov11, cov12, cov13, 0,
-                                cov12, cov22, cov23, 0,
-                                cov13, cov23, cov33, alphaOut / 255.0,
-                                mergedCenterX, mergedCenterY, mergedCenterZ, maxRadius
-                        );
-
-                        let normalLen = Math.hypot(normalX, normalY, normalZ);
-                        if (normalLen > 1e-5) {
-                                normalX /= normalLen;
-                                normalY /= normalLen;
-                                normalZ /= normalLen;
-                        }
-                        mergeNormals.push(normalX, normalY, normalZ);
-
-                        return mergedIndex;
-                };
-                const buildMergedList = (list, factor, fallbackStride, fallbackOffset) => {
-                        if (factor <= 1 || list.length <= 1) {
-                                return list.slice();
-                        }
-                        const needed = Math.ceil(list.length / factor);
-                        if (this.lodMergedStart + this.lodMergedCount + needed > this.maxSplatCount) {
-                                return selectStride(list, fallbackStride, fallbackOffset);
-                        }
-                        const merged = [];
-                        for (let i = 0; i < list.length; i += factor) {
-                                const group = list.slice(i, i + factor);
-                                if (group.length === 1) {
-                                        merged.push(group[0]);
-                                } else {
-                                        merged.push(appendMergedSplat(group));
-                                }
-                        }
-                        return merged;
-                };
                 const levels = this.lodConfig.levels;
                 for (let z = 0; z < gridSize; z++) {
                         for (let y = 0; y < gridSize; y++) {
@@ -1108,59 +952,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 min.z + (z + 1) * tileSize.z
                                         );
                                         const baseList = tile.indices;
-                                        tile.lods = levels.map((stride, levelIndex) => {
+                                        tile.lods = levels.map((stride) => {
                                                 const offset = (index + stride) % stride;
-                                                const factor = mergeFactors[levelIndex] || Math.max(2, stride);
-                                                return buildMergedList(baseList, factor, stride, offset);
+                                                return selectStride(baseList, stride, offset);
                                         });
                                 }
-                        }
-                }
-                if (this.lodMergedCount > 0) {
-                        const mergedMatricesArray = new Float32Array(mergeMatrices);
-                        const mergedNormalsArray = new Float32Array(mergeNormals);
-                        const mergedMatricesCopy = mergedMatricesArray.slice();
-                        this.worker.postMessage({
-                                method: "push",
-                                matrices: mergedMatricesArray.buffer
-                        }, [mergedMatricesArray.buffer]);
-                        if (this.occlusionWorker) {
-                                this.occlusionWorker.postMessage({
-                                        method: "push",
-                                        matrices: mergedMatricesCopy.buffer,
-                                        normals: mergedNormalsArray.buffer
-                                }, [mergedMatricesCopy.buffer, mergedNormalsArray.buffer]);
-                        }
-
-                        const gl = this.renderer.getContext();
-                        let remaining = this.lodMergedCount;
-                        let offsetIndex = this.lodMergedStart;
-                        while (remaining > 0) {
-                                let width = 0;
-                                let height = 0;
-                                let xoffset = (offsetIndex % this.textureSize);
-                                let yoffset = Math.floor(offsetIndex / this.textureSize);
-                                if (offsetIndex % this.textureSize != 0) {
-                                        width = Math.min(this.textureSize, xoffset + remaining) - xoffset;
-                                        height = 1;
-                                } else if (Math.floor(remaining / this.textureSize) > 0) {
-                                        width = this.textureSize;
-                                        height = Math.floor(remaining / this.textureSize);
-                                } else {
-                                        width = remaining % this.textureSize;
-                                        height = 1;
-                                }
-
-                                const centerAndScaleTextureProperties = this.renderer.properties.get(this.centerAndScaleTexture);
-                                gl.bindTexture(gl.TEXTURE_2D, centerAndScaleTextureProperties.__webglTexture);
-                                gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA, gl.FLOAT, this.centerAndScaleData, offsetIndex * 4);
-
-                                const covAndColorTextureProperties = this.renderer.properties.get(this.covAndColorTexture);
-                                gl.bindTexture(gl.TEXTURE_2D, covAndColorTextureProperties.__webglTexture);
-                                gl.texSubImage2D(gl.TEXTURE_2D, 0, xoffset, yoffset, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, this.covAndColorData, offsetIndex * 4);
-
-                                remaining -= width * height;
-                                offsetIndex += width * height;
                         }
                 }
                 this.lodState = {
@@ -1170,8 +966,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         min,
                         max,
                         tiles,
-                        mergedStart: this.lodMergedStart,
-                        mergedCount: this.lodMergedCount,
                         activeIndices: new Uint32Array(totalSplats),
                         activeCount: totalSplats,
                         activeVersion: 0,
@@ -1309,10 +1103,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
                 if (!this.originalBuffers || this.originalBuffers.length === 0) return;
                 this.loadedVertexCount = 0;
-                this.lodMergedCount = 0;
-                this.lodMergedStart = 0;
-                this.lodState = null;
-                this.normalsData = null;
                 if (this.mesh && this.mesh.geometry) {
                         this.mesh.geometry.instanceCount = 0;
                 }
@@ -1328,7 +1118,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const vertexCount = counts[i] || (buf.byteLength / rowLength);
                         pushDataBuffer.call(this, buf, vertexCount);
                 }
-                this.buildLodTiles();
                 this.updateTileLods(true);
                 this.sortReady = true;
         },
