@@ -375,11 +375,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 this.sortReady = true;
                         } else if (e.data.method === "filter") {
-                                if (e.data.filteredIndices) {
-                                        const filtered = new Uint32Array(e.data.filteredIndices);
-                                        this.filteredSplatIndices = filtered;
-                                        this.occlusionWorker.postMessage({ method: "filter", filteredIndices: filtered.buffer }, [filtered.buffer]);
-                                }
                                 this.filterReady = true;
                         }
                 };
@@ -1308,7 +1303,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                         }
                         if (e.data.method == "filter") {
-                                let filteredIndices = new Uint32Array(0);
                                 if (matrices !== undefined) {
                                         ensureCapacity(matrices.length / 16);
                                         const vertexCount = matrices.length / 16;
@@ -1325,12 +1319,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         const scaleFactor = typeof e.data.scale === 'number' ? e.data.scale : 1.0;
                                         const focal = typeof e.data.focal === 'number' ? e.data.focal : 1.0;
                                         filterSplats(matrices, view, mvp, scaleFactor, focal);
-                                        if (filterResult.count > 0) {
-                                                filteredIndices = new Uint32Array(filterResult.count);
-                                                filteredIndices.set(cache.validIndexList.subarray(0, filterResult.count));
-                                        }
                                 }
-                                self.postMessage({ method: "filter", filteredIndices }, [filteredIndices.buffer]);
+                                self.postMessage({ method: "filter" });
                         }
                         if (e.data.method == "sort") {
                                if (matrices === undefined) {
@@ -1352,7 +1342,6 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
-                let filteredIndices = null;
 
                 const COUNT_SIZE = 256 * 256;
                 let cache = {
@@ -1378,12 +1367,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0, camera = null) {
                         const vertexCount = matrices.length / 16;
-                        const useFiltered = filteredIndices !== null;
-                        const activeCount = useFiltered ? filteredIndices.length : vertexCount;
-                        if (activeCount === 0) {
-                                return new Uint32Array(0);
-                        }
-                        ensureCapacity(activeCount);
+                        ensureCapacity(vertexCount);
                         const hasNormals = !!normals && normals.length >= vertexCount * 3;
                         const hasCamera = !!camera && camera.length >= 3;
                         const cameraX = hasCamera ? camera[0] : 0;
@@ -1405,8 +1389,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        for (let i = 0; i < activeCount; i++) {
-                                const idx = useFiltered ? filteredIndices[i] : i;
+                        for (let idx = 0; idx < vertexCount; idx++) {
                                 const offset = idx * 16;
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
@@ -1570,7 +1553,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method == "clear") {
                                 matrices = undefined;
                                 normals = undefined;
-                                filteredIndices = null;
                         }
                         if (e.data.method == "push") {
                                 const new_matrices = new Float32Array(e.data.matrices);
@@ -1595,9 +1577,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 } else {
                                         normals = undefined;
                                 }
-                        }
-                        if (e.data.method == "filter") {
-                                filteredIndices = e.data.filteredIndices ? new Uint32Array(e.data.filteredIndices) : null;
                         }
                         if (e.data.method == "occlude") {
                                 let discard = new Uint32Array(0);
