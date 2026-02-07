@@ -10,6 +10,8 @@
             left: 50%;
             transform: translate(-50%, -50%);
             display: none;
+            align-items: center;
+            gap: 16px;
             z-index: 2;
             pointer-events: none;
         }
@@ -31,13 +33,26 @@
                 transform: rotate(360deg);
             }
         }
+
+        #loadingIndicator .loadingText {
+            color: #ffffff;
+            font-family: "Helvetica Neue", Arial, sans-serif;
+            font-size: 20px;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+        }
     `;
 
     const indicator = document.createElement('div');
     indicator.id = 'loadingIndicator';
     const spinner = document.createElement('div');
     spinner.className = 'spinner';
+    const loadingText = document.createElement('span');
+    loadingText.className = 'loadingText';
+    loadingText.textContent = 'Loading...';
     indicator.appendChild(spinner);
+    indicator.appendChild(loadingText);
 
     const ensureIndicator = () => {
         if (!document.body.contains(indicator)) {
@@ -53,7 +68,7 @@
             return;
         }
         const timeSinceUpdate = performance.now() - lastUpdate;
-        indicator.style.display = timeSinceUpdate > LOADING_THRESHOLD_MS ? 'block' : 'none';
+        indicator.style.display = timeSinceUpdate > LOADING_THRESHOLD_MS ? 'flex' : 'none';
     };
 
     window.addEventListener('DOMContentLoaded', () => {
