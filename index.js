@@ -995,10 +995,23 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let activeCount = 0;
                 for (let i = 0; i < tiles.length; i++) {
                         const tile = tiles[i];
-                        const tileCenter = tile.center;
-                        const dx = (tileCenter.x - localCameraPos.x) / tileSize.x;
-                        const dy = (tileCenter.y - localCameraPos.y) / tileSize.y;
-                        const dz = (tileCenter.z - localCameraPos.z) / tileSize.z;
+                        const tileMin = tile.min;
+                        const tileMax = tile.max;
+                        const dx = localCameraPos.x < tileMin.x
+                                ? (tileMin.x - localCameraPos.x) / tileSize.x
+                                : localCameraPos.x > tileMax.x
+                                        ? (localCameraPos.x - tileMax.x) / tileSize.x
+                                        : 0;
+                        const dy = localCameraPos.y < tileMin.y
+                                ? (tileMin.y - localCameraPos.y) / tileSize.y
+                                : localCameraPos.y > tileMax.y
+                                        ? (localCameraPos.y - tileMax.y) / tileSize.y
+                                        : 0;
+                        const dz = localCameraPos.z < tileMin.z
+                                ? (tileMin.z - localCameraPos.z) / tileSize.z
+                                : localCameraPos.z > tileMax.z
+                                        ? (localCameraPos.z - tileMax.z) / tileSize.z
+                                        : 0;
                         const dist = Math.hypot(
                                 Math.abs(dx),
                                 Math.abs(dy),
