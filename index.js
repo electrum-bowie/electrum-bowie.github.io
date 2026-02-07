@@ -111,6 +111,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.lodConfig = {
                         gridSize: 7,
                         levels: [1, 2, 3],
+                        reductionFactors: [1, 2, 4],
                         nearMultiplier: 0.4,
                         midMultiplier: 1.0,
                 };
@@ -863,6 +864,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (!totalSplats || !this.centerAndScaleData || totalSplats <= 0) {
                         return;
                 }
+                const baseSplats = totalSplats;
                 const gridSize = this.lodConfig.gridSize;
                 const min = new THREE.Vector3(Infinity, Infinity, Infinity);
                 const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
@@ -912,22 +914,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const tileIndex = ix + iy * gridSize + iz * gridSize * gridSize;
                         tiles[tileIndex].indices.push(i);
                 }
-                const selectStride = (list, stride, offset) => {
-                        if (stride <= 1 || list.length <= 1) {
-                                return list.slice();
-                        }
-                        const selected = [];
-                        for (let i = 0; i < list.length; i++) {
-                                if (i % stride === offset) {
-                                        selected.push(list[i]);
-                                }
-                        }
-                        if (selected.length === 0 && list.length > 0) {
-                                selected.push(list[0]);
-                        }
-                        return selected;
-                };
                 const levels = this.lodConfig.levels;
+                const reductionFactors = this.lodConfig.reductionFactors || [];
+                let estimatedMergedCount = 0;
                 for (let z = 0; z < gridSize; z++) {
                         for (let y = 0; y < gridSize; y++) {
                                 for (let x = 0; x < gridSize; x++) {
@@ -952,12 +941,227 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 min.z + (z + 1) * tileSize.z
                                         );
                                         const baseList = tile.indices;
-                                        tile.lods = levels.map((stride) => {
-                                                const offset = (index + stride) % stride;
-                                                return selectStride(baseList, stride, offset);
+                                        for (let levelIndex = 1; levelIndex < levels.length; levelIndex++) {
+                                                const factor = reductionFactors[levelIndex] || 2;
+                                                if (baseList.length > 1 && factor > 1) {
+                                                        estimatedMergedCount += Math.ceil(baseList.length / factor);
+                                                }
+                                        }
+                                }
+                        }
+                }
+                this.ensureSplatCapacity(baseSplats + estimatedMergedCount);
+                const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
+                const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
+                const mergedMatrices = [];
+                const mergedNormals = [];
+                let nextIndex = baseSplats;
+                const readCovComponents = (idx) => {
+                        const scale = this.centerAndScaleData[idx * 4 + 3];
+                        const base = idx * 8;
+                        return [
+                                covAndColorData_int16[base + 0] * scale,
+                                covAndColorData_int16[base + 1] * scale,
+                                covAndColorData_int16[base + 2] * scale,
+                                covAndColorData_int16[base + 3] * scale,
+                                covAndColorData_int16[base + 4] * scale,
+                                covAndColorData_int16[base + 5] * scale,
+                        ];
+                };
+                const readColor = (idx) => {
+                        const base = idx * 16 + 12;
+                        return [
+                                covAndColorData_uint8[base + 0],
+                                covAndColorData_uint8[base + 1],
+                                covAndColorData_uint8[base + 2],
+                                covAndColorData_uint8[base + 3],
+                        ];
+                };
+                const writeMergedSplat = (center, covComponents, color) => {
+                        const index = nextIndex++;
+                        const centerOffset = index * 4;
+                        this.centerAndScaleData[centerOffset + 0] = center.x;
+                        this.centerAndScaleData[centerOffset + 1] = center.y;
+                        this.centerAndScaleData[centerOffset + 2] = center.z;
+                        let maxAbs = 0.0;
+                        for (let i = 0; i < covComponents.length; i++) {
+                                const value = Math.abs(covComponents[i]);
+                                if (value > maxAbs) maxAbs = value;
+                        }
+                        const scale = Math.max(1e-6, maxAbs / 32767.0);
+                        this.centerAndScaleData[centerOffset + 3] = scale;
+                        const covBase = index * 8;
+                        for (let i = 0; i < 6; i++) {
+                                const value = covComponents[i] / scale;
+                                covAndColorData_int16[covBase + i] = Math.max(-32767, Math.min(32767, Math.round(value)));
+                        }
+                        const colorBase = index * 16 + 12;
+                        covAndColorData_uint8[colorBase + 0] = Math.max(0, Math.min(255, Math.round(color[0])));
+                        covAndColorData_uint8[colorBase + 1] = Math.max(0, Math.min(255, Math.round(color[1])));
+                        covAndColorData_uint8[colorBase + 2] = Math.max(0, Math.min(255, Math.round(color[2])));
+                        covAndColorData_uint8[colorBase + 3] = Math.max(0, Math.min(255, Math.round(color[3])));
+
+                        const matrix = new Float32Array(16);
+                        const c00 = covComponents[0];
+                        const c01 = covComponents[1];
+                        const c02 = covComponents[2];
+                        const c11 = covComponents[3];
+                        const c12 = covComponents[4];
+                        const c22 = covComponents[5];
+                        matrix[0] = c00;
+                        matrix[1] = c01;
+                        matrix[2] = c02;
+                        matrix[3] = 0;
+                        matrix[4] = c01;
+                        matrix[5] = c11;
+                        matrix[6] = c12;
+                        matrix[7] = 0;
+                        matrix[8] = c02;
+                        matrix[9] = c12;
+                        matrix[10] = c22;
+                        matrix[11] = Math.max(0.0, Math.min(1.0, color[3] / 255.0));
+                        matrix[12] = center.x;
+                        matrix[13] = center.y;
+                        matrix[14] = center.z;
+                        const radius = Math.sqrt(Math.max(1e-6, Math.max(Math.abs(c00), Math.abs(c11), Math.abs(c22))));
+                        matrix[15] = radius;
+                        mergedMatrices.push(matrix);
+                        mergedNormals.push(0, 0, 0);
+                        return index;
+                };
+                const mergeGroup = (indices) => {
+                        if (indices.length === 1) {
+                                return indices[0];
+                        }
+                        const weightedCenter = new THREE.Vector3();
+                        const covSum = [0, 0, 0, 0, 0, 0];
+                        const colorSum = [0, 0, 0, 0];
+                        let weightSum = 0;
+                        for (const idx of indices) {
+                                const color = readColor(idx);
+                                const weight = Math.max(0.05, color[3] / 255.0);
+                                const offset = idx * 4;
+                                weightedCenter.x += this.centerAndScaleData[offset + 0] * weight;
+                                weightedCenter.y += this.centerAndScaleData[offset + 1] * weight;
+                                weightedCenter.z += this.centerAndScaleData[offset + 2] * weight;
+                                const cov = readCovComponents(idx);
+                                for (let i = 0; i < covSum.length; i++) {
+                                        covSum[i] += cov[i] * weight;
+                                }
+                                colorSum[0] += color[0] * weight;
+                                colorSum[1] += color[1] * weight;
+                                colorSum[2] += color[2] * weight;
+                                colorSum[3] += color[3] * weight;
+                                weightSum += weight;
+                        }
+                        if (weightSum <= 0) {
+                                weightSum = indices.length;
+                        }
+                        weightedCenter.multiplyScalar(1.0 / weightSum);
+                        for (let i = 0; i < covSum.length; i++) {
+                                covSum[i] /= weightSum;
+                        }
+                        const color = [
+                                colorSum[0] / weightSum,
+                                colorSum[1] / weightSum,
+                                colorSum[2] / weightSum,
+                                colorSum[3] / weightSum,
+                        ];
+                        return writeMergedSplat(weightedCenter, covSum, color);
+                };
+                const buildMergedList = (baseList, reductionFactor) => {
+                        if (baseList.length <= 1 || reductionFactor <= 1) {
+                                return baseList.slice();
+                        }
+                        const merged = [];
+                        const groupSize = reductionFactor;
+                        for (let i = 0; i < baseList.length; i += groupSize) {
+                                const group = baseList.slice(i, i + groupSize);
+                                merged.push(mergeGroup(group));
+                        }
+                        return merged;
+                };
+                for (let z = 0; z < gridSize; z++) {
+                        for (let y = 0; y < gridSize; y++) {
+                                for (let x = 0; x < gridSize; x++) {
+                                        const index = x + y * gridSize + z * gridSize * gridSize;
+                                        const tile = tiles[index];
+                                        const baseList = tile.indices;
+                                        tile.lods = levels.map((stride, levelIndex) => {
+                                                if (levelIndex === 0) {
+                                                        return baseList.slice();
+                                                }
+                                                const factor = reductionFactors[levelIndex] || Math.max(2, stride);
+                                                return buildMergedList(baseList, factor);
                                         });
                                 }
                         }
+                }
+                const mergedCount = nextIndex - baseSplats;
+                if (mergedCount > 0) {
+                        const gl = this.renderer.getContext();
+                        const centerProps = this.renderer.properties.get(this.centerAndScaleTexture);
+                        const covProps = this.renderer.properties.get(this.covAndColorTexture);
+                        gl.bindTexture(gl.TEXTURE_2D, centerProps.__webglTexture);
+                        let remaining = mergedCount;
+                        let current = baseSplats;
+                        while (remaining > 0) {
+                                const xoffset = current % this.textureSize;
+                                const yoffset = Math.floor(current / this.textureSize);
+                                const width = Math.min(this.textureSize - xoffset, remaining);
+                                gl.texSubImage2D(
+                                        gl.TEXTURE_2D,
+                                        0,
+                                        xoffset,
+                                        yoffset,
+                                        width,
+                                        1,
+                                        gl.RGBA,
+                                        gl.FLOAT,
+                                        this.centerAndScaleData,
+                                        current * 4
+                                );
+                                current += width;
+                                remaining -= width;
+                        }
+                        gl.bindTexture(gl.TEXTURE_2D, covProps.__webglTexture);
+                        remaining = mergedCount;
+                        current = baseSplats;
+                        while (remaining > 0) {
+                                const xoffset = current % this.textureSize;
+                                const yoffset = Math.floor(current / this.textureSize);
+                                const width = Math.min(this.textureSize - xoffset, remaining);
+                                gl.texSubImage2D(
+                                        gl.TEXTURE_2D,
+                                        0,
+                                        xoffset,
+                                        yoffset,
+                                        width,
+                                        1,
+                                        gl.RGBA_INTEGER,
+                                        gl.UNSIGNED_INT,
+                                        this.covAndColorData,
+                                        current * 4
+                                );
+                                current += width;
+                                remaining -= width;
+                        }
+                        const mergedMatrixBuffer = new Float32Array(mergedMatrices.length * 16);
+                        for (let i = 0; i < mergedMatrices.length; i++) {
+                                mergedMatrixBuffer.set(mergedMatrices[i], i * 16);
+                        }
+                        this.worker.postMessage({
+                                method: "push",
+                                matrices: mergedMatrixBuffer.buffer
+                        }, [mergedMatrixBuffer.buffer]);
+                        const mergedNormalBuffer = new Float32Array(mergedNormals);
+                        const occlusionMatrices = mergedMatrixBuffer.slice();
+                        this.occlusionWorker.postMessage({
+                                method: "push",
+                                matrices: occlusionMatrices.buffer,
+                                normals: mergedNormalBuffer.buffer
+                        }, [occlusionMatrices.buffer, mergedNormalBuffer.buffer]);
+                        this.loadedVertexCount = baseSplats + mergedCount;
                 }
                 this.lodState = {
                         generated: true,
@@ -966,8 +1170,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                         min,
                         max,
                         tiles,
-                        activeIndices: new Uint32Array(totalSplats),
-                        activeCount: totalSplats,
+                        activeIndices: new Uint32Array(this.loadedVertexCount),
+                        activeCount: this.loadedVertexCount,
                         activeVersion: 0,
                 };
                 this.camera.getWorldPosition(this.tmpCameraPos);
