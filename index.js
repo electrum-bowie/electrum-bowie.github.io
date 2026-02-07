@@ -65,6 +65,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.resetFrameTiming();
                         this.updateXRScale();
                 });
+
+                this.backgroundColorApplied = false;
+                this.backgroundSampleCount = 0;
+                this.backgroundSampleSum = { r: 0, g: 0, b: 0 };
+                this.backgroundSampleColors = [];
         },
         setMultiview: function(){
                 const gl = this.el.sceneEl.renderer.getContext();
@@ -467,6 +472,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.originalBuffers = [];
                 this.originalBufferCounts = [];
                 this.isCaching = true;
+                this.backgroundColorApplied = false;
+                this.backgroundSampleCount = 0;
+                this.backgroundSampleSum = { r: 0, g: 0, b: 0 };
+                this.backgroundSampleColors = [];
 		const createPendingBuffer = () => ({
 			chunks: [],
 			length: 0,
@@ -698,6 +707,39 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 this.sortSplatsNow();
                         });
         },
+        applyNearestBackgroundColor: function () {
+                if (this.backgroundColorApplied || this.backgroundSampleCount === 0) {
+                        return;
+                }
+                const avg = {
+                        r: this.backgroundSampleSum.r / this.backgroundSampleCount,
+                        g: this.backgroundSampleSum.g / this.backgroundSampleCount,
+                        b: this.backgroundSampleSum.b / this.backgroundSampleCount,
+                };
+                let nearest = null;
+                let nearestDistance = Infinity;
+                for (const color of this.backgroundSampleColors) {
+                        const dr = color.r - avg.r;
+                        const dg = color.g - avg.g;
+                        const db = color.b - avg.b;
+                        const distance = dr * dr + dg * dg + db * db;
+                        if (distance < nearestDistance) {
+                                nearestDistance = distance;
+                                nearest = color;
+                        }
+                }
+                if (!nearest) {
+                        return;
+                }
+                const rgb = `rgb(${nearest.r}, ${nearest.g}, ${nearest.b})`;
+                if (document.body) {
+                        document.body.style.backgroundColor = rgb;
+                }
+                if (document.documentElement) {
+                        document.documentElement.style.backgroundColor = rgb;
+                }
+                this.backgroundColorApplied = true;
+        },
         pushDataBuffer: function (buffer, vertexCount) {
                 if (this.loadedVertexCount + vertexCount > this.maxSplatCount) {
                         vertexCount = this.maxSplatCount - this.loadedVertexCount;
@@ -725,6 +767,23 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 		const covAndColorData_uint8 = new Uint8Array(this.covAndColorData.buffer);
 		const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
+                const sampleTarget = 64;
+                const sampleStep = Math.max(1, Math.floor(vertexCount / sampleTarget));
+                const maxSamples = 256;
+                for (let i = 0; i < vertexCount; i += sampleStep) {
+                        if (this.backgroundSampleColors.length >= maxSamples) {
+                                break;
+                        }
+                        const baseOffset = 32 * i + 24;
+                        const r = u_buffer[baseOffset];
+                        const g = u_buffer[baseOffset + 1];
+                        const b = u_buffer[baseOffset + 2];
+                        this.backgroundSampleSum.r += r;
+                        this.backgroundSampleSum.g += g;
+                        this.backgroundSampleSum.b += b;
+                        this.backgroundSampleCount += 1;
+                        this.backgroundSampleColors.push({ r, g, b });
+                }
                 for (let i = 0; i < vertexCount; i++) {
 			let quat = new THREE.Quaternion(
 				(u_buffer[32 * i + 28 + 1] - 128) / 128.0,
@@ -851,6 +910,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         matrices: matricesCopy.buffer,
                         normals: normals.buffer
                 }, [matricesCopy.buffer, normals.buffer]);
+                this.applyNearestBackgroundColor();
 	},
         tick: function (time, timeDelta) {
                 this.updateDynamicResolution(time, timeDelta);
