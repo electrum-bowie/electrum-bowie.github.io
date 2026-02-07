@@ -893,6 +893,8 @@ AFRAME.registerComponent("gaussian_splatting", {
                 for (let i = 0; i < tileCount; i++) {
                         tiles.push({
                                 indices: [],
+                                sizeSum: 0,
+                                sizeCount: 0,
                                 lods: [],
                                 activeLod: -1,
                                 center: new THREE.Vector3(),
@@ -910,23 +912,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const iy = clampIndex(Math.floor((y - min.y) / tileSize.y));
                         const iz = clampIndex(Math.floor((z - min.z) / tileSize.z));
                         const tileIndex = ix + iy * gridSize + iz * gridSize * gridSize;
-                        tiles[tileIndex].indices.push(i);
+                        const tile = tiles[tileIndex];
+                        tile.indices.push(i);
+                        tile.sizeSum += this.centerAndScaleData[offset + 3];
+                        tile.sizeCount += 1;
                 }
-                const selectStride = (list, stride, offset) => {
-                        if (stride <= 1 || list.length <= 1) {
-                                return list.slice();
-                        }
-                        const selected = [];
-                        for (let i = 0; i < list.length; i++) {
-                                if (i % stride === offset) {
-                                        selected.push(list[i]);
-                                }
-                        }
-                        if (selected.length === 0 && list.length > 0) {
-                                selected.push(list[0]);
-                        }
-                        return selected;
-                };
                 const levels = this.lodConfig.levels;
                 for (let z = 0; z < gridSize; z++) {
                         for (let y = 0; y < gridSize; y++) {
@@ -952,9 +942,21 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 min.z + (z + 1) * tileSize.z
                                         );
                                         const baseList = tile.indices;
-                                        tile.lods = levels.map((stride) => {
-                                                const offset = (index + stride) % stride;
-                                                return selectStride(baseList, stride, offset);
+                                        const averageSize = tile.sizeCount > 0 ? tile.sizeSum / tile.sizeCount : 0;
+                                        tile.lods = levels.map((level) => {
+                                                if (level <= 1 || baseList.length <= 1) {
+                                                        return baseList.slice();
+                                                }
+                                                const threshold = averageSize > 0 ? averageSize / level : 0;
+                                                const filtered = [];
+                                                for (let i = 0; i < baseList.length; i++) {
+                                                        const splatIndex = baseList[i];
+                                                        const scale = this.centerAndScaleData[splatIndex * 4 + 3];
+                                                        if (scale >= threshold) {
+                                                                filtered.push(splatIndex);
+                                                        }
+                                                }
+                                                return filtered.length > 0 ? filtered : baseList.slice();
                                         });
                                 }
                         }
