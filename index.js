@@ -1538,7 +1538,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const avgResidual = residual / cells;
 
                                 const perceived = opacity * (avgResidual ** 0.75);
-                                if (perceived < 0.01) {
+                                if (perceived < 0.0001) {
                                         discarded[discardCount++] = idx;
                                 }
 
