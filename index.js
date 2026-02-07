@@ -375,15 +375,17 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 this.sortReady = true;
                         } else if (e.data.method === "filter") {
-                                if (e.data.filteredIndexes) {
-                                        this.filteredSplatIndexes = new Uint32Array(e.data.filteredIndexes);
+                                if (e.data.occlusionIndexes) {
+                                        this.occlusionSplatIndexes = new Uint32Array(e.data.occlusionIndexes);
+                                } else {
+                                        this.occlusionSplatIndexes = null;
                                 }
                                 this.filterReady = true;
                         }
                 };
                 this.sortReady = true;
                 this.filterReady = true;
-                this.filteredSplatIndexes = null;
+                this.occlusionSplatIndexes = null;
 
                 this.occlusionWorker = new Worker(
                         URL.createObjectURL(
@@ -1054,7 +1056,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 let viewport = new THREE.Vector4();
                 this.renderer.getCurrentViewport(viewport);
                 const focal = (viewport.w / 2.0) * Math.abs(projectionMatrix.elements[5]);
-                const filteredIndexes = this.filteredSplatIndexes ? this.filteredSplatIndexes.buffer : null;
+                const filteredIndexes = this.occlusionSplatIndexes ? this.occlusionSplatIndexes.buffer : null;
                 this.occlusionWorker.postMessage({ method: "occlude", forward: forward.buffer, right: right.buffer, up: up.buffer, mvp: mvp.buffer, scale: globalScale, focal: focal, camera: camera.buffer, filteredIndexes }, [forward.buffer, right.buffer, up.buffer, mvp.buffer, camera.buffer]);
         },
 
@@ -1121,11 +1123,12 @@ AFRAME.registerComponent("gaussian_splatting", {
                         depthList: null,
                         sizeList: null,
                         validIndexList: null,
+                        occlusionIndexList: null,
                 };
 
                 const counts0 = new Uint32Array(COUNT_SIZE);
                 const starts0 = new Uint32Array(COUNT_SIZE);
-                let filterResult = { count: 0, minDepth: 0, maxDepth: 0 };
+                let filterResult = { count: 0, minDepth: 0, maxDepth: 0, occlusionCount: 0 };
                 let discardMark = null;
                 let wasOccluded = null;
 
@@ -1135,6 +1138,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
                         cache.validIndexList = new Int32Array(n);
+                        cache.occlusionIndexList = new Int32Array(n);
                         discardMark = new Uint8Array(n);
                 };
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
@@ -1155,7 +1159,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                         let depthList = cache.depthList;
                         let sizeList = cache.sizeList;
                         let validIndexList = cache.validIndexList;
+                        let occlusionIndexList = cache.occlusionIndexList;
                         let validCount = 0;
+                        let occlusionCount = 0;
 
                         // cache matrix values locally for speed
                         const v0 = view[0], v1 = view[1], v2 = view[2], v3 = view[3];
@@ -1213,6 +1219,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 let f = fadeOpacities[idx];
 
 				if (insideOfScreen) {
+					if (!tooSmall) {
+						occlusionIndexList[occlusionCount] = idx;
+						occlusionCount++;
+					}
 					const isOccluded = discardMark && discardMark[idx] === 1;
 					const was = wasOccluded[idx] === 1;
 
@@ -1249,11 +1259,10 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 if (depth < minDepth) minDepth = depth;
                         }
 
-			console.warn(validCount);
-
                         filterResult.count = validCount;
                         filterResult.minDepth = minDepth;
                         filterResult.maxDepth = maxDepth;
+                        filterResult.occlusionCount = occlusionCount;
                 };
 
                 const sortSplats = function sortSplats() {
@@ -1309,6 +1318,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         }
                         if (e.data.method == "filter") {
                                 let filteredIndexes = null;
+                                let occlusionIndexes = null;
                                 if (matrices !== undefined) {
                                         ensureCapacity(matrices.length / 16);
                                         const vertexCount = matrices.length / 16;
@@ -1329,9 +1339,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                                                 filteredIndexes = new Uint32Array(filterResult.count);
                                                 filteredIndexes.set(cache.validIndexList.subarray(0, filterResult.count));
                                         }
+                                        if (filterResult.occlusionCount > 0) {
+                                                occlusionIndexes = new Uint32Array(filterResult.occlusionCount);
+                                                occlusionIndexes.set(cache.occlusionIndexList.subarray(0, filterResult.occlusionCount));
+                                        }
                                 }
-                                if (filteredIndexes) {
-                                        self.postMessage({ method: "filter", filteredIndexes }, [filteredIndexes.buffer]);
+                                if (filteredIndexes || occlusionIndexes) {
+                                        self.postMessage(
+                                                { method: "filter", filteredIndexes, occlusionIndexes },
+                                                [
+                                                        filteredIndexes ? filteredIndexes.buffer : null,
+                                                        occlusionIndexes ? occlusionIndexes.buffer : null,
+                                                ].filter(Boolean),
+                                        );
                                 } else {
                                         self.postMessage({ method: "filter" });
                                 }
