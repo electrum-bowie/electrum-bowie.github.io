@@ -106,6 +106,17 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.viewRotationMatrix = new THREE.Matrix3();
 
                 this.splatsToDiscard = [];
+                this.postImportProgressDelayMs = 40000;
+                this.postImportMaxUpdates = 10;
+                this.postImportProgressEnabled = false;
+                this.postImportProgressDone = false;
+                this.postImportImportSuccessfulLogged = false;
+                this.postImportFinishingLogged = false;
+                this.postImportProgressStartAt = null;
+                this.postImportProgressTimer = null;
+                this.postImportOcclusionUpdates = 0;
+                this.postImportOcclusionTotalUpdates = 0;
+                this.postImportLastPercent = -1;
 
                 const gl = this.renderer.getContext();
                 this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
@@ -389,6 +400,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const discarded = new Uint32Array(e.data.discard);
                                 this.splatsToDiscard = Array.from(discarded);
                                 this.occlusionReady = true;
+                                this.handlePostImportOcclusionUpdate();
                         }
                 };
                 this.occlusionReady = true;
@@ -447,6 +459,58 @@ AFRAME.registerComponent("gaussian_splatting", {
                         return;
                 }
                 this.initSplatTextures(nextSize);
+        },
+        startPostImportProgressTracking: function () {
+                if (this.postImportProgressTimer) {
+                        clearTimeout(this.postImportProgressTimer);
+                }
+                this.postImportProgressEnabled = false;
+                this.postImportProgressDone = false;
+                this.postImportImportSuccessfulLogged = false;
+                this.postImportFinishingLogged = false;
+                this.postImportProgressStartAt = null;
+                this.postImportOcclusionUpdates = 0;
+                this.postImportOcclusionTotalUpdates = 0;
+                this.postImportLastPercent = -1;
+                this.postImportProgressTimer = setTimeout(() => {
+                        this.postImportProgressEnabled = true;
+                        this.postImportProgressStartAt = Date.now();
+                        if (this.postImportOcclusionTotalUpdates > this.postImportMaxUpdates) {
+                                this.postImportProgressDone = true;
+                                if (!this.postImportImportSuccessfulLogged) {
+                                        console.log("Import successful");
+                                        this.postImportImportSuccessfulLogged = true;
+                                }
+                                return;
+                        }
+                        if (!this.postImportProgressDone &&
+                                !this.postImportFinishingLogged &&
+                                this.postImportOcclusionTotalUpdates <= this.postImportMaxUpdates) {
+                                console.log("Finishing up...");
+                                this.postImportFinishingLogged = true;
+                        }
+                }, this.postImportProgressDelayMs);
+        },
+        handlePostImportOcclusionUpdate: function () {
+                this.postImportOcclusionTotalUpdates += 1;
+                if (this.postImportOcclusionTotalUpdates > this.postImportMaxUpdates) {
+                        this.postImportProgressDone = true;
+                        if (this.postImportProgressEnabled && !this.postImportImportSuccessfulLogged) {
+                                console.log("Import successful");
+                                this.postImportImportSuccessfulLogged = true;
+                        }
+                        return;
+                }
+                if (!this.postImportProgressEnabled || this.postImportProgressDone) {
+                        return;
+                }
+                this.postImportOcclusionUpdates += 1;
+                const percent = (this.postImportOcclusionUpdates / this.postImportMaxUpdates) * 100;
+                const roundedPercent = Math.round(percent);
+                if (roundedPercent !== this.postImportLastPercent) {
+                        console.log(`Post-import progress: ${roundedPercent}%`);
+                        this.postImportLastPercent = roundedPercent;
+                }
         },
         loadData: function (src) {
                 this.loadedVertexCount = 0;
@@ -561,6 +625,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 						const { value, done } = await reader.read();
 						if (done) {
 							console.log("Process Completed.");
+							this.startPostImportProgressTracking();
 							break;
 						}
 						bytesDownloaded += value.length;
