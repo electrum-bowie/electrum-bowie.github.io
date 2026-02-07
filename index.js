@@ -107,13 +107,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.viewRotationMatrix = new THREE.Matrix3();
 
                 this.splatsToDiscard = [];
-                this.lodState = null;
-                this.lodConfig = {
-                        gridSize: 7,
-                        levels: [1, 2, 4],
-                        nearMultiplier: 0.5,
-                        midMultiplier: 1.1,
-                };
 
                 const gl = this.renderer.getContext();
                 this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
@@ -468,7 +461,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.originalBuffers = [];
                 this.originalBufferCounts = [];
                 this.isCaching = true;
-                this.lodState = null;
 		const createPendingBuffer = () => ({
 			chunks: [],
 			length: 0,
@@ -695,7 +687,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         this.needsQualityUpdate = false;
                                         this.updateQuality();
                                 }
-                                this.buildLodTiles();
                                 this.occludeSplatsNow();
                                 this.filterSplatsNow();
                                 this.sortSplatsNow();
@@ -855,257 +846,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         normals: normals.buffer
                 }, [matricesCopy.buffer, normals.buffer]);
 	},
-        buildLodTiles: function () {
-                if (this.lodState && this.lodState.generated) {
-                        return;
-                }
-                const totalSplats = this.loadedVertexCount;
-                if (!totalSplats || !this.centerAndScaleData || totalSplats <= 0) {
-                        return;
-                }
-                const gridSize = this.lodConfig.gridSize;
-                const min = new THREE.Vector3(Infinity, Infinity, Infinity);
-                const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
-                for (let i = 0; i < totalSplats; i++) {
-                        const offset = i * 4;
-                        const x = this.centerAndScaleData[offset + 0];
-                        const y = this.centerAndScaleData[offset + 1];
-                        const z = this.centerAndScaleData[offset + 2];
-                        if (x < min.x) min.x = x;
-                        if (y < min.y) min.y = y;
-                        if (z < min.z) min.z = z;
-                        if (x > max.x) max.x = x;
-                        if (y > max.y) max.y = y;
-                        if (z > max.z) max.z = z;
-                }
-                const size = new THREE.Vector3(
-                        Math.max(1e-5, max.x - min.x),
-                        Math.max(1e-5, max.y - min.y),
-                        Math.max(1e-5, max.z - min.z)
-                );
-                const tileSize = new THREE.Vector3(
-                        size.x / gridSize,
-                        size.y / gridSize,
-                        size.z / gridSize
-                );
-                const tiles = [];
-                const tileCount = gridSize * gridSize * gridSize;
-                for (let i = 0; i < tileCount; i++) {
-                        tiles.push({
-                                indices: [],
-                                sizeSum: 0,
-                                sizeCount: 0,
-                                lods: [],
-                                activeLod: -1,
-                                center: new THREE.Vector3(),
-                                min: new THREE.Vector3(),
-                                max: new THREE.Vector3(),
-                        });
-                }
-                const clampIndex = (v) => Math.max(0, Math.min(gridSize - 1, v));
-                for (let i = 0; i < totalSplats; i++) {
-                        const offset = i * 4;
-                        const x = this.centerAndScaleData[offset + 0];
-                        const y = this.centerAndScaleData[offset + 1];
-                        const z = this.centerAndScaleData[offset + 2];
-                        const ix = clampIndex(Math.floor((x - min.x) / tileSize.x));
-                        const iy = clampIndex(Math.floor((y - min.y) / tileSize.y));
-                        const iz = clampIndex(Math.floor((z - min.z) / tileSize.z));
-                        const tileIndex = ix + iy * gridSize + iz * gridSize * gridSize;
-                        const tile = tiles[tileIndex];
-                        tile.indices.push(i);
-                        tile.sizeSum += this.centerAndScaleData[offset + 3];
-                        tile.sizeCount += 1;
-                }
-                const levels = this.lodConfig.levels;
-                for (let z = 0; z < gridSize; z++) {
-                        for (let y = 0; y < gridSize; y++) {
-                                for (let x = 0; x < gridSize; x++) {
-                                        const index = x + y * gridSize + z * gridSize * gridSize;
-                                        const tile = tiles[index];
-                                        const center = tile.center;
-                                        const tileMin = tile.min;
-                                        const tileMax = tile.max;
-                                        center.set(
-                                                min.x + (x + 0.5) * tileSize.x,
-                                                min.y + (y + 0.5) * tileSize.y,
-                                                min.z + (z + 0.5) * tileSize.z
-                                        );
-                                        tileMin.set(
-                                                min.x + x * tileSize.x,
-                                                min.y + y * tileSize.y,
-                                                min.z + z * tileSize.z
-                                        );
-                                        tileMax.set(
-                                                min.x + (x + 1) * tileSize.x,
-                                                min.y + (y + 1) * tileSize.y,
-                                                min.z + (z + 1) * tileSize.z
-                                        );
-                                        const baseList = tile.indices;
-                                        const averageSize = tile.sizeCount > 0 ? tile.sizeSum / tile.sizeCount : 0;
-                                        tile.lods = levels.map((level) => {
-                                                if (level <= 1 || baseList.length <= 1) {
-                                                        return baseList.slice();
-                                                }
-                                                const threshold = averageSize > 0 ? averageSize / level : 0;
-                                                const filtered = [];
-                                                for (let i = 0; i < baseList.length; i++) {
-                                                        const splatIndex = baseList[i];
-                                                        const scale = this.centerAndScaleData[splatIndex * 4 + 3];
-                                                        if (scale >= threshold) {
-                                                                filtered.push(splatIndex);
-                                                        }
-                                                }
-                                                return filtered.length > 0 ? filtered : baseList.slice();
-                                        });
-                                }
-                        }
-                }
-                this.lodState = {
-                        generated: true,
-                        gridSize,
-                        tileSize,
-                        min,
-                        max,
-                        tiles,
-                        activeIndices: new Uint32Array(totalSplats),
-                        activeCount: totalSplats,
-                        activeVersion: 0,
-                        totalSplats,
-                };
-                this.camera.getWorldPosition(this.tmpCameraPos);
-                this.updateTileLods(true);
-        },
-        updateTileLods: function (force = false) {
-                if (!this.lodState || !this.lodState.generated) {
-                        return;
-                }
-                const tiles = this.lodState.tiles;
-                if (!tiles || tiles.length === 0) return;
-                this.camera.getWorldPosition(this.tmpCameraPos);
-                const cameraPos = this.tmpCameraPos;
-                const objectMatrix = this.object.matrixWorld;
-                this.tmpWorldToLocalMatrix.copy(objectMatrix).invert();
-                this.tmpLocalCameraPos.copy(cameraPos).applyMatrix4(this.tmpWorldToLocalMatrix);
-                const localCameraPos = this.tmpLocalCameraPos;
-                const tileSize = this.lodState.tileSize;
-                const nearDistance = this.lodConfig.nearMultiplier;
-                const midDistance = this.lodConfig.midMultiplier;
-                let changed = false;
-                let activeCount = 0;
-                for (let i = 0; i < tiles.length; i++) {
-                        const tile = tiles[i];
-                        const tileCenter = tile.center;
-                        const dx = (tileCenter.x - localCameraPos.x) / tileSize.x;
-                        const dy = (tileCenter.y - localCameraPos.y) / tileSize.y;
-                        const dz = (tileCenter.z - localCameraPos.z) / tileSize.z;
-                        const dist = Math.hypot(
-                                Math.abs(dx),
-                                Math.abs(dy),
-                                Math.abs(dz)
-                        );
-                        let lodLevel = 0;
-                        if (dist > midDistance) {
-                                lodLevel = 2;
-                        } else if (dist > nearDistance) {
-                                lodLevel = 1;
-                        }
-                        lodLevel = Math.min(lodLevel, tile.lods.length - 1);
-                        if (force || lodLevel !== tile.activeLod) {
-                                tile.activeLod = lodLevel;
-                                changed = true;
-                        }
-                        const list = tile.lods[lodLevel] || [];
-                        activeCount += list.length;
-                }
-                if (!changed && !force) {
-                        return;
-                }
-                if (!activeCount || activeCount <= 0) {
-                        return;
-                }
-                let activeIndices = this.lodState.activeIndices;
-                if (!activeIndices || activeIndices.length < activeCount) {
-                        const previousLength = activeIndices ? activeIndices.length : 0;
-                        const nextLength = Math.max(
-                                activeCount,
-                                Math.ceil(previousLength * 1.5) || activeCount
-                        );
-                        activeIndices = new Uint32Array(nextLength);
-                }
-                let offset = 0;
-                for (let i = 0; i < tiles.length; i++) {
-                        const list = tiles[i].lods[tiles[i].activeLod] || [];
-                        const remaining = activeCount - offset;
-                        if (remaining <= 0) {
-                                break;
-                        }
-                        if (list.length > remaining) {
-                                activeIndices.set(list.slice(0, remaining), offset);
-                                offset += remaining;
-                                break;
-                        }
-                        activeIndices.set(list, offset);
-                        offset += list.length;
-                }
-                this.lodState.activeIndices = activeIndices;
-                this.lodState.activeCount = activeCount;
-                this.lodState.activeVersion += 1;
-                const useSharedBuffer = typeof SharedArrayBuffer !== "undefined";
-                if (useSharedBuffer) {
-                        let sharedActive = this.lodState.sharedActive;
-                        if (!sharedActive || sharedActive.length < activeCount) {
-                                const previousLength = sharedActive ? sharedActive.length : 0;
-                                const nextLength = Math.max(
-                                        activeCount,
-                                        Math.ceil(previousLength * 1.5) || activeCount
-                                );
-                                const sharedBuffer = new SharedArrayBuffer(
-                                        nextLength * Uint32Array.BYTES_PER_ELEMENT
-                                );
-                                sharedActive = new Uint32Array(sharedBuffer);
-                        }
-                        sharedActive.set(activeIndices.subarray(0, activeCount));
-                        this.lodState.sharedActive = sharedActive;
-                        this.worker.postMessage({
-                                method: "setActive",
-                                active: sharedActive,
-                                activeCount: activeCount
-                        });
-                        if (this.occlusionWorker) {
-                                this.occlusionWorker.postMessage({
-                                        method: "setActive",
-                                        active: sharedActive,
-                                        activeCount: activeCount
-                                });
-                        }
-                        return;
-                }
-                let workerActive = this.lodState.workerActive;
-                if (!workerActive || workerActive.length < activeCount) {
-                        workerActive = new Uint32Array(activeCount);
-                }
-                workerActive.set(activeIndices.subarray(0, activeCount));
-                this.lodState.workerActive = workerActive;
-                this.worker.postMessage({
-                        method: "setActive",
-                        active: workerActive.subarray(0, activeCount),
-                        activeCount: activeCount
-                });
-                if (this.occlusionWorker) {
-                        let occlusionActive = this.lodState.occlusionActive;
-                        if (!occlusionActive || occlusionActive.length < activeCount) {
-                                occlusionActive = new Uint32Array(activeCount);
-                        }
-                        occlusionActive.set(activeIndices.subarray(0, activeCount));
-                        this.lodState.occlusionActive = occlusionActive;
-                        this.occlusionWorker.postMessage({
-                                method: "setActive",
-                                active: occlusionActive.subarray(0, activeCount),
-                                activeCount: activeCount
-                        });
-                }
-        },
         tick: function (time, timeDelta) {
                 this.updateDynamicResolution(time, timeDelta);
 
@@ -1124,7 +864,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 		const forceExec = (time - this.lastExecTime) >= 75; // in miliseconds
 
                 if (camPosChanged || camRotChanged || objPosChanged || objRotChanged || scaleChanged || forceExec) {
-                        this.updateTileLods(forceExec);
                         if (this.occlusionReady) this.occludeSplatsNow();
                         if (this.filterReady) this.filterSplatsNow();
                         if (this.sortReady) this.sortSplatsNow();
@@ -1163,7 +902,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const vertexCount = counts[i] || (buf.byteLength / rowLength);
                         pushDataBuffer.call(this, buf, vertexCount);
                 }
-                this.updateTileLods(true);
                 this.sortReady = true;
         },
 
@@ -1368,21 +1106,10 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
         createWorker: function (self) {
                 let matrices = undefined;
-                let activeIndices = null;
                 let normals = undefined;
                 let fadeOpacities = undefined;
-                let pendingActive = null;
 
                 const COUNT_SIZE = 1200 * 1200;
-                const toUint32Array = (data) => {
-                        if (!data) return null;
-                        if (data instanceof Uint32Array) return data;
-                        if (ArrayBuffer.isView(data)) {
-                                return new Uint32Array(data.buffer, data.byteOffset, data.byteLength / 4);
-                        }
-                        if (data instanceof ArrayBuffer) return new Uint32Array(data);
-                        return new Uint32Array(data);
-                };
 
                 let cache = {
                         capacity: 0,
@@ -1405,18 +1132,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         cache.validIndexList = new Int32Array(n);
                         discardMark = new Uint8Array(n);
                 };
-                const applyActiveList = (indices, vertexCount) => {
-                        if (!indices) {
-                                activeIndices = null;
-                                return;
-                        }
-                        if (indices.length === 0) {
-                                activeIndices = new Uint32Array(0);
-                                return;
-                        }
-                        activeIndices = indices;
-                };
-
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
                         if (!wasOccluded || !fadeOpacities || fadeOpacities.length < vertexCount) {
@@ -1446,10 +1161,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                         const fadeStep = 0.12;
                         const nearPlaneClip = -0.08;
-                        const useActive = activeIndices !== null;
-                        const loopCount = useActive ? activeIndices.length : vertexCount;
-                        for (let i = 0; i < loopCount; i++) {
-                                const idx = useActive ? activeIndices[i] : i;
+                        for (let idx = 0; idx < vertexCount; idx++) {
                                 const offset = idx * 16;
                                 //if (discardMark[i]) continue;
 
@@ -1566,13 +1278,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                 };
 
 		self.onmessage = (e) => {
-                        if (e.data.method == "clear") {
-                                matrices = undefined;
-                                fadeOpacities = undefined;
-                                discardMark = null;
-                                activeIndices = null;
-                                pendingActive = null;
-                        }
+                                if (e.data.method == "clear") {
+                                        matrices = undefined;
+                                        fadeOpacities = undefined;
+                                        discardMark = null;
+                                }
                         if (e.data.method == "push") {
                                 new_matrices = new Float32Array(e.data.matrices);
                                 const newFade = new Float32Array(new_matrices.length / 16);
@@ -1590,18 +1300,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         fadeResized.set(fadeOpacities);
                                         fadeResized.set(newFade, fadeOpacities.length);
                                         fadeOpacities = fadeResized;
-                                }
-                                if (pendingActive && matrices) {
-                                        applyActiveList(pendingActive, matrices.length / 16);
-                                        pendingActive = null;
-                                }
-                        }
-                        if (e.data.method == "setActive") {
-                                const indices = toUint32Array(e.data.active);
-                                if (matrices) {
-                                        applyActiveList(indices, matrices.length / 16);
-                                } else {
-                                        pendingActive = indices;
                                 }
                         }
                         if (e.data.method == "filter") {
@@ -1644,19 +1342,8 @@ AFRAME.registerComponent("gaussian_splatting", {
         },
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
-                let activeIndices = null;
 
                 const COUNT_SIZE = 256 * 256;
-                const toUint32Array = (data) => {
-                        if (!data) return null;
-                        if (data instanceof Uint32Array) return data;
-                        if (ArrayBuffer.isView(data)) {
-                                return new Uint32Array(data.buffer, data.byteOffset, data.byteLength / 4);
-                        }
-                        if (data instanceof ArrayBuffer) return new Uint32Array(data);
-                        return new Uint32Array(data);
-                };
-
                 let cache = {
                         capacity: 0,
                         depthList: null,
@@ -1702,10 +1389,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        const useActive = activeIndices !== null;
-                        const loopCount = useActive ? activeIndices.length : vertexCount;
-                        for (let i = 0; i < loopCount; i++) {
-                                const idx = useActive ? activeIndices[i] : i;
+                        for (let idx = 0; idx < vertexCount; idx++) {
                                 const offset = idx * 16;
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
@@ -1869,7 +1553,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                         if (e.data.method == "clear") {
                                 matrices = undefined;
                                 normals = undefined;
-                                activeIndices = null;
                         }
                         if (e.data.method == "push") {
                                 const new_matrices = new Float32Array(e.data.matrices);
@@ -1894,9 +1577,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 } else {
                                         normals = undefined;
                                 }
-                        }
-                        if (e.data.method == "setActive") {
-                                activeIndices = toUint32Array(e.data.active);
                         }
                         if (e.data.method == "occlude") {
                                 let discard = new Uint32Array(0);
