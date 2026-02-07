@@ -1170,7 +1170,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         const m8 = mvp[8],  m9 = mvp[9],  m10 = mvp[10], m11 = mvp[11];
                         const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
 
-                        const fadeStep = 0.12;
+                        const fadeStep = 0.15;
                         const nearPlaneClip = -0.08;
                         for (let idx = 0; idx < vertexCount; idx++) {
                                 const offset = idx * 16;
