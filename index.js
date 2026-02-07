@@ -1338,7 +1338,7 @@ AFRAME.registerComponent("gaussian_splatting", {
         createOcclusionWorker: function (self) {
                 let matrices = undefined;
 
-                const COUNT_SIZE = 256 * 256;
+                const COUNT_SIZE = 300 * 300;
 
                 let cache = {
                         capacity: 0,
@@ -1458,20 +1458,6 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const insideOfScreen = ndcX >= -1.0 && ndcX <= 1.0 && ndcY >= -1.0 && ndcY <= 1.0;
                                 if (!insideOfScreen) continue;
 
-                                const c00 = matrices[offset + 0], c01 = matrices[offset + 4], c02 = matrices[offset + 8];
-                                const c10 = matrices[offset + 1], c11 = matrices[offset + 5], c12 = matrices[offset + 9];
-                                const c20 = matrices[offset + 2], c21 = matrices[offset + 6], c22 = matrices[offset + 10];
-
-                                const rCx = c00 * r0 + c01 * r1 + c02 * r2;
-                                const rCy = c10 * r0 + c11 * r1 + c12 * r2;
-                                const rCz = c20 * r0 + c21 * r1 + c22 * r2;
-                                const radiusX = Math.sqrt(r0 * rCx + r1 * rCy + r2 * rCz);
-
-                                const uCx = c00 * u0 + c01 * u1 + c02 * u2;
-                                const uCy = c10 * u0 + c11 * u1 + c12 * u2;
-                                const uCz = c20 * u0 + c21 * u1 + c22 * u2;
-                                const radiusY = Math.sqrt(u0 * uCx + u1 * uCy + u2 * uCz);
-
                                 const radius = scaleFactor * maxRadius;
                                 const opacity = matrices[offset + 11]; // 0-1 (0 transparent, 1 opaque)
 
@@ -1485,6 +1471,20 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const tooSmall = pixelThreshold < 0.6 * edgeMultiplier && !skipCullBehind;
 
                                 if (tooSmall) continue;
+
+                                const c00 = matrices[offset + 0], c01 = matrices[offset + 4], c02 = matrices[offset + 8];
+                                const c10 = matrices[offset + 1], c11 = matrices[offset + 5], c12 = matrices[offset + 9];
+                                const c20 = matrices[offset + 2], c21 = matrices[offset + 6], c22 = matrices[offset + 10];
+
+                                const rCx = c00 * r0 + c01 * r1 + c02 * r2;
+                                const rCy = c10 * r0 + c11 * r1 + c12 * r2;
+                                const rCz = c20 * r0 + c21 * r1 + c22 * r2;
+                                const radiusX = Math.sqrt(r0 * rCx + r1 * rCy + r2 * rCz);
+
+                                const uCx = c00 * u0 + c01 * u1 + c02 * u2;
+                                const uCy = c10 * u0 + c11 * u1 + c12 * u2;
+                                const uCz = c20 * u0 + c21 * u1 + c22 * u2;
+                                const radiusY = Math.sqrt(u0 * uCx + u1 * uCy + u2 * uCz);
 
                                 const ndcRadiusX = radiusX / -depth;
                                 const ndcRadiusY = radiusY / -depth;
@@ -1527,16 +1527,16 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 }
                                 const avgResidual = residual / cells;
 
-                                const perceived = opacity * avgResidual;
+                                const perceived = opacity * (avgResidual ** 0.75);
                                 if (perceived < 0.01) {
                                         discarded[discardCount++] = idx;
                                 }
 
-                                const attenuation = 1.0 - opacity * facingFactor;
+                                const attenuation = 1.0 - opacity;
                                 for (let y = y0; y <= y1; y++) {
                                         const row = y * GRID_SIZE;
                                         for (let x = x0; x <= x1; x++) {
-                                                grid[row + x] *= attenuation;
+                                                grid[row + x] *= attenuation * (facingFactor * facingFactor);
                                         }
                                 }
                         }
