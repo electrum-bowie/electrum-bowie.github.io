@@ -340,15 +340,19 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.setMultiview();      //Set multiview on mesh if VR is already running
                 }
 
-		this.worker = new Worker(
-			URL.createObjectURL(
-				new Blob(["(", this.createWorker.toString(), ")(self)"], {
-					type: "application/javascript",
-				}),
-			),
-		);
+                this.worker = new Worker(
+                        URL.createObjectURL(
+                                new Blob(["(", this.createWorker.toString(), ")(self)"], {
+                                        type: "application/javascript",
+                                }),
+                        ),
+                );
+                this.lastWorkerUpdateTime = performance.now();
+                window.lastWorkerUpdateTime = this.lastWorkerUpdateTime;
 
                 this.worker.onmessage = (e) => {
+                        this.lastWorkerUpdateTime = performance.now();
+                        window.lastWorkerUpdateTime = this.lastWorkerUpdateTime;
                         if (e.data.method === "sort") {
                                 const indexes = new Uint32Array(e.data.sortedIndexes);
                                 let indexAttr = mesh.geometry.getAttribute('splatIndex');
