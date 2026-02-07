@@ -1071,7 +1071,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.postImportProgressActive = true;
                 this.postImportLastPercent = -1;
                 this.postImportFinishingLogged = false;
-                console.log("Post import progress: 0%");
+                console.log("Load progress: 0%");
         },
         handlePostImportOcclusionUpdate: function () {
                 if (!this.postImportProgressActive || this.postImportStartTime === null) return;
@@ -1085,7 +1085,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                 }
                 const percent = Math.min(100, Math.round((this.postImportOcclusionUpdates / 10) * 100));
                 if (percent !== this.postImportLastPercent) {
-                        console.log(`Post import progress: ${percent}%`);
+                        console.log(`Load progress: ${percent}%`);
                         this.postImportLastPercent = percent;
                 }
         },
