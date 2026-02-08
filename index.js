@@ -970,7 +970,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                 if (!session) return this.targetFrameRate;
                 const supported = session.supportedFrameRates;
                 if (supported && supported.length > 0) {
-                        const preferred = supported.includes(90) ? 90 : Math.max(...supported);
+                        const preferred = supported.includes(72)
+                                ? 72
+                                : supported.includes(90)
+                                        ? 90
+                                        : Math.max(...supported);
                         if (session.updateTargetFrameRate) {
                                 session.updateTargetFrameRate(preferred).catch((e) => console.warn('Failed to set target frame rate', e));
                         }
