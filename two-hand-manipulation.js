@@ -62,6 +62,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 if (hand === 'left') this.leftGripPressed = this.leftGripButton || this.leftTriggerButton || this.leftUsingPinch;
                 else this.rightGripPressed = this.rightGripButton || this.rightTriggerButton || this.rightUsingPinch;
             };
+            const isPinchLikeEvent = evtType => evtType.startsWith('pinch') || evtType.startsWith('grab');
+
             const onDown = evt => {
                 // Reset interaction if switching between controller and hand sources.
                 const prevSource = hand === 'left' ? this.leftSource : this.rightSource;
@@ -80,7 +82,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 }
 
                 updatePinch(evt);
-                const isPinch = evt.type.startsWith('pinch');
+                const isPinch = isPinchLikeEvent(evt.type);
                 const isGrip = evt.type.startsWith('grip') || evt.type.startsWith('squeeze');
                 const isTrigger = evt.type.startsWith('trigger');
                 if (hand === 'left') {
@@ -106,7 +108,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 this.tryStart();
             };
             const onUp = evt => {
-                const isPinch = evt.type.startsWith('pinch');
+                const isPinch = isPinchLikeEvent(evt.type);
                 const isGrip = evt.type.startsWith('grip') || evt.type.startsWith('squeeze');
                 const isTrigger = evt.type.startsWith('trigger');
                 if (hand === 'left') {
@@ -125,10 +127,10 @@ AFRAME.registerComponent('two-hand-manipulation', {
                 this.mode = null;
                 this.tryStart();
             };
-            ['pinchmoved'].forEach(evt => controller.addEventListener(evt, updatePinch));
-            ['gripdown', 'gripclose', 'squeezestart', 'pinchstarted', 'triggerdown'].forEach(evt =>
+            ['pinchmoved', 'grabmoved'].forEach(evt => controller.addEventListener(evt, updatePinch));
+            ['gripdown', 'gripclose', 'squeezestart', 'pinchstarted', 'grabstarted', 'triggerdown'].forEach(evt =>
                 controller.addEventListener(evt, onDown));
-            ['gripup', 'gripopen', 'squeezeend', 'pinchended', 'triggerup'].forEach(evt =>
+            ['gripup', 'gripopen', 'squeezeend', 'pinchended', 'grabended', 'triggerup'].forEach(evt =>
                 controller.addEventListener(evt, onUp));
         };
 
