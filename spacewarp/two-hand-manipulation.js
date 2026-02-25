@@ -281,7 +281,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
 
         const currentVector = this._tmpVec3.copy(rightPos).sub(leftPos).normalize();
         const heightDiff = Math.abs(leftPos.y - rightPos.y);
-        const heightThresh = currentDistance * 0.75; // ------------------------------------------------------------
+        const heightThresh = currentDistance * 0.5; // ------------------------------------------------------------
         const newMode = heightDiff < heightThresh ? 'yaw' : 'axis';
 
         if (this.rotationMode !== newMode) {
