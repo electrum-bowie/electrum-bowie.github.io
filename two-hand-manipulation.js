@@ -2,7 +2,8 @@ AFRAME.registerComponent('two-hand-manipulation', {
     schema: {
         minScale: { type: 'number', default: 0.001 },
         maxScale: { type: 'number', default: 70 },
-        moveSpeed: { type: 'number', default: 1 }
+        moveSpeed: { type: 'number', default: 1 },
+        defaultRotationSnapDeg: { type: 'number', default: 3 }
     },
     init: function () {
         const sceneEl = this.el.sceneEl;
@@ -26,6 +27,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this.startVector = new THREE.Vector3();
         this.startYaw = 0;
         this.startQuaternion = new THREE.Quaternion();
+        this.defaultLocalQuaternion = this.el.object3D.quaternion.clone();
         this.startOffset = new THREE.Vector3();
         this.startOffsetSingle = new THREE.Vector3();
         this.singleHand = null;
@@ -42,6 +44,7 @@ AFRAME.registerComponent('two-hand-manipulation', {
         this._tmpVec4 = new THREE.Vector3();
         this._tmpQuat = new THREE.Quaternion();
         this._tmpQuat2 = new THREE.Quaternion();
+        this._tmpQuat3 = new THREE.Quaternion();
         this.rotationMode = null; // Tracks current rotation mode
         this._angleDiff = (a, b) => {
             let d = a - b;
@@ -318,6 +321,20 @@ AFRAME.registerComponent('two-hand-manipulation', {
 
         const worldQuat = this.startQuaternion.clone();
         worldQuat.premultiply(rotQuat);
+
+        if (this.rotationMode !== 'yaw') {
+            const defaultWorldQuat = this._tmpQuat3.copy(this.defaultLocalQuaternion);
+            if (this.el.object3D.parent) {
+                const parentWorldQuat = this._tmpQuat2;
+                this.el.object3D.parent.getWorldQuaternion(parentWorldQuat);
+                defaultWorldQuat.premultiply(parentWorldQuat);
+            }
+            const snapThresholdRad = THREE.MathUtils.degToRad(this.data.defaultRotationSnapDeg);
+            if (worldQuat.angleTo(defaultWorldQuat) < snapThresholdRad) {
+                worldQuat.copy(defaultWorldQuat);
+            }
+        }
+
         if (this.el.object3D.parent) {
             const parentQuat = this._tmpQuat2;
             this.el.object3D.parent.getWorldQuaternion(parentQuat);
