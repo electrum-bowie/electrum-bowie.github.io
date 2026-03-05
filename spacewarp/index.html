@@ -2,14 +2,15 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="aframe-spacewarp.min.js"></script>
+    <script src="aframe-spacewarp.js"></script>
     <script src="index.js"></script>
     <script src="loading.js"></script>
     <script src="jszip.js"></script>
     <script src="input.js"></script>
     <script src="two-hand-manipulation.js"></script>
+    <script src="hand-dots-root-fix.js"></script>
     <script src="spacewarp-mesh.js"></script>
-    <script src="spacewarp-skinned.js"></script>
+    <script src="spacewarp-splats.js"></script>
     <script src="limit-framerate.js"></script>
     <style>
         /* CSS for button */
@@ -65,17 +66,11 @@
     <a-scene limit-framerate renderer="antialias: false; highRefreshRate: true; multiviewStereo: true; dithering: false; spaceWarp: true;" webxr="optionalFeatures: hand-tracking, layers, dom-overlay, space-warp" xr-mode-ui="XRMode: xr">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
-            <a-entity spacewarp-mesh id="rightController" oculus-touch-controls="hand: right"></a-entity>
-            <a-entity spacewarp-mesh id="leftController" oculus-touch-controls="hand: left"></a-entity>
-            <a-entity spacewarp-skinned id="rightHand" hand-tracking-controls="hand: right; modelStyle: mesh"></a-entity>
-            <a-entity spacewarp-skinned id="leftHand" hand-tracking-controls="hand: left; modelStyle: mesh"></a-entity>
+            <a-entity spacewarp-mesh="meshNames: controller_mesh, squeeze, trigger" id="rightController" oculus-touch-controls="hand: right"></a-entity>
+            <a-entity spacewarp-mesh="meshNames: controller_mesh, squeeze, trigger" id="leftController" oculus-touch-controls="hand: left"></a-entity>
+            <a-entity spacewarp-mesh="meshNames: *" hand-dots-root-fix id="rightHand" hand-tracking-controls="hand: right; modelStyle: dots"></a-entity>
+            <a-entity spacewarp-mesh="meshNames: *" hand-dots-root-fix id="leftHand" hand-tracking-controls="hand: left; modelStyle: dots"></a-entity>
         </a-entity>
-
-        <!-- Spacewarp Debug Box -->
-        <a-box spacewarp-mesh position="0.0 -0.5 -3" rotation="0 45 0" color="#FF0000"
-            animation="property: position; from: -2 -0.5 -3; to: 2 -0.5 -3; dur: 1000; dir: alternate; loop: true; easing: easeInOutSine"></a-box>
-        </a-box>
-
 
         <!-- Add a container to hold the dynamically created entity -->
         <div id="entityContainer"></div>
@@ -92,6 +87,7 @@
     <label for="fileInput">Select .zip, .ply or .splat File:</label>
     <input type="file" id="fileInput">
     <script>
+        //document.querySelector('a-scene').addEventListener('enter-vr', () => document.querySelector('a-scene').renderer.xr.setFoveation?.(0));  //Koolala: This is a fix for the aliasing issues on the hands when splats are not loaded. When the splats are created, that change foveation to zero so things look correct.
         let hideLogTimeout;
         const TYPE_ERROR_MESSAGE = "Browser Memory Limit Reached: Please compress or use a different capture. (contact.worldlens.site)";
         function displayLogMessage(message) {
