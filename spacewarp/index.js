@@ -52,6 +52,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.currentXrPixelRatio = this.clampPixelRatio(this.data.xrPixelRatio);
                         this.resetFrameTiming();
                         this.updateXRScale();
+                        this.setMultiview(false);
                 });
                 this.el.sceneEl.addEventListener("enter-vr", () => {
                         this.applyFoveationLevel();
@@ -64,20 +65,32 @@ AFRAME.registerComponent("gaussian_splatting", {
                         this.currentXrPixelRatio = this.clampPixelRatio(this.data.xrPixelRatio);
                         this.resetFrameTiming();
                         this.updateXRScale();
+                        this.setMultiview(false);
                 });
         },
-        setMultiview: function(){
-                const gl = this.el.sceneEl.renderer.getContext();
+        setMultiview: function(enable = true) {
+                const renderer = this.el.sceneEl.renderer;
+                const gl = renderer.getContext();
                 const ext = gl.getExtension("OVR_multiview2") ||
-                                gl.getExtension("OVR_multiview") ||
-                                gl.getExtension("OCULUS_multiview") ||
-                                gl.getExtension("WEBGL_multiview");
-                if (ext && this.el.sceneEl.renderer.xr.isMultiview) {
-                        console.log("Multiview enabled");
-                        this.mesh.material.defines.IS_MULTIVIEW = ""; //Sets this flag in the shader to use Multiview code
+                        gl.getExtension("OVR_multiview") ||
+                        gl.getExtension("OCULUS_multiview") ||
+                        gl.getExtension("WEBGL_multiview");
+
+                // If we want to enable it, AND hardware supports it, AND we are actually presenting VR
+                if (enable && ext && renderer.xr.isMultiview && renderer.xr.isPresenting) {
+                        if (this.mesh && this.mesh.material.defines.IS_MULTIVIEW === undefined) {
+                                console.log("Multiview enabled");
+                                this.mesh.material.defines.IS_MULTIVIEW = "";
+                                this.mesh.material.needsUpdate = true;
+                        }
                         return true;
                 } else {
-                        console.log("Multiview not supported or disabled");
+                        // If dropping back to 2D (enable = false) or hardware doesn't support it
+                        if (this.mesh && this.mesh.material && this.mesh.material.defines.IS_MULTIVIEW !== undefined) {
+                                console.log("Multiview disabled - removing shader flag");
+                                delete this.mesh.material.defines.IS_MULTIVIEW;
+                                this.mesh.material.needsUpdate = true;
+                        }
                         return false;
                 }
         },
@@ -290,15 +303,17 @@ AFRAME.registerComponent("gaussian_splatting", {
 		material.onBeforeRender = ((renderer, scene, camera, geometry, object, group) => {
                         let projectionMatrix;
                         let viewMatrix;
+                        let rightProjectionMatrix;
+                        let rightViewMatrix;
 
-                        if (this.el.sceneEl.renderer.xr.isMultiview) {
+                        if (this.el.sceneEl.renderer.xr.isMultiview && camera.cameras) {
                                 projectionMatrix = this.getProjectionMatrix(camera.cameras[0]);
-                                let rightProjectionMatrix = this.getProjectionMatrix(camera.cameras[1]);
+                                rightProjectionMatrix = this.getProjectionMatrix(camera.cameras[1]);
                                 mesh.material.uniforms.gsProjectionMatrix.value = projectionMatrix;
                                 mesh.material.uniforms.gsProjectionMatrixRight.value = rightProjectionMatrix;
 
                                 viewMatrix = this.getModelViewMatrix(camera.cameras[0]);
-                                let rightViewMatrix = this.getModelViewMatrix(camera.cameras[1]);
+                                rightViewMatrix = this.getModelViewMatrix(camera.cameras[1]);
                                 mesh.material.uniforms.gsModelViewMatrix.value = viewMatrix;
                                 mesh.material.uniforms.gsModelViewMatrixRight.value = rightViewMatrix;
                         } else {
@@ -307,6 +322,9 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                                 viewMatrix = this.getModelViewMatrix(camera);
                                 mesh.material.uniforms.gsModelViewMatrix.value = viewMatrix;
+
+                                rightProjectionMatrix = projectionMatrix;
+                                rightViewMatrix = viewMatrix;
                         }
 
                         this.viewRotationMatrix.setFromMatrix4(viewMatrix).transpose();
@@ -322,7 +340,22 @@ AFRAME.registerComponent("gaussian_splatting", {
                         material.uniforms.viewportInv.value[0] = 2.0 / viewport.z;
                         material.uniforms.viewportInv.value[1] = 2.0 / viewport.w;
                         material.uniforms.focal.value = focal;
-		});
+
+                        const splat_spacewarp = this.el.sceneEl && this.el.sceneEl.systems
+                                ? this.el.sceneEl.systems['spacewarp-splats']
+                                : null;
+                        if (splat_spacewarp && splat_spacewarp.beforeMainRender) {
+                                splat_spacewarp.beforeMainRender(this, {
+                                        sourceMesh: mesh,
+                                        projectionMatrix: projectionMatrix,
+                                        viewMatrix: viewMatrix,
+                                        rightProjectionMatrix: rightProjectionMatrix,
+                                        rightViewMatrix: rightViewMatrix,
+                                        viewportWidth: viewport.z,
+                                        viewportHeight: viewport.w
+                                });
+                        }
+                });
 		
                 mesh = new THREE.Mesh(geometry, material);
                 mesh.frustumCulled = false;
@@ -882,6 +915,14 @@ AFRAME.registerComponent("gaussian_splatting", {
 				this.lastObjectQuat.copy(this.object.quaternion);
 				this.lastScale.copy(this.object.scale);
 			}
+                }
+        },
+        remove: function () {
+                const splat_spacewarp = this.el.sceneEl && this.el.sceneEl.systems
+                        ? this.el.sceneEl.systems['spacewarp-splats']
+                        : null;
+                if (splat_spacewarp && splat_spacewarp.dispose) {
+                        splat_spacewarp.dispose(this);
                 }
         },
         updateQuality: function () {

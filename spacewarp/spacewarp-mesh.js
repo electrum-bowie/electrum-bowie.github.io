@@ -1,20 +1,14 @@
 AFRAME.registerComponent('spacewarp-mesh', {
     schema: {
-        meshName: { type: 'string', default: '' }
+        meshName: { type: 'string', default: '' },
+        meshNames: { type: 'string', default: '' }
     },
 
     init: function () {
         this.sceneEl = this.el.sceneEl;
-        this.motionMesh = null;
-        this.sourceMesh = null;
+        this.motionMeshes = [];
+        this.sourceMeshes = [];
         this.spaceWarp = null;
-        this.hasPreviousFrame = false;
-
-        this.prevModelMatrix = new THREE.Matrix4();
-        this.prevViewLeft = new THREE.Matrix4();
-        this.prevProjLeft = new THREE.Matrix4();
-        this.prevViewRight = new THREE.Matrix4();
-        this.prevProjRight = new THREE.Matrix4();
 
         this.onModelLoaded = this.setup.bind(this);
         this.onObject3DSet = (event) => {
@@ -35,7 +29,43 @@ AFRAME.registerComponent('spacewarp-mesh', {
         return !!(renderer.spaceWarp === true && xr && xr.isPresenting && xr.isSpaceWarp === true && xr.spaceWarp);
     },
 
-    selectSourceMesh: function (root) {
+    getMeshNameFilters: function () {
+        const filters = [];
+        const namesValue = (this.data.meshNames || '').trim();
+        const singleValue = (this.data.meshName || '').trim();
+
+        if (namesValue) {
+            const tokens = namesValue.split(',');
+            for (let i = 0; i < tokens.length; i++) {
+                const token = tokens[i].trim().toLowerCase();
+                if (token && !filters.includes(token)) {
+                    filters.push(token);
+                }
+            }
+        }
+
+        if (singleValue) {
+            const token = singleValue.toLowerCase();
+            if (!filters.includes(token)) {
+                filters.push(token);
+            }
+        }
+
+        return filters;
+    },
+
+    isSelectAllFilter: function (meshFilters) {
+        for (let i = 0; i < meshFilters.length; i++) {
+            const filter = meshFilters[i];
+            if (filter === 'all' || filter === '*') return true;
+        }
+
+        return false;
+    },
+
+    collectCandidateMeshes: function (root) {
+        if (!root) return [];
+
         const meshes = [];
 
         root.traverse((node) => {
@@ -50,7 +80,37 @@ AFRAME.registerComponent('spacewarp-mesh', {
             }
         });
 
-        if (meshes.length === 0) return null;
+        return meshes;
+    },
+
+    getHandDotsMeshes: function () {
+        const hand = this.el && this.el.components ? this.el.components['hand-tracking-controls'] : null;
+        if (!hand || !hand.data || hand.data.modelStyle !== 'dots') return [];
+
+        const jointEls = hand.jointEls;
+        if (!jointEls || jointEls.length === 0) return [];
+
+        const meshes = [];
+        for (let i = 0; i < jointEls.length; i++) {
+            const jointEl = jointEls[i];
+            const jointRoot = jointEl && jointEl.object3D ? jointEl.object3D : null;
+            if (!jointRoot) continue;
+
+            const jointMeshes = this.collectCandidateMeshes(jointRoot);
+            for (let j = 0; j < jointMeshes.length; j++) {
+                const mesh = jointMeshes[j];
+                if (!meshes.includes(mesh)) meshes.push(mesh);
+            }
+        }
+
+        return meshes;
+    },
+
+    selectSourceMeshes: function (root) {
+        const handDotsMeshes = this.getHandDotsMeshes();
+        const meshes = handDotsMeshes.length > 0 ? handDotsMeshes : this.collectCandidateMeshes(root);
+
+        if (meshes.length === 0) return [];
 
         const pickLargest = (list) => {
             let best = list[0];
@@ -68,85 +128,159 @@ AFRAME.registerComponent('spacewarp-mesh', {
             return best;
         };
 
-        const meshName = this.data.meshName.trim().toLowerCase();
-        if (meshName) {
-            const named = meshes.filter((m) => (m.name || '').toLowerCase().includes(meshName));
-            if (named.length > 0) return pickLargest(named);
+        const meshFilters = this.getMeshNameFilters();
+
+        if (this.isSelectAllFilter(meshFilters)) {
+            return meshes;
         }
 
-        return pickLargest(meshes);
+        if (meshFilters.length > 0) {
+            const named = [];
+            for (let i = 0; i < meshFilters.length; i++) {
+                const filter = meshFilters[i];
+                for (let j = 0; j < meshes.length; j++) {
+                    const mesh = meshes[j];
+                    const name = (mesh.name || '').toLowerCase();
+                    if (!name) continue;
+                    if (name === filter || name.includes(filter)) {
+                        if (!named.includes(mesh)) named.push(mesh);
+                    }
+                }
+            }
+
+            if (named.length > 0) return named;
+        }
+
+        return [pickLargest(meshes)];
     },
 
-    destroyMotionMesh: function () {
-        if (this.motionMesh && this.spaceWarp && this.spaceWarp.scene) {
-            this.spaceWarp.scene.remove(this.motionMesh);
-            this.motionMesh.material.dispose();
+    hasSameSourceMeshes: function (nextSourceMeshes) {
+        if (this.sourceMeshes.length !== nextSourceMeshes.length) return false;
+        for (let i = 0; i < nextSourceMeshes.length; i++) {
+            if (this.sourceMeshes[i] !== nextSourceMeshes[i]) return false;
+        }
+        return true;
+    },
+
+    destroyMotionMeshes: function () {
+        if (this.spaceWarp && this.spaceWarp.scene) {
+            for (let i = 0; i < this.motionMeshes.length; i++) {
+                const motionMesh = this.motionMeshes[i];
+                this.spaceWarp.scene.remove(motionMesh);
+
+                if (Array.isArray(motionMesh.material)) {
+                    for (let j = 0; j < motionMesh.material.length; j++) {
+                        motionMesh.material[j].dispose();
+                    }
+                } else if (motionMesh.material) {
+                    motionMesh.material.dispose();
+                }
+            }
         }
 
-        this.motionMesh = null;
-        this.sourceMesh = null;
-        this.hasPreviousFrame = false;
+        this.motionMeshes.length = 0;
+        this.sourceMeshes.length = 0;
+    },
+
+    syncMotionMeshFromSource: function (motionMesh) {
+        const xrFrameTransforms = motionMesh && motionMesh.userData ? motionMesh.userData.xrFrameTransforms : null;
+        if (!xrFrameTransforms || !xrFrameTransforms.sourceMesh) return;
+        motionMesh.matrixWorld.copy(xrFrameTransforms.sourceMesh.matrixWorld);
     },
 
     syncMotionFromSource: function () {
-        if (!this.motionMesh || !this.sourceMesh) return;
+        if (this.motionMeshes.length === 0) return;
 
-        if (this.el.object3D.updateWorldMatrix) {
-            this.el.object3D.updateWorldMatrix(true, true);
+        const hand = this.el && this.el.components ? this.el.components['hand-tracking-controls'] : null;
+        const isDotsHand = !!(hand && hand.data && hand.data.modelStyle === 'dots' && hand.jointEls && hand.jointEls.length > 0);
+        const updateRoot = (isDotsHand && this.sceneEl && this.sceneEl.object3D) ? this.sceneEl.object3D : this.el.object3D;
+
+        if (updateRoot.updateWorldMatrix) {
+            updateRoot.updateWorldMatrix(true, true);
         } else {
-            this.el.object3D.updateMatrixWorld(true);
+            updateRoot.updateMatrixWorld(true);
         }
 
-        this.motionMesh.matrixWorld.copy(this.sourceMesh.matrixWorld);
+        for (let i = 0; i < this.motionMeshes.length; i++) {
+            this.syncMotionMeshFromSource(this.motionMeshes[i]);
+        }
+    },
+
+    createMotionMesh: function (sourceMesh, index) {
+        const sourceMaterial = Array.isArray(sourceMesh.material) ? sourceMesh.material[0] : sourceMesh.material;
+        const material = this.createMaterial();
+        const motionMesh = new THREE.Mesh(sourceMesh.geometry, material);
+
+        motionMesh.matrixAutoUpdate = false;
+        motionMesh.frustumCulled = false;
+        motionMesh.renderOrder = 9999 + index;
+        motionMesh.material.side = sourceMaterial && sourceMaterial.side !== undefined ? sourceMaterial.side : THREE.FrontSide;
+
+        motionMesh.userData.xrFrameTransforms = {
+            sourceMesh: sourceMesh,
+            prevModelMatrix: new THREE.Matrix4(),
+            prevViewLeft: new THREE.Matrix4(),
+            prevProjLeft: new THREE.Matrix4(),
+            prevViewRight: new THREE.Matrix4(),
+            prevProjRight: new THREE.Matrix4(),
+            hasPreviousFrame: false
+        };
+
+        motionMesh.onAfterRender = (renderer, scene, camera) => {
+            const camL = camera.cameras && camera.cameras[0];
+            const camR = camera.cameras && camera.cameras[1];
+            if (!camL || !camR) return;
+
+            const xrFrameTransforms = motionMesh.userData.xrFrameTransforms;
+            if (!xrFrameTransforms) return;
+
+            xrFrameTransforms.prevModelMatrix.copy(motionMesh.matrixWorld);
+            xrFrameTransforms.prevViewLeft.copy(camL.matrixWorldInverse);
+            xrFrameTransforms.prevProjLeft.copy(camL.projectionMatrix);
+            xrFrameTransforms.prevViewRight.copy(camR.matrixWorldInverse);
+            xrFrameTransforms.prevProjRight.copy(camR.projectionMatrix);
+
+            xrFrameTransforms.hasPreviousFrame = true;
+        };
+
+        return motionMesh;
     },
 
     setup: function () {
-        if (this.motionMesh) return;
         if (!this.isSpaceWarpActive()) return;
 
         const renderer = this.sceneEl.renderer;
         this.spaceWarp = renderer.xr.spaceWarp;
         if (!this.spaceWarp || !this.spaceWarp.scene) return;
 
-        const root = this.el.getObject3D('mesh');
-        if (!root) return;
+        const root = this.el.getObject3D('mesh') || this.el.object3D;
 
-        this.sourceMesh = this.selectSourceMesh(root);
-        if (!this.sourceMesh) return;
+        const nextSourceMeshes = this.selectSourceMeshes(root);
+        if (nextSourceMeshes.length === 0) return;
 
-        const sourceMaterial = Array.isArray(this.sourceMesh.material) ? this.sourceMesh.material[0] : this.sourceMesh.material;
-        const material = this.createMaterial();
+        if (this.motionMeshes.length > 0 && this.hasSameSourceMeshes(nextSourceMeshes)) return;
 
-        this.motionMesh = new THREE.Mesh(this.sourceMesh.geometry, material);
-        this.motionMesh.matrixAutoUpdate = false;
-        this.motionMesh.frustumCulled = false;
-        this.motionMesh.renderOrder = 9999;
-        this.motionMesh.material.side = sourceMaterial && sourceMaterial.side !== undefined ? sourceMaterial.side : THREE.FrontSide;
+        if (this.motionMeshes.length > 0) this.destroyMotionMeshes();
 
-        this.motionMesh.onAfterRender = (renderer, scene, camera) => {
-            const camL = camera.cameras && camera.cameras[0];
-            const camR = camera.cameras && camera.cameras[1];
-            if (!camL || !camR) return;
+        this.sourceMeshes = nextSourceMeshes;
 
-            this.prevModelMatrix.copy(this.motionMesh.matrixWorld);
-            this.prevViewLeft.copy(camL.matrixWorldInverse);
-            this.prevProjLeft.copy(camL.projectionMatrix);
-            this.prevViewRight.copy(camR.matrixWorldInverse);
-            this.prevProjRight.copy(camR.projectionMatrix);
-            this.hasPreviousFrame = true;
-        };
+        for (let i = 0; i < this.sourceMeshes.length; i++) {
+            const sourceMesh = this.sourceMeshes[i];
+            const motionMesh = this.createMotionMesh(sourceMesh, i);
+            this.motionMeshes.push(motionMesh);
+            this.spaceWarp.scene.add(motionMesh);
+        }
 
-        this.spaceWarp.scene.add(this.motionMesh);
         this.syncMotionFromSource();
     },
 
     tick: function () {
         if (!this.isSpaceWarpActive()) {
-            if (this.motionMesh) this.destroyMotionMesh();
+            if (this.motionMeshes.length > 0) this.destroyMotionMeshes();
             return;
         }
 
-        if (!this.motionMesh || !this.sourceMesh) {
+        if (this.motionMeshes.length === 0 || this.sourceMeshes.length === 0) {
             this.setup();
         }
     },
@@ -159,7 +293,7 @@ AFRAME.registerComponent('spacewarp-mesh', {
     remove: function () {
         this.el.removeEventListener('model-loaded', this.onModelLoaded);
         this.el.removeEventListener('object3dset', this.onObject3DSet);
-        this.destroyMotionMesh();
+        this.destroyMotionMeshes();
     },
 
     createMaterial: function () {
@@ -223,18 +357,27 @@ AFRAME.registerComponent('spacewarp-mesh', {
         });
 
         material.onBeforeRender = (renderer, scene, camera, geometry, object) => {
-            this.syncMotionFromSource();
+            this.syncMotionMeshFromSource(object);
 
             const camL = camera.cameras && camera.cameras[0];
             const camR = camera.cameras && camera.cameras[1];
             if (!camL || !camR) return;
 
-            if (!this.hasPreviousFrame) {
-                this.prevModelMatrix.copy(object.matrixWorld);
-                this.prevViewLeft.copy(camL.matrixWorldInverse);
-                this.prevProjLeft.copy(camL.projectionMatrix);
-                this.prevViewRight.copy(camR.matrixWorldInverse);
-                this.prevProjRight.copy(camR.projectionMatrix);
+            const xrFrameTransforms = object && object.userData ? object.userData.xrFrameTransforms : null;
+            if (!xrFrameTransforms) return;
+
+            const prevModelMatrix = xrFrameTransforms.prevModelMatrix;
+            const prevViewLeft = xrFrameTransforms.prevViewLeft;
+            const prevProjLeft = xrFrameTransforms.prevProjLeft;
+            const prevViewRight = xrFrameTransforms.prevViewRight;
+            const prevProjRight = xrFrameTransforms.prevProjRight;
+
+            if (!xrFrameTransforms.hasPreviousFrame) {
+                prevModelMatrix.copy(object.matrixWorld);
+                prevViewLeft.copy(camL.matrixWorldInverse);
+                prevProjLeft.copy(camL.projectionMatrix);
+                prevViewRight.copy(camR.matrixWorldInverse);
+                prevProjRight.copy(camR.projectionMatrix);
             }
 
             material.uniforms.uProjLeft.value.copy(camL.projectionMatrix);
@@ -242,10 +385,10 @@ AFRAME.registerComponent('spacewarp-mesh', {
             material.uniforms.uProjRight.value.copy(camR.projectionMatrix);
             material.uniforms.uViewModRight.value.multiplyMatrices(camR.matrixWorldInverse, object.matrixWorld);
 
-            material.uniforms.uPrevProjLeft.value.copy(this.prevProjLeft);
-            material.uniforms.uPrevViewModLeft.value.multiplyMatrices(this.prevViewLeft, this.prevModelMatrix);
-            material.uniforms.uPrevProjRight.value.copy(this.prevProjRight);
-            material.uniforms.uPrevViewModRight.value.multiplyMatrices(this.prevViewRight, this.prevModelMatrix);
+            material.uniforms.uPrevProjLeft.value.copy(prevProjLeft);
+            material.uniforms.uPrevViewModLeft.value.multiplyMatrices(prevViewLeft, prevModelMatrix);
+            material.uniforms.uPrevProjRight.value.copy(prevProjRight);
+            material.uniforms.uPrevViewModRight.value.multiplyMatrices(prevViewRight, prevModelMatrix);
         };
 
         return material;
