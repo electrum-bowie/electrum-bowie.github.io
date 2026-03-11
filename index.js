@@ -994,16 +994,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
-                        let nextCapacity = Math.max(cache.capacity || 1, 1024);
-                        while (nextCapacity < n) {
-                                nextCapacity = Math.ceil(nextCapacity * 1.5);
-                        }
-                        cache.capacity = nextCapacity;
-                        cache.depthList = new Float32Array(nextCapacity);
+                        cache.capacity = n;
+                        cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
-                        cache.validIndexList = new Int32Array(nextCapacity);
-                        cache.occlusionIndexList = new Int32Array(nextCapacity);
-                        discardMark = new Uint8Array(nextCapacity);
+                        cache.validIndexList = new Int32Array(n);
+                        cache.occlusionIndexList = new Int32Array(n);
+                        discardMark = new Uint8Array(n);
                 };
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
@@ -1259,14 +1255,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
-                        let nextCapacity = Math.max(cache.capacity || 1, 1024);
-                        while (nextCapacity < n) {
-                                nextCapacity = Math.ceil(nextCapacity * 1.5);
-                        }
-                        cache.capacity = nextCapacity;
-                        cache.depthList = new Float32Array(nextCapacity);
+                        cache.capacity = n;
+                        cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
-                        cache.validIndexList = new Int32Array(nextCapacity);
+                        cache.validIndexList = new Int32Array(n);
                 };
 
                 const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0, camera = null, filteredIndexes = null) {
