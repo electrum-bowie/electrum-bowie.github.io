@@ -499,6 +499,9 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.occlusionWorker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
                 this.originalBufferCounts = [];
+                this.cachedBytes = 0;
+                this.cacheLimitBytes = 256 * 1024 * 1024;
+                this.cacheLimitWarned = false;
                 this.isCaching = true;
                 const rowLength = this.rowLength;
                 const ensureSplatCapacity = this.ensureSplatCapacity.bind(this);
@@ -587,24 +590,37 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 this.sortSplatsNow();
                         });
         },
-        pushDataBuffer: function (buffer, vertexCount) {
+        pushDataBuffer: function (bufferData, vertexCount) {
                 if (this.loadedVertexCount + vertexCount > this.maxSplatCount) {
                         vertexCount = this.maxSplatCount - this.loadedVertexCount;
                 }
                 if (vertexCount <= 0) {
                         return;
                 }
-                if (this.isCaching) {
-                        const expectedBytes = vertexCount * this.rowLength;
-                        const cachedBuffer = buffer.byteLength === expectedBytes
-                                ? buffer
-                                : buffer.slice(0, expectedBytes);
-                        this.originalBuffers.push(cachedBuffer);
-                        this.originalBufferCounts.push(vertexCount);
+                const u_buffer = bufferData instanceof Uint8Array
+                        ? bufferData
+                        : new Uint8Array(bufferData);
+                const expectedBytes = vertexCount * this.rowLength;
+                const exactLengthBytes = Math.min(expectedBytes, u_buffer.byteLength);
+                const exactUint8 = exactLengthBytes === u_buffer.byteLength
+                        ? u_buffer
+                        : u_buffer.subarray(0, exactLengthBytes);
+
+                if (this.isCaching && exactLengthBytes > 0) {
+                        if (this.cachedBytes + exactLengthBytes <= this.cacheLimitBytes) {
+                                const cachedBuffer = new ArrayBuffer(exactLengthBytes);
+                                new Uint8Array(cachedBuffer).set(exactUint8);
+                                this.originalBuffers.push(cachedBuffer);
+                                this.originalBufferCounts.push(vertexCount);
+                                this.cachedBytes += exactLengthBytes;
+                        } else if (!this.cacheLimitWarned) {
+                                this.cacheLimitWarned = true;
+                                console.warn('Disabling quality cache for large scene to reduce memory pressure.');
+                        }
                 }
-                
-		let u_buffer = new Uint8Array(buffer);
-		let f_buffer = new Float32Array(buffer);
+
+		const f_buffer = new Float32Array(exactUint8.buffer, exactUint8.byteOffset, exactUint8.byteLength / 4);
+		const u_buffer_view = exactUint8;
                 let matrices = new Float32Array(vertexCount * 16);
                 let normals = new Float32Array(vertexCount * 3);
 
@@ -616,10 +632,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 		const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
                 for (let i = 0; i < vertexCount; i++) {
 			let quat = new THREE.Quaternion(
-				(u_buffer[32 * i + 28 + 1] - 128) / 128.0,
-				(u_buffer[32 * i + 28 + 2] - 128) / 128.0,
-				-(u_buffer[32 * i + 28 + 3] - 128) / 128.0,
-				(u_buffer[32 * i + 28 + 0] - 128) / 128.0,
+				(u_buffer_view[32 * i + 28 + 1] - 128) / 128.0,
+				(u_buffer_view[32 * i + 28 + 2] - 128) / 128.0,
+				-(u_buffer_view[32 * i + 28 + 3] - 128) / 128.0,
+				(u_buffer_view[32 * i + 28 + 0] - 128) / 128.0,
 			);
 			let center = new THREE.Vector3(
 				f_buffer[8 * i + 0],
@@ -686,15 +702,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 			// RGBA
 			destOffset = this.loadedVertexCount * 16 + (i * 4 + 3) * 4;
-			covAndColorData_uint8[destOffset + 0] = u_buffer[32 * i + 24 + 0];
-			covAndColorData_uint8[destOffset + 1] = u_buffer[32 * i + 24 + 1];
-			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
-                        covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
+			covAndColorData_uint8[destOffset + 0] = u_buffer_view[32 * i + 24 + 0];
+			covAndColorData_uint8[destOffset + 1] = u_buffer_view[32 * i + 24 + 1];
+			covAndColorData_uint8[destOffset + 2] = u_buffer_view[32 * i + 24 + 2];
+                        covAndColorData_uint8[destOffset + 3] = u_buffer_view[32 * i + 24 + 3];
 
                         // Store scale information and transparency for later processing
                         mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
                         mtx.elements[3] = Math.min(scale.x, scale.y, scale.z);
-                        mtx.elements[11] = u_buffer[32*i + 24 + 3] / 255.0;
+                        mtx.elements[11] = u_buffer_view[32*i + 24 + 3] / 255.0;
 
 			for (let j = 0; j < 16; j++) {
 				matrices[i * 16 + j] = mtx.elements[j];
