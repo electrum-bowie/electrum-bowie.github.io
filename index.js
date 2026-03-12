@@ -467,6 +467,11 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.originalBuffers = [];
                 this.originalBufferCounts = [];
                 this.isCaching = true;
+                const toExactBuffer = (typed) => (
+                        typed.byteOffset === 0 && typed.byteLength === typed.buffer.byteLength
+                                ? typed.buffer
+                                : typed.buffer.slice(typed.byteOffset, typed.byteOffset + typed.byteLength)
+                );
 		const createPendingBuffer = () => ({
 			chunks: [],
 			length: 0,
@@ -581,7 +586,6 @@ AFRAME.registerComponent("gaussian_splatting", {
 					try {
 						const { value, done } = await reader.read();
 						if (done) {
-							console.log("Process Completed.");
 							break;
 						}
 						bytesDownloaded += value.length;
@@ -645,7 +649,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 							if (vertexCount > 0) {
 								const batchBytes = vertexCount * rowLength;
 								const batchData = pending.consumeBytes(batchBytes);
-								pushDataBuffer(batchData.buffer, vertexCount);
+								pushDataBuffer(toExactBuffer(batchData), vertexCount);
 								bytesProcesses += batchBytes;
 							}
 						}
@@ -682,7 +686,7 @@ AFRAME.registerComponent("gaussian_splatting", {
 						if (vertexCount > 0) {
 							const batchBytes = vertexCount * rowLength;
 							const batchData = pending.consumeBytes(batchBytes);
-							pushDataBuffer(batchData.buffer, vertexCount);
+							pushDataBuffer(toExactBuffer(batchData), vertexCount);
 						}
 					}
 				}
