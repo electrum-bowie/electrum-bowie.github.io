@@ -133,7 +133,10 @@ AFRAME.registerSystem('spacewarp-splats', {
             vertexShader: `
                 precision highp usampler2D;
 
-                #define ALPHA_CUTOFF 0.10
+                // --- TWEAKABLE SETTINGS ---
+                #define ALPHA_CUTOFF 0.15
+                #define SPLAT_SCALE 0.33
+                // --------------------------
 
                 uniform sampler2D centerAndScaleTexture;
                 uniform usampler2D covAndColorTexture;
@@ -156,10 +159,10 @@ AFRAME.registerSystem('spacewarp-splats', {
                 uniform mat3 uPrevViewRotRight;
 
                 in uint splatIndex;
+                in float fadeOpacity;
 
                 out vec4 curPos;
                 out vec4 prevPos;
-                out vec2 vQuadPos;
 
                 vec2 unpackInt16(uint value) {
                     int v0 = int(value) >> 16;
@@ -175,12 +178,6 @@ AFRAME.registerSystem('spacewarp-splats', {
                     uvec4 covAndColorData,
                     vec2 quadPos
                 ) {
-                    uint colorUint = covAndColorData.w;
-                    float baseAlpha = float(colorUint >> 24) * 0.003921569;
-                    if (baseAlpha < ALPHA_CUTOFF) {
-                        return vec4(0.0, 0.0, 2.0, 1.0);
-                    }
-
                     vec4 camspace = viewMod * vec4(centerAndScaleData.xyz, 1.0);
                     vec4 pos2d = proj * camspace;
 
@@ -210,12 +207,22 @@ AFRAME.registerSystem('spacewarp-splats', {
                         0.0, 0.0, 0.0
                     );
 
-                    mat3 cov = transpose(viewRot * J) * Vrk * (viewRot * J);
+                    mat3 A = viewRot * J;
+                    vec3 A0 = A[0];
+                    vec3 A1 = A[1];
+
+                    vec3 VA0 = Vrk * A0;
+                    vec3 VA1 = Vrk * A1;
+
+                    float cov00 = dot(A0, VA0);
+                    float cov01 = dot(A0, VA1);
+                    float cov11 = dot(A1, VA1);
+
                     vec2 vCenter = pos2d.xy / pos2d.w;
 
-                    float diag1 = cov[0][0] + 0.3;
-                    float offDiag = cov[0][1];
-                    float diag2 = cov[1][1] + 0.3;
+                    float diag1 = cov00 + 0.3;
+                    float offDiag = cov01;
+                    float diag2 = cov11 + 0.3;
 
                     float mid = 0.5 * (diag1 + diag2);
                     float radius = length(vec2((diag1 - diag2) * 0.5, offDiag));
@@ -224,8 +231,8 @@ AFRAME.registerSystem('spacewarp-splats', {
                     float lambda2 = max(mid - radius, 0.1);
 
                     vec2 diagVec = normalize(vec2(offDiag, lambda1 - diag1));
-                    vec2 v1 = min(sqrt(2.0 * lambda1), 1024.0) * diagVec;
-                    vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagVec.y, -diagVec.x);
+                    vec2 v1 = min(sqrt(2.0 * lambda1), 1024.0) * diagVec * SPLAT_SCALE;
+                    vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagVec.y, -diagVec.x) * SPLAT_SCALE;
 
                     vec2 ndcXY = vCenter + (quadPos.x * v2 + quadPos.y * v1) * uViewportInv;
                     float ndcZ = pos2d.z / pos2d.w;
@@ -239,6 +246,14 @@ AFRAME.registerSystem('spacewarp-splats', {
                     uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
                     vec2 quadPos = position.xy;
 
+                    float baseAlpha = float(covAndColorData.w >> 24) * 0.003921569;
+                    if (baseAlpha * fadeOpacity < ALPHA_CUTOFF) {
+                        curPos = vec4(0.0, 0.0, 2.0, 1.0);
+                        prevPos = vec4(0.0, 0.0, 2.0, 1.0);
+                        gl_Position = curPos;
+                        return;
+                    }
+
                     if (gl_ViewID_OVR == 0u) {
                         curPos = projectSplat(uProjLeft, uViewModLeft, uViewRotLeft, centerAndScaleData, covAndColorData, quadPos);
                         prevPos = projectSplat(uPrevProjLeft, uPrevViewModLeft, uPrevViewRotLeft, centerAndScaleData, covAndColorData, quadPos);
@@ -247,7 +262,6 @@ AFRAME.registerSystem('spacewarp-splats', {
                         prevPos = projectSplat(uPrevProjRight, uPrevViewModRight, uPrevViewRotRight, centerAndScaleData, covAndColorData, quadPos);
                     }
 
-                    vQuadPos = quadPos;
                     gl_Position = curPos;
                 }
             `,
@@ -256,13 +270,9 @@ AFRAME.registerSystem('spacewarp-splats', {
 
                 in vec4 curPos;
                 in vec4 prevPos;
-                in vec2 vQuadPos;
                 out highp vec4 outColor;
 
                 void main() {
-                    float len2 = dot(vQuadPos, vQuadPos);
-                    if (len2 > 0.5) discard;
-
                     vec3 c = curPos.xyz / max(curPos.w, 1e-8);
                     vec3 p = prevPos.xyz / max(prevPos.w, 1e-8);
                     outColor = vec4(c - p, 0.0);

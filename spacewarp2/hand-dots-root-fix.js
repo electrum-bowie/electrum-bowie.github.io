@@ -13,6 +13,7 @@ AFRAME.registerComponent('hand-dots-root-fix', {
         const sceneObj = this.el.sceneEl && this.el.sceneEl.object3D;
         if (!sceneObj) return;
 
+
         for (let i = 0; i < hand.jointEls.length; i++) {
             sceneObj.attach(hand.jointEls[i].object3D);
         }

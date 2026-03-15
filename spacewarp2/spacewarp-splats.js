@@ -114,6 +114,8 @@ AFRAME.registerSystem('spacewarp-splats', {
                 covAndColorTexture: { value: null },
                 uTextureWidth: { value: 1 },
                 uViewportInv: { value: new THREE.Vector2(1, 1) },
+                uFocalLeft: { value: 1.0 },
+                uFocalRight: { value: 1.0 },
 
                 uProjLeft: { value: new THREE.Matrix4() },
                 uViewModLeft: { value: new THREE.Matrix4() },
@@ -130,10 +132,11 @@ AFRAME.registerSystem('spacewarp-splats', {
                 uPrevViewRotLeft: { value: new THREE.Matrix3() },
                 uPrevViewRotRight: { value: new THREE.Matrix3() }
             },
-            vertexShader: `
+vertexShader: `
                 precision highp usampler2D;
 
-                #define ALPHA_CUTOFF 0.10
+                #define ALPHA_CUTOFF 0.15
+                #define SPLAT_SCALE 0.33
 
                 uniform sampler2D centerAndScaleTexture;
                 uniform usampler2D covAndColorTexture;
@@ -154,12 +157,13 @@ AFRAME.registerSystem('spacewarp-splats', {
                 uniform mat3 uViewRotRight;
                 uniform mat3 uPrevViewRotLeft;
                 uniform mat3 uPrevViewRotRight;
+                uniform float uFocalLeft;
+                uniform float uFocalRight;
 
                 in uint splatIndex;
+                in float fadeOpacity;
 
-                out vec4 curPos;
-                out vec4 prevPos;
-                out vec2 vQuadPos;
+                out vec3 vMotion;
 
                 vec2 unpackInt16(uint value) {
                     int v0 = int(value) >> 16;
@@ -168,25 +172,105 @@ AFRAME.registerSystem('spacewarp-splats', {
                 }
 
                 vec4 projectSplat(
-                    mat4 proj,
-                    mat4 viewMod,
+                    vec4 camspace,
+                    vec4 pos2d,
                     mat3 viewRot,
-                    vec4 centerAndScaleData,
-                    uvec4 covAndColorData,
-                    vec2 quadPos
+                    mat3 Vrk,
+                    vec2 quadPos,
+                    float focal
                 ) {
-                    uint colorUint = covAndColorData.w;
-                    float baseAlpha = float(colorUint >> 24) * 0.003921569;
-                    if (baseAlpha < ALPHA_CUTOFF) {
-                        return vec4(0.0, 0.0, 2.0, 1.0);
-                    }
-
-                    vec4 camspace = viewMod * vec4(centerAndScaleData.xyz, 1.0);
-                    vec4 pos2d = proj * camspace;
-
                     float bounds = pos2d.w;
                     if (pos2d.z < -bounds || pos2d.x < -bounds || pos2d.x > bounds || pos2d.y < -bounds || pos2d.y > bounds) {
                         return vec4(0.0, 0.0, 2.0, 1.0);
+                    }
+
+                    float invZ = 1.0 / camspace.z;
+                    float invZ2 = invZ * invZ;
+
+                    mat3 J = mat3(
+                        focal * invZ, 0.0, -focal * camspace.x * invZ2,
+                        0.0, -focal * invZ, focal * camspace.y * invZ2,
+                        0.0, 0.0, 0.0
+                    );
+
+                    mat3 A = viewRot * J;
+                    vec3 A0 = A[0];
+                    vec3 A1 = A[1];
+
+                    vec3 VA0 = Vrk * A0;
+                    vec3 VA1 = Vrk * A1;
+
+                    float cov00 = dot(A0, VA0);
+                    float cov01 = dot(A0, VA1);
+                    float cov11 = dot(A1, VA1);
+
+                    vec2 vCenter = pos2d.xy / pos2d.w;
+
+                    float diag1 = cov00 + 0.3;
+                    float offDiag = cov01;
+                    float diag2 = cov11 + 0.3;
+
+                    float mid = 0.5 * (diag1 + diag2);
+                    float radius = length(vec2((diag1 - diag2) * 0.5, offDiag));
+
+                    float lambda1 = mid + radius;
+                    float lambda2 = max(mid - radius, 0.1);
+
+                    vec2 diagVec = normalize(vec2(offDiag, lambda1 - diag1));
+                    vec2 v1 = min(sqrt(2.0 * lambda1), 1024.0) * diagVec * SPLAT_SCALE;
+                    vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagVec.y, -diagVec.x) * SPLAT_SCALE;
+
+                    vec2 ndcXY = vCenter + (quadPos.x * v2 + quadPos.y * v1) * uViewportInv;
+                    float ndcZ = pos2d.z / pos2d.w;
+                    return vec4(ndcXY, ndcZ, 1.0);
+                }
+
+                void main() {
+                    uint texWidth = uint(uTextureWidth);
+                    ivec2 texPos = ivec2(int(splatIndex % texWidth), int(splatIndex / texWidth));
+                    vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
+                    vec2 quadPos = position.xy;
+                    vec4 center = vec4(centerAndScaleData.xyz, 1.0);
+
+                    mat4 curProj;
+                    mat4 curViewMod;
+                    mat3 curViewRot;
+                    mat4 prevProj;
+                    mat4 prevViewMod;
+                    float curFocal;
+
+                    if (gl_ViewID_OVR == 0u) {
+                        curProj = uProjLeft;
+                        curViewMod = uViewModLeft;
+                        curViewRot = uViewRotLeft;
+                        prevProj = uPrevProjLeft;
+                        prevViewMod = uPrevViewModLeft;
+                        curFocal = uFocalLeft;
+                    } else {
+                        curProj = uProjRight;
+                        curViewMod = uViewModRight;
+                        curViewRot = uViewRotRight;
+                        prevProj = uPrevProjRight;
+                        prevViewMod = uPrevViewModRight;
+                        curFocal = uFocalRight;
+                    }
+
+                    vec4 curCamspace = curViewMod * center;
+                    vec4 curPos2d = curProj * curCamspace;
+
+                    float curBounds = curPos2d.w;
+                    if (curPos2d.z < -curBounds || curPos2d.x < -curBounds || curPos2d.x > curBounds || curPos2d.y < -curBounds || curPos2d.y > curBounds) {
+                        gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+                        vMotion = vec3(0.0);
+                        return;
+                    }
+
+                    uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
+                    float baseAlpha = float(covAndColorData.w >> 24) * 0.003921569;
+                    if (baseAlpha * fadeOpacity < ALPHA_CUTOFF) {
+                        gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+                        vMotion = vec3(0.0);
+                        return;
                     }
 
                     float scale = centerAndScaleData.w;
@@ -200,72 +284,27 @@ AFRAME.registerSystem('spacewarp-splats', {
                         cov3D_M13_M22.x, cov3D_M23_M33.x, cov3D_M23_M33.y
                     );
 
-                    float invZ = 1.0 / camspace.z;
-                    float invZ2 = invZ * invZ;
-                    float focal = (1.0 / max(uViewportInv.y, 1e-8)) * abs(proj[1][1]);
+                    vec4 prevCamspace = prevViewMod * center;
+                    vec4 prevPos2d = prevProj * prevCamspace;
 
-                    mat3 J = mat3(
-                        focal * invZ, 0.0, -focal * camspace.x * invZ2,
-                        0.0, -focal * invZ, focal * camspace.y * invZ2,
-                        0.0, 0.0, 0.0
-                    );
+                    float invCurW = 1.0 / max(curPos2d.w, 1e-8);
+                    float invPrevW = 1.0 / max(prevPos2d.w, 1e-8);
+                    vec3 curCenterNdc = vec3(curPos2d.xy * invCurW, curPos2d.z * invCurW);
+                    vec3 prevCenterNdc = vec3(prevPos2d.xy * invPrevW, prevPos2d.z * invPrevW);
 
-                    mat3 cov = transpose(viewRot * J) * Vrk * (viewRot * J);
-                    vec2 vCenter = pos2d.xy / pos2d.w;
-
-                    float diag1 = cov[0][0] + 0.3;
-                    float offDiag = cov[0][1];
-                    float diag2 = cov[1][1] + 0.3;
-
-                    float mid = 0.5 * (diag1 + diag2);
-                    float radius = length(vec2((diag1 - diag2) * 0.5, offDiag));
-
-                    float lambda1 = mid + radius;
-                    float lambda2 = max(mid - radius, 0.1);
-
-                    vec2 diagVec = normalize(vec2(offDiag, lambda1 - diag1));
-                    vec2 v1 = min(sqrt(2.0 * lambda1), 1024.0) * diagVec;
-                    vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagVec.y, -diagVec.x);
-
-                    vec2 ndcXY = vCenter + (quadPos.x * v2 + quadPos.y * v1) * uViewportInv;
-                    float ndcZ = pos2d.z / pos2d.w;
-                    return vec4(ndcXY, ndcZ, 1.0);
-                }
-
-                void main() {
-                    uint texWidth = uint(uTextureWidth);
-                    ivec2 texPos = ivec2(int(splatIndex % texWidth), int(splatIndex / texWidth));
-                    vec4 centerAndScaleData = texelFetch(centerAndScaleTexture, texPos, 0);
-                    uvec4 covAndColorData = texelFetch(covAndColorTexture, texPos, 0);
-                    vec2 quadPos = position.xy;
-
-                    if (gl_ViewID_OVR == 0u) {
-                        curPos = projectSplat(uProjLeft, uViewModLeft, uViewRotLeft, centerAndScaleData, covAndColorData, quadPos);
-                        prevPos = projectSplat(uPrevProjLeft, uPrevViewModLeft, uPrevViewRotLeft, centerAndScaleData, covAndColorData, quadPos);
-                    } else {
-                        curPos = projectSplat(uProjRight, uViewModRight, uViewRotRight, centerAndScaleData, covAndColorData, quadPos);
-                        prevPos = projectSplat(uPrevProjRight, uPrevViewModRight, uPrevViewRotRight, centerAndScaleData, covAndColorData, quadPos);
-                    }
-
-                    vQuadPos = quadPos;
+                    vec4 curPos = projectSplat(curCamspace, curPos2d, curViewRot, Vrk, quadPos, curFocal);
+                    vMotion = curCenterNdc - prevCenterNdc;
                     gl_Position = curPos;
                 }
             `,
             fragmentShader: `
                 precision highp float;
 
-                in vec4 curPos;
-                in vec4 prevPos;
-                in vec2 vQuadPos;
+                in vec3 vMotion;
                 out highp vec4 outColor;
 
                 void main() {
-                    float len2 = dot(vQuadPos, vQuadPos);
-                    if (len2 > 0.5) discard;
-
-                    vec3 c = curPos.xyz / max(curPos.w, 1e-8);
-                    vec3 p = prevPos.xyz / max(prevPos.w, 1e-8);
-                    outColor = vec4(c - p, 0.0);
+                    outColor = vec4(vMotion, 0.0);
                 }
             `,
             blending: THREE.NoBlending,
@@ -289,6 +328,7 @@ AFRAME.registerSystem('spacewarp-splats', {
             const viewportWidth = Math.max(xrFrameTransforms.viewport.x, 1);
             const viewportHeight = Math.max(xrFrameTransforms.viewport.y, 1);
             material.uniforms.uViewportInv.value.set(2.0 / viewportWidth, 2.0 / viewportHeight);
+            const focalScale = viewportHeight * 0.5;
 
             material.uniforms.uProjLeft.value.copy(xrFrameTransforms.curProjLeft);
             material.uniforms.uViewModLeft.value.copy(xrFrameTransforms.curViewLeft);
@@ -299,6 +339,8 @@ AFRAME.registerSystem('spacewarp-splats', {
             material.uniforms.uPrevViewModLeft.value.copy(xrFrameTransforms.prevViewLeft);
             material.uniforms.uPrevProjRight.value.copy(xrFrameTransforms.prevProjRight);
             material.uniforms.uPrevViewModRight.value.copy(xrFrameTransforms.prevViewRight);
+            material.uniforms.uFocalLeft.value = focalScale * Math.abs(xrFrameTransforms.curProjLeft.elements[5]);
+            material.uniforms.uFocalRight.value = focalScale * Math.abs(xrFrameTransforms.curProjRight.elements[5]);
 
             xrFrameTransforms.viewRotLeft.setFromMatrix4(xrFrameTransforms.curViewLeft).transpose();
             xrFrameTransforms.viewRotRight.setFromMatrix4(xrFrameTransforms.curViewRight).transpose();
