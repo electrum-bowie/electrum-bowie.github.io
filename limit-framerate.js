@@ -6,12 +6,11 @@ AFRAME.registerComponent('limit-framerate', {
         sceneEl.addEventListener('enter-vr', () => {
             const xr = sceneEl.renderer && sceneEl.renderer.xr;
             const session = xr && xr.getSession ? xr.getSession() : null;
-            console.log("session.supportedFrameRates", session.supportedFrameRates, "session.frameRate", session.frameRate);
             if (!session || !session.updateTargetFrameRate || !session.supportedFrameRates) return;
 
             const rates = Array.from(session.supportedFrameRates || []).sort((a, b) => a - b);
             const target = rates[0];
-            console.log("rates", rates, "target", target);
+            console.log("supportedFrameRates", rates, "target", target);
             if (typeof target !== 'number' || session.frameRate === target) return;
 
             session.updateTargetFrameRate(target).catch(err => {

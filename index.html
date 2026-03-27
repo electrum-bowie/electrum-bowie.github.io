@@ -2,12 +2,16 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="aframe-multiview.min.js"></script>
+    <script src="aframe-spacewarp.min.js"></script>
     <script src="index.js"></script>
     <script src="loading.js"></script>
     <script src="jszip.js"></script>
     <script src="input.js"></script>
     <script src="two-hand-manipulation.js"></script>
+    <script src="hand-dots-root-fix.js"></script>
+    <script src="spacewarp-mesh.js"></script>
+    <script src="spacewarp-splats.js"></script>
+    <script src="limit-framerate.js"></script>
     <style>
         /* CSS for button */
         #fileButton {
@@ -59,13 +63,13 @@
     </style>
 </head>
 <body>
-    <a-scene renderer="antialias: false; highRefreshRate: true; multiviewStereo: true; dithering: false" webxr="optionalFeatures: hand-tracking, layers, dom-overlay" xr-mode-ui="XRMode: xr">
+    <a-scene limit-framerate renderer="antialias: false; highRefreshRate: true; multiviewStereo: true; dithering: false; spaceWarp: true;" webxr="optionalFeatures: hand-tracking, layers, dom-overlay, space-warp" xr-mode-ui="XRMode: xr">
         <a-entity id="rig" mobile-tap-move>
             <a-entity camera position="0 1.6 0" look-controls></a-entity>
-            <a-entity id="rightController" oculus-touch-controls="hand: right"></a-entity>
-            <a-entity id="leftController" oculus-touch-controls="hand: left"></a-entity>
-            <a-entity id="rightHand" hand-tracking-controls="hand: right; modelStyle: mesh"></a-entity>
-            <a-entity id="leftHand" hand-tracking-controls="hand: left; modelStyle: mesh"></a-entity>
+            <a-entity spacewarp-mesh="meshNames: controller_mesh, squeeze, trigger" id="rightController" oculus-touch-controls="hand: right"></a-entity>
+            <a-entity spacewarp-mesh="meshNames: controller_mesh, squeeze, trigger" id="leftController" oculus-touch-controls="hand: left"></a-entity>
+            <a-entity spacewarp-mesh="meshNames: *" hand-dots-root-fix id="rightHand" hand-tracking-controls="hand: right; modelStyle: dots"></a-entity>
+            <a-entity spacewarp-mesh="meshNames: *" hand-dots-root-fix id="leftHand" hand-tracking-controls="hand: left; modelStyle: dots"></a-entity>
         </a-entity>
 
         <!-- Add a container to hold the dynamically created entity -->
