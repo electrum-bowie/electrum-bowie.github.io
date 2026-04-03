@@ -72,14 +72,14 @@ AFRAME.registerComponent("gaussian_splatting", {
                 const renderer = this.el.sceneEl.renderer;
                 const gl = renderer.getContext();
                 const ext = gl.getExtension("OVR_multiview2") ||
-                                gl.getExtension("OVR_multiview") ||
-                                gl.getExtension("OCULUS_multiview") ||
-                                gl.getExtension("WEBGL_multiview");
+                        gl.getExtension("OVR_multiview") ||
+                        gl.getExtension("OCULUS_multiview") ||
+                        gl.getExtension("WEBGL_multiview");
 
                 // If we want to enable it, AND hardware supports it, AND we are actually presenting VR
                 if (enable && ext && renderer.xr.isMultiview && renderer.xr.isPresenting) {
                         if (this.mesh && this.mesh.material.defines.IS_MULTIVIEW === undefined) {
-                        console.log("Multiview enabled");
+                                console.log("Multiview enabled");
                                 this.mesh.material.defines.IS_MULTIVIEW = "";
                                 this.mesh.material.needsUpdate = true;
                         }
@@ -353,7 +353,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                         viewportHeight: viewport.w
                                 });
                         }
-		});
+                });
 		
                 mesh = new THREE.Mesh(geometry, material);
                 mesh.frustumCulled = false;
@@ -497,85 +497,226 @@ AFRAME.registerComponent("gaussian_splatting", {
                 this.occlusionWorker.postMessage({ method: "clear" });
                 this.originalBuffers = [];
                 this.originalBufferCounts = [];
-                this.cachedBytes = 0;
-                this.cacheLimitBytes = 256 * 1024 * 1024;
-                this.cacheLimitWarned = false;
                 this.isCaching = true;
+		const createPendingBuffer = () => ({
+			chunks: [],
+			length: 0,
+			append(chunk) {
+				if (chunk && chunk.length) {
+					this.chunks.push(chunk);
+					this.length += chunk.length;
+				}
+			},
+			getByteLength() {
+				return this.length;
+			},
+			peekBytes(count) {
+				if (this.length === 0) {
+					return new Uint8Array(0);
+				}
+				const needed = Math.min(count, this.length);
+				const head = this.chunks[0];
+				if (head.length >= needed) {
+					return head.subarray(0, needed);
+				}
+				const out = new Uint8Array(needed);
+				let offset = 0;
+				for (const chunk of this.chunks) {
+					const toCopy = Math.min(chunk.length, needed - offset);
+					out.set(chunk.subarray(0, toCopy), offset);
+					offset += toCopy;
+					if (offset >= needed) {
+						break;
+					}
+				}
+				return out;
+			},
+			consumeBytes(count) {
+				const actual = Math.min(count, this.length);
+				if (actual <= 0) {
+					return new Uint8Array(0);
+				}
+				const head = this.chunks[0];
+				if (head.length >= actual) {
+					const out = head.subarray(0, actual);
+					if (head.length === actual) {
+						this.chunks.shift();
+					} else {
+						this.chunks[0] = head.subarray(actual);
+					}
+					this.length -= actual;
+					return out;
+				}
+				const out = new Uint8Array(actual);
+				let offset = 0;
+				while (offset < actual) {
+					const chunk = this.chunks[0];
+					const toCopy = Math.min(chunk.length, actual - offset);
+					out.set(chunk.subarray(0, toCopy), offset);
+					offset += toCopy;
+					if (toCopy === chunk.length) {
+						this.chunks.shift();
+					} else {
+						this.chunks[0] = chunk.subarray(toCopy);
+					}
+				}
+				this.length -= actual;
+				return out;
+			},
+			discard(count) {
+				this.consumeBytes(count);
+			},
+			toUint8Array() {
+				if (this.length === 0) {
+					return new Uint8Array(0);
+				}
+				const out = new Uint8Array(this.length);
+				let offset = 0;
+				for (const chunk of this.chunks) {
+					out.set(chunk, offset);
+					offset += chunk.length;
+				}
+				return out;
+			},
+		});
+		const pending = createPendingBuffer();
                 const rowLength = this.rowLength;
                 const ensureSplatCapacity = this.ensureSplatCapacity.bind(this);
                 const parsePlyHeader = this.parsePlyHeader.bind(this);
                 const buildPlyBinaryBatch = this.buildPlyBinaryBatch.bind(this);
                 const processPlyBuffer = this.processPlyBuffer.bind(this);
                 const pushDataBuffer = this.pushDataBuffer.bind(this);
-                const maxPlyBatchBytes = 256 * 1024 * 1024;
+                const rendererProperties = this.renderer.properties;
+                const centerTexture = this.centerAndScaleTexture;
+                const covTexture = this.covAndColorTexture;
 
-                fetch(src)
-                        .then((response) => response.arrayBuffer())
-                        .then((arrayBuffer) => {
-                                const sourceBytes = new Uint8Array(arrayBuffer);
-                                if (!sourceBytes.length) {
-                                        return;
-                                }
+		fetch(src)
+			.then(async (data) => {
+				const reader = data.body.getReader();
 
-                                const totalBytes = sourceBytes.byteLength;
-                                const probeLength = Math.min(4, totalBytes);
-                                const probe = new TextDecoder().decode(sourceBytes.subarray(0, probeLength));
-                                const isPly = probe.startsWith("ply");
+				let bytesDownloaded = 0;
+				let bytesProcesses = 0;
+				let _totalDownloadBytes = data.headers.get("Content-Length");
+				let totalDownloadBytes = _totalDownloadBytes ? parseInt(_totalDownloadBytes) : undefined;
 
-                                if (!isPly) {
-                                        ensureSplatCapacity(Math.floor(totalBytes / rowLength));
-                                        const vertexCount = Math.floor(totalBytes / rowLength);
-                                        if (vertexCount > 0) {
-                                                const batchBytes = vertexCount * rowLength;
-                                                const batchData = sourceBytes.byteLength === batchBytes
-                                                        ? sourceBytes
-                                                        : sourceBytes.subarray(0, batchBytes);
-                                                pushDataBuffer(batchData.buffer.slice(batchData.byteOffset, batchData.byteOffset + batchBytes), vertexCount);
-                                        }
-                                        return;
-                                }
+				const start = Date.now();
+				let lastReportedProgress = 0;
+				let isPly = null;
+				let plyState = null;
+				let capacityEstimated = false;
+				const plyPending = pending;
+				const maxPlyBatchBytes = 64 * 1024 * 1024;
+				const decoder = new TextDecoder();
 
-                                const plyState = parsePlyHeader(sourceBytes.subarray(0, Math.min(totalBytes, 1024 * 10)));
-                                if (plyState && plyState.vertexCount) {
-                                        ensureSplatCapacity(plyState.vertexCount);
-                                }
+				while (true) {
+					try {
+						const { value, done } = await reader.read();
+						if (done) {
+							console.log("Process Completed.");
+							break;
+						}
+						bytesDownloaded += value.length;
+						if (totalDownloadBytes != undefined) {
+							const mbps = (bytesDownloaded / 1024 / 1024) / ((Date.now() - start) / 1000);
+							const percent = bytesDownloaded / totalDownloadBytes * 100;
+							if (percent - lastReportedProgress > 1) {
+                                                        console.log("Progress:", percent.toFixed(2) + "%", mbps.toFixed(2) + " Mbps");
+								lastReportedProgress = percent;
+							}
+						} else {
+                                                console.log("Progress:", bytesDownloaded, ", unknown total");
+						}
+						if (isPly === null) {
+							const probe = decoder.decode(value.subarray(0, 4));
+							isPly = probe.startsWith("ply");
+                                                        if (!isPly && totalDownloadBytes && !capacityEstimated) {
+                                                                const estimatedCount = Math.floor(totalDownloadBytes / rowLength);
+                                                                ensureSplatCapacity(estimatedCount);
+                                                                capacityEstimated = true;
+                                                        }
+						}
+						pending.append(value);
+						if (!this.textureReady &&
+							rendererProperties.get(centerTexture) &&
+							rendererProperties.get(covTexture)) {
+							this.textureReady = true;
+						}
 
-                                if (plyState && plyState.format === "binary_little_endian") {
-                                        const dataOffset = plyState.headerByteLength || 0;
-                                        const bytesAvailable = Math.max(0, totalBytes - dataOffset);
-                                        const rowOffset = plyState.rowOffset;
-                                        const rowCount = rowOffset > 0 ? Math.floor(bytesAvailable / rowOffset) : 0;
+						if (isPly && !plyState) {
+							plyState = parsePlyHeader(plyPending.peekBytes(1024 * 10));
+                                                        if (plyState && plyState.vertexCount && !capacityEstimated) {
+                                                                ensureSplatCapacity(plyState.vertexCount);
+                                                                capacityEstimated = true;
+                                                        }
+							if (plyState && plyState.format === "binary_little_endian") {
+								plyPending.discard(plyState.headerByteLength);
+								bytesProcesses += plyState.headerByteLength;
+							}
+						}
 
-                                        if (rowCount <= 0) {
-                                                return;
-                                        }
+						if (isPly && plyState && plyState.format === "binary_little_endian" && this.textureReady) {
+							let rowsAvailable = Math.floor(plyPending.getByteLength() / plyState.rowOffset);
+							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
+							while (rowsAvailable > 0) {
+								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
+								const batchBytes = rowsToProcess * plyState.rowOffset;
+								const batchData = plyPending.consumeBytes(batchBytes);
+								const result = buildPlyBinaryBatch(plyState, batchData, rowsToProcess);
+								if (result.vertexCount > 0) {
+									pushDataBuffer(result.buffer, result.vertexCount);
+								}
+								bytesProcesses += batchBytes;
+								rowsAvailable = Math.floor(plyPending.getByteLength() / plyState.rowOffset);
+							}
+						}
 
-                                        const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / rowOffset));
-                                        for (let rowStart = 0; rowStart < rowCount; rowStart += maxRowsPerBatch) {
-                                                const rowsToProcess = Math.min(maxRowsPerBatch, rowCount - rowStart);
-                                                const batchStart = dataOffset + rowStart * rowOffset;
-                                                const batchBytes = rowsToProcess * rowOffset;
-                                                const batchData = sourceBytes.subarray(batchStart, batchStart + batchBytes);
-                                                const result = buildPlyBinaryBatch(plyState, batchData, rowsToProcess);
-                                                if (result.vertexCount > 0) {
-                                                        pushDataBuffer(result.buffer, result.vertexCount);
-                                                }
-                                        }
-                                        return;
-                                }
+						if (!isPly && this.textureReady) {
+							const availableBytes = pending.getByteLength();
+							const vertexCount = Math.floor(availableBytes / rowLength);
+							if (vertexCount > 0) {
+								const batchBytes = vertexCount * rowLength;
+								const batchData = pending.consumeBytes(batchBytes);
+								pushDataBuffer(batchData.buffer, vertexCount);
+								bytesProcesses += batchBytes;
+							}
+						}
+					} catch (error) {
+						console.error(error);
+						break;
+					}
+				}
 
-                                const converted = new Uint8Array(processPlyBuffer(arrayBuffer));
-                                const vertexCount = Math.floor(converted.byteLength / rowLength);
-                                if (vertexCount > 0) {
-                                        const batchBytes = vertexCount * rowLength;
-                                        const batchData = converted.byteLength === batchBytes
-                                                ? converted
-                                                : converted.subarray(0, batchBytes);
-                                        pushDataBuffer(batchData.buffer.slice(batchData.byteOffset, batchData.byteOffset + batchBytes), vertexCount);
-                                }
-                        })
-                        .catch((error) => {
-                                console.error(error);
+				if (bytesDownloaded - bytesProcesses > 0) {
+					if (isPly && plyState && plyState.format === "binary_little_endian") {
+						if (this.textureReady) {
+							let rowsAvailable = Math.floor(plyPending.getByteLength() / plyState.rowOffset);
+							const maxRowsPerBatch = Math.max(1, Math.floor(maxPlyBatchBytes / plyState.rowOffset));
+							while (rowsAvailable > 0) {
+								const rowsToProcess = Math.min(rowsAvailable, maxRowsPerBatch);
+								const batchBytes = rowsToProcess * plyState.rowOffset;
+								const batchData = plyPending.consumeBytes(batchBytes);
+								const result = buildPlyBinaryBatch(plyState, batchData, rowsToProcess);
+								if (result.vertexCount > 0) {
+									pushDataBuffer(result.buffer, result.vertexCount);
+								}
+								bytesProcesses += batchBytes;
+								rowsAvailable = Math.floor(plyPending.getByteLength() / plyState.rowOffset);
+							}
+						}
+					} else if (isPly) {
+						const plyBuffer = plyPending.toUint8Array().buffer;
+						let concatenatedChunks = new Uint8Array(processPlyBuffer(plyBuffer));
+						pushDataBuffer(concatenatedChunks.buffer, Math.floor(concatenatedChunks.byteLength / rowLength));
+					} else {
+						const remainingBytes = pending.getByteLength();
+						const vertexCount = Math.floor(remainingBytes / rowLength);
+						if (vertexCount > 0) {
+							const batchBytes = vertexCount * rowLength;
+							const batchData = pending.consumeBytes(batchBytes);
+							pushDataBuffer(batchData.buffer, vertexCount);
+						}
+					}
+				}
                         })
                         .finally(() => {
                                 this.isCaching = false;
@@ -588,41 +729,24 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 this.sortSplatsNow();
                         });
         },
-        pushDataBuffer: function (bufferData, vertexCount) {
+        pushDataBuffer: function (buffer, vertexCount) {
                 if (this.loadedVertexCount + vertexCount > this.maxSplatCount) {
                         vertexCount = this.maxSplatCount - this.loadedVertexCount;
                 }
                 if (vertexCount <= 0) {
                         return;
                 }
-                const u_buffer = bufferData instanceof Uint8Array
-                        ? bufferData
-                        : new Uint8Array(bufferData);
-                const expectedBytes = vertexCount * this.rowLength;
-                const exactLengthBytes = Math.min(expectedBytes, u_buffer.byteLength);
-                const exactUint8 = exactLengthBytes === u_buffer.byteLength
-                        ? u_buffer
-                        : u_buffer.subarray(0, exactLengthBytes);
-
-                if (this.isCaching && exactLengthBytes > 0) {
-                        if (this.cachedBytes + exactLengthBytes <= this.cacheLimitBytes) {
-                                let cachedBuffer;
-                                if (exactUint8.byteOffset === 0 && exactUint8.byteLength === exactUint8.buffer.byteLength) {
-                                        cachedBuffer = exactUint8.buffer;
-                                } else {
-                                        cachedBuffer = exactUint8.buffer.slice(exactUint8.byteOffset, exactUint8.byteOffset + exactUint8.byteLength);
-                                }
-                                this.originalBuffers.push(cachedBuffer);
-                                this.originalBufferCounts.push(vertexCount);
-                                this.cachedBytes += exactLengthBytes;
-                        } else if (!this.cacheLimitWarned) {
-                                this.cacheLimitWarned = true;
-                                console.warn('Disabling quality cache for large scene to reduce memory pressure.');
-                        }
+                if (this.isCaching) {
+                        const expectedBytes = vertexCount * this.rowLength;
+                        const cachedBuffer = buffer.byteLength === expectedBytes
+                                ? buffer
+                                : buffer.slice(0, expectedBytes);
+                        this.originalBuffers.push(cachedBuffer);
+                        this.originalBufferCounts.push(vertexCount);
                 }
-
-		const f_buffer = new Float32Array(exactUint8.buffer, exactUint8.byteOffset, exactUint8.byteLength / 4);
-		const u_buffer_view = exactUint8;
+                
+		let u_buffer = new Uint8Array(buffer);
+		let f_buffer = new Float32Array(buffer);
                 let matrices = new Float32Array(vertexCount * 16);
                 let normals = new Float32Array(vertexCount * 3);
 
@@ -634,10 +758,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 		const covAndColorData_int16 = new Int16Array(this.covAndColorData.buffer);
                 for (let i = 0; i < vertexCount; i++) {
 			let quat = new THREE.Quaternion(
-				(u_buffer_view[32 * i + 28 + 1] - 128) / 128.0,
-				(u_buffer_view[32 * i + 28 + 2] - 128) / 128.0,
-				-(u_buffer_view[32 * i + 28 + 3] - 128) / 128.0,
-				(u_buffer_view[32 * i + 28 + 0] - 128) / 128.0,
+				(u_buffer[32 * i + 28 + 1] - 128) / 128.0,
+				(u_buffer[32 * i + 28 + 2] - 128) / 128.0,
+				-(u_buffer[32 * i + 28 + 3] - 128) / 128.0,
+				(u_buffer[32 * i + 28 + 0] - 128) / 128.0,
 			);
 			let center = new THREE.Vector3(
 				f_buffer[8 * i + 0],
@@ -704,15 +828,15 @@ AFRAME.registerComponent("gaussian_splatting", {
 
 			// RGBA
 			destOffset = this.loadedVertexCount * 16 + (i * 4 + 3) * 4;
-			covAndColorData_uint8[destOffset + 0] = u_buffer_view[32 * i + 24 + 0];
-			covAndColorData_uint8[destOffset + 1] = u_buffer_view[32 * i + 24 + 1];
-			covAndColorData_uint8[destOffset + 2] = u_buffer_view[32 * i + 24 + 2];
-                        covAndColorData_uint8[destOffset + 3] = u_buffer_view[32 * i + 24 + 3];
+			covAndColorData_uint8[destOffset + 0] = u_buffer[32 * i + 24 + 0];
+			covAndColorData_uint8[destOffset + 1] = u_buffer[32 * i + 24 + 1];
+			covAndColorData_uint8[destOffset + 2] = u_buffer[32 * i + 24 + 2];
+                        covAndColorData_uint8[destOffset + 3] = u_buffer[32 * i + 24 + 3];
 
                         // Store scale information and transparency for later processing
                         mtx.elements[15] = Math.max(scale.x, scale.y, scale.z);
                         mtx.elements[3] = Math.min(scale.x, scale.y, scale.z);
-                        mtx.elements[11] = u_buffer_view[32*i + 24 + 3] / 255.0;
+                        mtx.elements[11] = u_buffer[32*i + 24 + 3] / 255.0;
 
 			for (let j = 0; j < 16; j++) {
 				matrices[i * 16 + j] = mtx.elements[j];
@@ -1053,16 +1177,12 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
-                        let nextCapacity = Math.max(cache.capacity || 1, 1024);
-                        while (nextCapacity < n) {
-                                nextCapacity = Math.ceil(nextCapacity * 1.5);
-                        }
-                        cache.capacity = nextCapacity;
-                        cache.depthList = new Float32Array(nextCapacity);
+                        cache.capacity = n;
+                        cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
-                        cache.validIndexList = new Int32Array(nextCapacity);
-                        cache.occlusionIndexList = new Int32Array(nextCapacity);
-                        discardMark = new Uint8Array(nextCapacity);
+                        cache.validIndexList = new Int32Array(n);
+                        cache.occlusionIndexList = new Int32Array(n);
+                        discardMark = new Uint8Array(n);
                 };
                 const filterSplats = function filterSplats(matrices, view, mvp, scaleFactor = 1.0, focal = 1.0) {
                         const vertexCount = matrices.length / 16;
@@ -1318,14 +1438,10 @@ AFRAME.registerComponent("gaussian_splatting", {
 
                 const ensureCapacity = (n) => {
                         if (cache.capacity >= n) return;
-                        let nextCapacity = Math.max(cache.capacity || 1, 1024);
-                        while (nextCapacity < n) {
-                                nextCapacity = Math.ceil(nextCapacity * 1.5);
-                        }
-                        cache.capacity = nextCapacity;
-                        cache.depthList = new Float32Array(nextCapacity);
+                        cache.capacity = n;
+                        cache.depthList = new Float32Array(n);
                         cache.sizeList = new Int32Array(cache.depthList.buffer);
-                        cache.validIndexList = new Int32Array(nextCapacity);
+                        cache.validIndexList = new Int32Array(n);
                 };
 
                 const occludeSplats = function occludeSplats(matrices, forward, right, up, mvp, scaleFactor = 1.0, focal = 1.0, camera = null, filteredIndexes = null) {
@@ -1403,7 +1519,7 @@ AFRAME.registerComponent("gaussian_splatting", {
                                 const offset = idx * 16;
                                 
                                 const maxRadius = matrices[offset + 15];
-                                if (maxRadius > 0.1) continue;
+                                if (maxRadius > 0.2) continue;
                                 
                                 const px = matrices[offset + 12];
                                 const py = matrices[offset + 13];
